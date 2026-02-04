@@ -1,0 +1,155 @@
+{
+    "name": "mutsumi",
+    "displayName": "Mutsumi",
+    "description": "Multi-Agent Notebook Environment",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.80.0"
+    },
+    "categories": [
+        "AI",
+        "Notebooks"
+    ],
+    "activationEvents": [
+        "onNotebook:mutsumi-notebook"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "mutsumi-sidebar",
+                    "title": "Mutsumi Agents",
+                    "icon": "assets/sidebar-icon.png"
+                }
+            ]
+        },
+        "views": {
+            "mutsumi-sidebar": [
+                {
+                    "id": "mutsumi.agentSidebar",
+                    "name": "Agents",
+                    "when": "true"
+                },
+                {
+                    "id": "mutsumi.approvalSidebar",
+                    "name": "Pending Approvals",
+                    "when": "true"
+                }
+            ]
+        },
+        "notebooks": [
+            {
+                "type": "mutsumi-notebook",
+                "displayName": "Mutsumi Agent Session",
+                "selector": [
+                    {
+                        "filenamePattern": "*.mtm"
+                    }
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "command": "mutsumi.newAgent",
+                "title": "Mutsumi: New Agent"
+            },
+            {
+                "command": "mutsumi.openAgentFile",
+                "title": "Open Agent Notebook",
+                "category": "Mutsumi"
+            },
+            {
+                "command": "mutsumi.copyReference",
+                "title": "Copy Mutsumi Reference",
+                "category": "Mutsumi"
+            },
+            {
+                "command": "mutsumi.approveRequest",
+                "title": "Approve",
+                "icon": "$(check)"
+            },
+            {
+                "command": "mutsumi.rejectRequest",
+                "title": "Reject",
+                "icon": "$(x)"
+            }
+        ],
+        "menus": {
+            "view/item/context": [
+                {
+                    "command": "mutsumi.openAgentFile",
+                    "when": "viewItem == childAgent || viewItem == rootAgent",
+                    "group": "inline"
+                },
+                {
+                    "command": "mutsumi.approveRequest",
+                    "when": "viewItem == pendingApproval",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "mutsumi.rejectRequest",
+                    "when": "viewItem == pendingApproval",
+                    "group": "inline@2"
+                }
+            ],
+            "editor/context": [
+                {
+                    "command": "mutsumi.copyReference",
+                    "group": "mutsumi-group",
+                    "when": "editorHasSelection" 
+                },
+                {
+                     "command": "mutsumi.copyReference",
+                     "group": "mutsumi-group",
+                     "when": "!editorHasSelection"
+                }
+            ],
+            "explorer/context": [
+                {
+                    "command": "mutsumi.copyReference",
+                    "group": "mutsumi-group"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "Mutsumi",
+            "properties": {
+                "mutsumi.apiKey": {
+                    "type": "string",
+                    "default": "",
+                    "description": "OpenAI API Key"
+                },
+                "mutsumi.baseUrl": {
+                    "type": "string",
+                    "default": "https://api.openai.com/v1",
+                    "description": "OpenAI Compatible Base URL"
+                },
+                "mutsumi.model": {
+                    "type": "string",
+                    "default": "gpt-3.5-turbo",
+                    "description": "Model Name"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./"
+    },
+    "devDependencies": {
+        "@types/node": "^18.0.0",
+        "@types/uuid": "^9.0.8",
+        "@types/vscode": "^1.108.1",
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@types/diff": "^8.0.0",
+        "diff": "^8.0.3",
+        "web-tree-sitter": "^0.22.2",
+        "openai": "^6.17.0",
+        "uuid": "^9.0.1",
+        "@types/vscode": "^1.108.1"
+    }
+}
