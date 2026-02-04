@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { isCommonIgnored } from './tools.d/utils';
+import { isCommonIgnored } from '../tools.d/utils';
 
 export class ReferenceCompletionProvider implements vscode.CompletionItemProvider {
     

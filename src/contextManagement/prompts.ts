@@ -1,42 +1,40 @@
 import * as vscode from 'vscode';
 import { TextDecoder, TextEncoder } from 'util';
 
-const DEFAULT_SYSTEM_PROMPT = `You are Mutsumi, an AI software engineer. You are helpful, precise, and capable.
-You have access to the local file system via tools. Always verify file paths.
-When editing or reading, strictly adhere to the allowed paths.`;
-
-const DEFAULT_SUBAGENT_PROMPT = `You are a Mutsumi Sub-Agent. You are designed to complete a specific, isolated task defined by your parent agent.
-Focus strictly on the user's instructions. When the task is complete, YOU MUST CALL the 'task_finish' tool to report your results.
-Do not ask the user for more input unless absolutely necessary; try to solve the problem with available context.`;
-
-export async function getSystemPrompt(workspaceUri: vscode.Uri, allowedUris: string[], isSubAgent: boolean = false): Promise<string> {
+export async function initializeRules(extensionUri: vscode.Uri, workspaceUri: vscode.Uri) {
     const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
-    
-    // 1. Ensure rules directory and default rules exist
-    const targetDefaultName = isSubAgent ? 'default-subagent.md' : 'default.md';
-    const excludedDefaultName = isSubAgent ? 'default.md' : 'default-subagent.md';
-
     try {
         await vscode.workspace.fs.createDirectory(rulesDir);
         
-        // Ensure default.md exists
+        const assetsDir = vscode.Uri.joinPath(extensionUri, 'assets');
+        
+        // Copy default.md if not exists
         const mainDefaultUri = vscode.Uri.joinPath(rulesDir, 'default.md');
-        try { await vscode.workspace.fs.stat(mainDefaultUri); } catch {
-            await vscode.workspace.fs.writeFile(mainDefaultUri, new TextEncoder().encode(DEFAULT_SYSTEM_PROMPT));
+        try { 
+            await vscode.workspace.fs.stat(mainDefaultUri); 
+        } catch {
+            const assetDefaultUri = vscode.Uri.joinPath(assetsDir, 'default.md');
+            await vscode.workspace.fs.copy(assetDefaultUri, mainDefaultUri, { overwrite: false });
         }
 
-        // Ensure default-subagent.md exists
+        // Copy default-subagent.md if not exists
         const subDefaultUri = vscode.Uri.joinPath(rulesDir, 'default-subagent.md');
-        try { await vscode.workspace.fs.stat(subDefaultUri); } catch {
-            await vscode.workspace.fs.writeFile(subDefaultUri, new TextEncoder().encode(DEFAULT_SUBAGENT_PROMPT));
+        try { 
+            await vscode.workspace.fs.stat(subDefaultUri); 
+        } catch {
+            const assetSubDefaultUri = vscode.Uri.joinPath(assetsDir, 'default-subagent.md');
+            await vscode.workspace.fs.copy(assetSubDefaultUri, subDefaultUri, { overwrite: false });
         }
-
     } catch (e) {
-        console.error('Failed to initialize rules directory', e);
-        return `${isSubAgent ? DEFAULT_SUBAGENT_PROMPT : DEFAULT_SYSTEM_PROMPT}\nCurrent Allowed URIs: ${JSON.stringify(allowedUris)}`;
+        console.error('Failed to initialize rules from assets', e);
     }
+}
 
-    // 2. Read .md files (Dynamically filtering based on Agent Type)
+export async function getSystemPrompt(workspaceUri: vscode.Uri, allowedUris: string[], isSubAgent: boolean = false): Promise<string> {
+    const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
+    const excludedDefaultName = isSubAgent ? 'default.md' : 'default-subagent.md';
+
+    // Read .md files (Dynamically filtering based on Agent Type)
     let combinedRules = '';
     try {
         const files = await vscode.workspace.fs.readDirectory(rulesDir);

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { AgentMessage, AgentMetadata } from './types';
+import { AgentMessage, AgentMetadata } from '../types';
 import { getSystemPrompt } from './prompts';
-import { ContextResolver } from './contextResolver';
+import { ContextResolver } from '../notebook/contextResolver';
 
 /**
  * 构建 Agent 的对话历史上下文 (Async now)

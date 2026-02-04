@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { MutsumiSerializer } from './serializer';
+import { MutsumiSerializer } from './notebook/serializer';
 import { AgentController } from './controller';
-import { AgentSidebarProvider } from './ui/agentSidebar';
+import { AgentSidebarProvider } from './sidebar/agentSidebar';
 import { AgentOrchestrator } from './agentOrchestrator';
 import { activateEditSupport } from './tools.d/edit_file';
-import { AgentTreeItem } from './ui/agentTreeItem';
-import { ReferenceCompletionProvider } from './completionProvider';
+import { AgentTreeItem } from './sidebar/agentTreeItem';
+import { ReferenceCompletionProvider } from './notebook/completionProvider';
 import { CodebaseService } from './codebase/service';
+import { initializeRules } from './contextManagement/prompts';
 
 export function activate(context: vscode.ExtensionContext) {
     // 0. Initialize Codebase Service
@@ -97,6 +98,8 @@ export function activate(context: vscode.ExtensionContext) {
             const root = wsFolders[0].uri;
             const agentDir = vscode.Uri.joinPath(root, '.mutsumi');
             try { await vscode.workspace.fs.createDirectory(agentDir); } catch {}
+
+            await initializeRules(context.extensionUri, root);
 
             const name = `agent-${Date.now()}.mtm`;
             const newFileUri = vscode.Uri.joinPath(agentDir, name);

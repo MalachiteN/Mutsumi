@@ -2,9 +2,16 @@
     "name": "mutsumi",
     "displayName": "Mutsumi",
     "description": "Multi-Agent Notebook Environment",
+    "author": {
+        "name": "MalachiteN",
+        "email": "malachiten@outlook.com",
+        "url": "https://github.com/MalachiteN"
+    },
+    "publisher": "MalachiteN",
+    "repository": "github:MalachiteN/Mutsumi",
     "version": "0.0.1",
     "engines": {
-        "vscode": "^1.80.0"
+        "vscode": "^1.108.0"
     },
     "categories": [
         "AI",
@@ -136,7 +143,9 @@
     "scripts": {
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./"
+        "watch": "tsc -watch -p ./",
+        "package": "vsce package",
+        "install-local": "npm run package && code --install-extension my-agent-0.0.1.vsix --force && echo '安装完成，请在 VS Code 中执行 Developer: Reload Window'"
     },
     "devDependencies": {
         "@types/node": "^18.0.0",

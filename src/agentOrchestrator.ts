@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { AgentSidebarProvider } from './ui/agentSidebar';
+import { AgentSidebarProvider } from './sidebar/agentSidebar';
 import { AgentController } from './controller';
 import { AgentStateInfo, AgentRuntimeStatus } from './types';
 

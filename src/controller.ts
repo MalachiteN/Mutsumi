@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ToolManager } from './toolManager';
 import { AgentRunner } from './agentRunner';
-import { buildInteractionHistory } from './history';
+import { buildInteractionHistory } from './contextManagement/history';
 import { AgentOrchestrator } from './agentOrchestrator';
 
 export class AgentController {

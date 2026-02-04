@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { TextDecoder, TextEncoder } from 'util';
-import { AgentContext, AgentMessage, AgentMetadata } from './types';
+import { AgentContext, AgentMessage, AgentMetadata } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 export class MutsumiSerializer implements vscode.NotebookSerializer {
