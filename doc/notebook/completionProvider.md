@@ -44,9 +44,11 @@ async provideCompletionItems(
 
 **工作流程：**
 
-1. **触发检查**：检测光标前的文本是否以 `@` 结尾，只有满足条件时才提供补全
-2. **文件建议**：使用 `vscode.workspace.findFiles` 搜索工作区文件（自动排除 `.gitignore` 和忽略的文件）
-3. **目录建议**：读取工作区根目录，提供一级目录引用建议
+1. **触发检查**：使用正则 `/@([^@\s]*)$/` 检测光标前的文本，支持 `@` 后紧跟部分路径（如 `@sr`）
+2. **范围计算**：计算从 `@` 后字符开始到光标位置的 `range`，避免替换时产生重复字符
+3. **文件建议**：使用 `vscode.workspace.findFiles` 搜索工作区文件（`maxResults: 5000`）
+4. **手动过滤**：使用 `isCommonIgnored` 函数二次过滤，兼容 Windows 和 POSIX 路径分隔符
+5. **目录建议**：读取工作区根目录，提供一级目录引用建议
 
 **补全项格式：**
 
@@ -64,6 +66,7 @@ async provideCompletionItems(
 | `insertText` | `\`[${relPath}]\`` | 实际插入的文本格式 |
 | `detail` | `"File Reference"` | 显示在详情区域的说明 |
 | `sortText` | `"000_" + relPath` | 高优先级排序 |
+| `range` | 从 `@` 后到光标位置 | 控制替换范围，避免重复字符 |
 
 ### 目录引用
 
@@ -72,6 +75,21 @@ async provideCompletionItems(
 | `insertText` | `\`[${displayLabel}/]\`` | 实际插入的文本格式 |
 | `detail` | `"Directory Reference"` | 显示在详情区域的说明 |
 | `sortText` | `"001_" + displayLabel` | 次高优先级排序 |
+
+---
+
+## 触发逻辑优化
+
+### 部分路径匹配
+
+- **正则表达式**：`/@([^@\s]*)$/`
+- **匹配效果**：`@sr` 可匹配到 `src/`、`src/main.ts` 等结果
+- **优势**：支持用户输入部分路径后实时过滤，提升补全效率
+
+### 替换范围修复
+
+- **问题**：旧逻辑仅检查 `@` 结尾，选择补全后可能导致 `@[path]sr` 这样的重复字符
+- **解决**：通过计算 `range` 覆盖从 `@` 后到光标的范围，替换时自动清除已输入的部分路径
 
 ---
 
@@ -87,7 +105,8 @@ async provideCompletionItems(
    @[src/]
    @[doc/]
    ```
-3. 选择文件后，插入格式为 `@[relative/path/to/file]`
+3. 输入部分路径后（如 `@sr`），列表自动过滤显示匹配项
+4. 选择文件后，正确插入格式为 `@[relative/path/to/file]`
 
 ---
 
@@ -110,7 +129,9 @@ import { isCommonIgnored } from '../tools.d/utils';
 
 ## 注意事项
 
-1. **性能优化**：`findFiles` 限制最多返回 50 个文件，避免大量文件导致性能问题
-2. **忽略规则**：使用 `isCommonIgnored` 过滤常见忽略目录（如 `.git`, `node_modules`）
+1. **搜索结果数量**：`findFiles` 限制最多返回 5000 个文件，减少结果被截断的概率，同时避免性能问题
+2. **双重过滤机制**：
+   - `findFiles` 自动排除 `.gitignore` 和 `files.exclude` 配置
+   - `isCommonIgnored` 手动二次过滤，使用正则 `/[/\\]/` 兼容 Windows 反斜杠和 POSIX 正斜杠
 3. **取消支持**：检查 `token.isCancellationRequested` 支持用户快速取消补全请求
 4. **路径格式**：支持多工作区场景，自动添加工作区前缀

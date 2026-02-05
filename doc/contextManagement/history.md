@@ -65,8 +65,79 @@ export async function buildInteractionHistory(
    - 将引用内容作为附加 User 消息注入
 
 4. **添加当前用户输入**
+   - 调用 `parseUserMessageWithImages()` 处理用户消息中的图片标记
+   - 将图片转换为多模态内容格式
    - 保留原始 `@` 标记，方便 LLM 理解用户指代
    - 作为最后一条 User 消息添加
+
+### parseUserMessageWithImages
+
+解析用户消息中的 Markdown 图片标记，将其转换为多模态内容格式。
+
+#### 函数签名
+
+```typescript
+function parseUserMessageWithImages(text: string): { type: 'text', text: string } | { type: 'image_url', image_url: { url: string, detail: string } }[]
+```
+
+#### 功能说明
+
+- **图片正则表达式**：`/!\[([^\]]*)\]\(([^)]+)\)/g`
+  - 匹配 Markdown 图片语法 `![alt](uri)`
+  - 捕获图片描述 (`alt`) 和图片路径 (`uri`)
+
+- **处理流程**：
+  1. 扫描用户消息文本，查找所有 Markdown 图片标记
+  2. 对每个匹配的图片路径，调用 `readImageAsBase64()` 读取图片内容
+  3. 将图片转换为 OpenAI API 兼容的多模态格式
+  4. 如果没有图片标记，返回原始文本对象
+
+#### 输出格式
+
+当检测到图片时，返回多模态内容数组：
+
+```typescript
+// 文本部分
+{ type: 'text', text: '用户消息内容（已移除图片标记）' }
+
+// 图片部分（每个图片一个对象）
+{
+  type: 'image_url',
+  image_url: {
+    url: 'data:image/png;base64,iVBORw0KGgo...',
+    detail: 'auto'
+  }
+}
+```
+
+### readImageAsBase64
+
+将图片文件读取为 Base64 编码的数据 URL 格式。
+
+#### 函数签名
+
+```typescript
+async function readImageAsBase64(uriStr: string): Promise<string>
+```
+
+#### 参数说明
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `uriStr` | `string` | 图片文件的 URI 路径字符串 |
+
+#### 返回值
+
+返回 Base64 数据 URL，格式为：`data:image/{format};base64,{base64Data}`
+
+#### 支持格式
+
+| 格式 | MIME Type |
+|------|-----------|
+| PNG | `image/png` |
+| JPEG/JPG | `image/jpeg` |
+| GIF | `image/gif` |
+| WebP | `image/webp` |
 
 ## 数据结构
 
@@ -75,7 +146,20 @@ export async function buildInteractionHistory(
 ```typescript
 interface AgentMessage {
     role: 'system' | 'user' | 'assistant';
-    content: string;
+    content: string | (ContentPartText | ContentPartImage)[];
+}
+
+interface ContentPartText {
+    type: 'text';
+    text: string;
+}
+
+interface ContentPartImage {
+    type: 'image_url';
+    image_url: {
+        url: string;
+        detail: 'auto' | 'low' | 'high';
+    };
 }
 ```
 
@@ -92,6 +176,8 @@ interface AgentMetadata {
 
 ## 使用示例
 
+### 基本用法
+
 ```typescript
 import { buildInteractionHistory } from './contextManagement/history';
 
@@ -106,6 +192,29 @@ const { messages, allowedUris, isSubAgent } = await buildInteractionHistory(
 const response = await llmAPI.chat(messages);
 ```
 
+### 多模态消息示例
+
+```typescript
+// 用户输入包含图片
+const userPrompt = '请分析这张图：![图表](file:///workspace/chart.png)';
+
+// buildInteractionHistory 会自动处理图片
+// 生成的消息格式：
+{
+  role: 'user',
+  content: [
+    { type: 'text', text: '请分析这张图：' },
+    {
+      type: 'image_url',
+      image_url: {
+        url: 'data:image/png;base64,iVBORw0KGgo...',
+        detail: 'auto'
+      }
+    }
+  ]
+}
+```
+
 ## 与其他模块的关系
 
 ```
@@ -114,6 +223,8 @@ history.ts
     │         获取动态生成的系统提示
     ├── 调用 → notebook/contextResolver.ts (ContextResolver)
     │         解析 @ 引用路径
+    ├── 调用 → vscode.workspace.fs.readFile()
+    │         读取图片文件内容
     └── 读取 ← NotebookDocument.metadata
               获取 allowed_uris, parent_agent_id 等元数据
 ```
@@ -124,3 +235,5 @@ history.ts
 2. **上下文注入**：`@` 引用解析的内容会作为独立消息注入，而非替换原文
 3. **历史顺序**：严格按照 Cell 索引顺序构建历史，确保对话逻辑正确
 4. **元数据依赖**：依赖 Notebook Cell 的元数据来识别角色和交互记录
+5. **多模态支持**：图片必须使用 Markdown 语法 `![alt](uri)` 标记才能被解析
+6. **图片大小限制**：Base64 编码后可能增加消息体积，建议适当压缩图片

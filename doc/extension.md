@@ -128,7 +128,26 @@ const completionProvider = vscode.languages.registerCompletionItemProvider(
 
 - 在 Markdown 单元格中提供 `@` 触发的引用补全
 
-#### 7. 注册命令
+#### 7. 注册图片粘贴支持
+
+```typescript
+context.subscriptions.push(
+    vscode.languages.registerDocumentPasteEditProvider(
+        { language: 'markdown' },
+        new ImagePasteProvider(),
+        { 
+            pasteMimeTypes: ['image/png', 'image/jpeg'],
+            providedPasteEditKinds: [vscode.DocumentDropOrPasteEditKind.Text]
+        }
+    )
+);
+```
+
+- 注册 `ImagePasteProvider` 为 Markdown 单元格提供图片粘贴支持
+- 支持粘贴 PNG 和 JPEG 格式的图片
+- 用户可以直接将图片从剪贴板粘贴到 Notebook 单元格中
+
+#### 8. 注册命令
 
 **新建 Agent 命令** (`mutsumi.newAgent`)：
 ```typescript
@@ -156,7 +175,7 @@ vscode.commands.registerCommand('mutsumi.copyReference', async (uri?: vscode.Uri
 });
 ```
 
-#### 8. 激活编辑支持
+#### 9. 激活编辑支持
 
 ```typescript
 activateEditSupport(context);

@@ -37,7 +37,7 @@ Agent 消息接口，用于构建对话历史。
 ```typescript
 export interface AgentMessage {
     role: 'user' | 'assistant' | 'system' | 'tool';  // 消息角色
-    content: string | null;                          // 消息内容
+    content: MessageContent | null;                  // 消息内容（文本或多模态）
     tool_calls?: any[];                              // 工具调用（Assistant 消息）
     tool_call_id?: string;                           // 工具调用 ID（Tool 消息）
     name?: string;                                   // 工具名称（Tool 消息）
@@ -53,10 +53,16 @@ export interface AgentMessage {
 | `system` | 系统提示词 |
 | `tool` | 工具执行结果 |
 
+**content 字段说明**：
+- 可以是简单的字符串（纯文本消息）
+- 也可以是 `MessageContent` 数组（多模态消息，包含文本和图片）
+- 为 `null` 表示空内容
+
 **用途**：
 - 构建发送到 LLM 的消息历史
 - 保存单元格交互记录
 - 支持工具调用链
+- 支持多模态内容（文本+图片）
 
 ---
 
@@ -131,6 +137,101 @@ export type AgentRuntimeStatus = 'standby' | 'running' | 'pending' | 'finished';
 
 ---
 
+### `ContentPartText`
+
+文本内容部分类型，用于多模态消息中的文本段。
+
+```typescript
+export type ContentPartText = { 
+    type: 'text'; 
+    text: string 
+};
+```
+
+**字段说明**：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `type` | `'text'` | 固定为 `'text'`，标识这是文本内容 |
+| `text` | `string` | 实际的文本内容 |
+
+**用途**：
+- 在多模态消息中表示文本段落
+- 与 `ContentPartImage` 组合构建富媒体消息
+
+---
+
+### `ContentPartImage`
+
+图片内容部分类型，用于多模态消息中的图片。
+
+```typescript
+export type ContentPartImage = { 
+    type: 'image_url'; 
+    image_url: { 
+        url: string; 
+        detail?: 'auto' | 'low' | 'high' 
+    } 
+};
+```
+
+**字段说明**：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `type` | `'image_url'` | 固定为 `'image_url'`，标识这是图片内容 |
+| `image_url.url` | `string` | 图片的 URL 或 Base64 数据 URI |
+| `image_url.detail` | `'auto' \| 'low' \| 'high'` | 可选，图片质量/细节级别（默认 `'auto'`） |
+
+**detail 级别说明**：
+| 级别 | 说明 |
+|------|------|
+| `'auto'` | 自动选择合适的细节级别（默认） |
+| `'low'` | 低分辨率，适合图标、表情等简单图片 |
+| `'high'` | 高分辨率，适合需要精细分析的图片 |
+
+**用途**：
+- 在多模态消息中嵌入图片
+- 支持通过 URL 或 Base64 编码传递图片数据
+- 控制 LLM 对图片的处理细节级别
+
+---
+
+### `MessageContent`
+
+消息内容类型，支持纯文本或多模态内容数组。
+
+```typescript
+export type MessageContent = string | (ContentPartText | ContentPartImage)[];
+```
+
+**类型说明**：
+- `string`：纯文本消息内容
+- `(ContentPartText | ContentPartImage)[]`：多模态内容数组，可混合文本和图片
+
+**用途**：
+- 作为 `AgentMessage.content` 的类型
+- 支持向后兼容的简单字符串消息
+- 支持多模态消息（文本+图片组合）
+
+**示例**：
+```typescript
+// 纯文本消息
+const textContent: MessageContent = "请分析这张图片";
+
+// 多模态消息（文本+图片）
+const multimodalContent: MessageContent = [
+    { type: 'text', text: '请描述这张图片的内容：' },
+    { 
+        type: 'image_url', 
+        image_url: { 
+            url: 'data:image/png;base64,iVBORw0KGgo...',
+            detail: 'high'
+        } 
+    }
+];
+```
+
+---
+
 ## 接口定义（续）
 
 ### `AgentStateInfo`
@@ -171,12 +272,32 @@ export interface AgentStateInfo {
 │  │  ├─ uuid            │    │                           │  │
 │  │  ├─ name            │    │  ├─ role                  │  │
 │  │  ├─ created_at      │    │  ├─ content               │  │
-│  │  ├─ parent_agent_id │    │  ├─ tool_calls?           │  │
-│  │  ├─ allowed_uris    │    │  ├─ tool_call_id?         │  │
-│  │  └─ is_task_finished│    │  ├─ name?                 │  │
-│  │                     │    │  └─ reasoning_content?    │  │
-│  └─────────────────────┘    └───────────────────────────┘  │
+│  │  ├─ parent_agent_id │    │  │   (MessageContent)     │  │
+│  │  ├─ allowed_uris    │    │  ├─ tool_calls?           │  │
+│  │  └─ is_task_finished│    │  ├─ tool_call_id?         │  │
+│  │                     │    │  ├─ name?                 │  │
+│  └─────────────────────┘    │  └─ reasoning_content?    │  │
+│                             └───────────────────────────┘  │
 └────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────────┐
+│                    MessageContent                           │
+│              (string | ContentPart[])                       │
+└────────────────────────────────────────────────────────────┘
+                            │
+            ┌───────────────┴───────────────┐
+            ▼                               ▼
+┌─────────────────────────┐    ┌────────────────────────────┐
+│    ContentPartText      │    │     ContentPartImage       │
+│  ├─ type: 'text'        │    │  ├─ type: 'image_url'      │
+│  └─ text: string        │    │  └─ image_url: {           │
+│                         │    │       url: string          │
+│                         │    │       detail?: 'auto'      │
+│                         │    │              | 'low'       │
+│                         │    │              | 'high'      │
+│                         │    │     }                      │
+└─────────────────────────┘    └────────────────────────────┘
                             │
                             ▼
 ┌────────────────────────────────────────────────────────────┐
@@ -241,6 +362,32 @@ const messages: AgentMessage[] = [
 ];
 ```
 
+### 多模态消息示例
+
+```typescript
+// 发送包含图片的消息
+const multimodalMessage: AgentMessage = {
+    role: 'user',
+    content: [
+        { type: 'text', text: '请分析这张截图中的错误信息：' },
+        { 
+            type: 'image_url', 
+            image_url: { 
+                url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
+                detail: 'high'
+            } 
+        },
+        { type: 'text', text: '这是我在运行测试时遇到的错误。' }
+    ]
+};
+
+// 简单的文本消息（向后兼容）
+const textMessage: AgentMessage = {
+    role: 'user',
+    content: '请帮我分析这段代码的问题。'
+};
+```
+
 ### 状态管理
 
 ```typescript
@@ -268,8 +415,8 @@ const status: AgentRuntimeStatus = agent.isRunning ? 'running'
 | 模块 | 使用类型 |
 |------|----------|
 | `agentOrchestrator.ts` | `AgentStateInfo`, `AgentRuntimeStatus` |
-| `agentRunner.ts` | `AgentMessage` |
-| `controller.ts` | `AgentMessage` |
+| `agentRunner.ts` | `AgentMessage`, `MessageContent` |
+| `controller.ts` | `AgentMessage`, `ContentPartText`, `ContentPartImage` |
 | `extension.ts` | `AgentMetadata`（间接） |
 | `toolManager.ts` | 工具相关类型（来自 tools.d/interface） |
 | `notebook/serializer.ts` | `AgentContext`, `AgentMetadata` |
@@ -282,11 +429,13 @@ const status: AgentRuntimeStatus = agent.isRunning ? 'running'
 这些类型是项目的核心契约：
 
 1. **AgentMetadata** - 持久化存储在 Notebook 文件中
-2. **AgentMessage** - 符合 OpenAI API 的消息格式
+2. **AgentMessage** - 符合 OpenAI API 的消息格式，支持多模态内容
 3. **AgentStateInfo** - 运行时内存中的状态表示
 4. **AgentRuntimeStatus** - UI 展示和逻辑判断的状态枚举
+5. **ContentPartText/ContentPartImage/MessageContent** - 多模态消息内容类型
 
 添加新类型时应考虑：
 - 与 OpenAI API 的兼容性
 - 序列化/反序列化的需求
 - 向后兼容性
+- 多模态内容的处理（图片大小、格式限制）

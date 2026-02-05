@@ -9,6 +9,7 @@
     },
     "publisher": "MalachiteN",
     "repository": "github:MalachiteN/Mutsumi",
+    "icon": "assets/icon.png",
     "version": "0.0.1",
     "engines": {
         "vscode": "^1.108.0"

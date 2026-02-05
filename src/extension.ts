@@ -9,6 +9,7 @@ import { AgentTreeItem } from './sidebar/agentTreeItem';
 import { ReferenceCompletionProvider } from './notebook/completionProvider';
 import { CodebaseService } from './codebase/service';
 import { initializeRules } from './contextManagement/prompts';
+import { ImagePasteProvider } from './notebook/imagePasteProvider';
 
 export function activate(context: vscode.ExtensionContext) {
     // 0. Initialize Codebase Service
@@ -87,6 +88,18 @@ export function activate(context: vscode.ExtensionContext) {
     );
     context.subscriptions.push(completionProvider);
 
+    // 注册图片粘贴支持
+    context.subscriptions.push(
+        vscode.languages.registerDocumentPasteEditProvider(
+            { language: 'markdown' },
+            new ImagePasteProvider(),
+            { 
+                pasteMimeTypes: ['image/png', 'image/jpeg'],
+                providedPasteEditKinds: [vscode.DocumentDropOrPasteEditKind.Text]
+            }
+        )
+    );
+
     // 5. Commands
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.newAgent', async () => {
@@ -112,7 +125,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // 右键菜单打开文件
+    // 打开文件
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.openAgentFile', async (item: AgentTreeItem) => {
             if (item && item.agentData && item.agentData.fileUri) {
@@ -120,7 +133,7 @@ export function activate(context: vscode.ExtensionContext) {
                 try {
                     const doc = await vscode.workspace.openNotebookDocument(uri);
                     await vscode.window.showNotebookDocument(doc, {
-                        viewColumn: vscode.ViewColumn.Beside,
+                        viewColumn: vscode.ViewColumn.Active,
                         preserveFocus: false,
                     });
                 } catch (e) {

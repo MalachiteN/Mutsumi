@@ -7,9 +7,13 @@ export interface AgentMetadata {
     is_task_finished?: boolean;
 }
 
+export type ContentPartText = { type: 'text'; text: string };
+export type ContentPartImage = { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } };
+export type MessageContent = string | (ContentPartText | ContentPartImage)[];
+
 export interface AgentMessage {
     role: 'user' | 'assistant' | 'system' | 'tool';
-    content: string | null;
+    content: MessageContent | null;
     tool_calls?: any[]; 
     tool_call_id?: string;
     name?: string;

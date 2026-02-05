@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { TextDecoder, TextEncoder } from 'util';
-import { AgentContext, AgentMessage, AgentMetadata } from '../types';
+import { AgentContext, AgentMessage, AgentMetadata, MessageContent } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 export class MutsumiSerializer implements vscode.NotebookSerializer {
@@ -34,9 +34,12 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
 
             if (msg.role === 'user') {
                 // User messages are Code cells (executable)
+                // Convert multimodal content back to Markdown string for the editor
+                const cellValue = this.serializeContentToString(msg.content);
+                
                 const cell = new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    msg.content || '',
+                    cellValue,
                     'markdown'
                 );
                 cell.metadata = { role: 'user' };
@@ -69,9 +72,10 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 cells.push(cell);
             } else if (msg.role === 'system') {
                 // System messages rendered as Markup for visibility
+                const cellValue = this.serializeContentToString(msg.content);
                 const cell = new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `**System**: ${msg.content}`,
+                    `**System**: ${cellValue}`,
                     'markdown'
                 );
                 cell.metadata = { role: 'system' };
@@ -140,6 +144,12 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 context.push({ role: 'system', content: cell.value.replace('**System**: ', '') });
             }
             else if (role === 'user') {
+                // For user cell, we store the raw string content (Markdown).
+                // During execution, this Markdown is parsed into Multimodal structure if needed.
+                // But in 'context' (serialization), we can store the string as is, 
+                // OR we can parse it to store structured data. 
+                // Currently Mutsumi stores the raw user input as string content in the JSON file.
+                // The history builder parses it at runtime. This is consistent.
                 context.push({ role: 'user', content: cell.value });
                 
                 // Check if this user cell has interaction metadata (from execution or deserialization)
@@ -174,7 +184,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                     displayText += `<details><summary>💭 Thinking Process</summary>\n\n${m.reasoning_content}\n\n</details>\n\n`;
                 }
                 if (m.content) {
-                    displayText += m.content + '\n\n';
+                    displayText += this.serializeContentToString(m.content) + '\n\n';
                 }
                 if (m.tool_calls) {
                     for (const tc of m.tool_calls) {
@@ -182,12 +192,45 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                     }
                 }
             } else if (m.role === 'tool') {
-                const truncated = (m.content || '').length > 200 
-                    ? (m.content || '').substring(0, 200) + '...' 
-                    : (m.content || '');
+                const contentStr = this.serializeContentToString(m.content);
+                const truncated = contentStr.length > 200 
+                    ? contentStr.substring(0, 200) + '...' 
+                    : contentStr;
                 displayText += `<details><summary>📝 Result: ${m.name}</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n\n</details>\n\n`;
             }
         }
         return displayText;
+    }
+
+    private serializeContentToString(content: MessageContent | null | undefined): string {
+        if (!content) return '';
+        if (typeof content === 'string') return content;
+        
+        return content.map(part => {
+            if (part.type === 'text') {
+                return part.text;
+            } else if (part.type === 'image_url') {
+                // Try to reconstruct markdown image if possible, or just a placeholder
+                // If it was base64, we probably don't want to dump it all here, but for now let's be safe.
+                // Actually, if we are deserializing from a file where we saved base64, 
+                // displaying it back in the editor as markdown might be heavy if we include the base64 string.
+                // However, usually we don't save the base64 in the serialized file if the user didn't write base64.
+                // Wait, if we use parseUserMessageWithImages at runtime, the serialized JSON contains what?
+                // The serialized JSON (AgentContext) contains the history. 
+                // If we ran the agent, the history messages (especially User ones) might be transformed?
+                // Actually, in `serializeNotebook` (line 143), we push `cell.value` (string) for User role.
+                // We DO NOT push the transformed multimodal array for the User message into the JSON file.
+                // We only perform the transformation at runtime in `history.ts`.
+                // So the User message in the JSON file remains a string.
+                // 
+                // BUT, Assistant messages *could* be multimodal (if GPT-4V generates images in future).
+                // For now, Assistant is text. 
+                // So this function handles the case where we might have multimodal data in `mutsumi_interaction`.
+                
+                // If it is a base64 data url, we can try to show it as an image tag.
+                return `![image](${part.image_url.url})`; 
+            }
+            return '';
+        }).join('');
     }
 }

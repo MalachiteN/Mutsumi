@@ -169,11 +169,11 @@ export class AgentOrchestrator {
             prompt
         });
 
-        // Open window automatically to the side
+        // Open window automatically
         try {
             const doc = await vscode.workspace.openNotebookDocument(fileUri);
             await vscode.window.showNotebookDocument(doc, {
-                viewColumn: vscode.ViewColumn.Beside,
+                viewColumn: vscode.ViewColumn.Active,
                 preserveFocus: true 
             });
         } catch (e) {

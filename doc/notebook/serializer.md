@@ -44,13 +44,14 @@ async deserializeNotebook(
 2. **错误处理**：如果解析失败，创建默认的 AgentContext
 3. **单元格转换**：将 AgentMessage 数组转换为 NotebookCellData 数组
 4. **消息分组**：智能分组连续的消息（助手/工具消息）
+5. **多模态处理**：user 和 system 角色的消息通过 `serializeContentToString` 将多模态内容转换为字符串
 
 **单元格映射规则：**
 
 | 消息角色 | 单元格类型 | 单元格种类 | 说明 |
 |---------|-----------|-----------|------|
-| `user` | `Code` | `markdown` | 用户输入，可执行 |
-| `system` | `Markup` | `markdown` | 系统消息，只读显示 |
+| `user` | `Code` | `markdown` | 用户输入，可执行，多模态内容转为 Markdown |
+| `system` | `Markup` | `markdown` | 系统消息，只读显示，多模态内容转为 Markdown |
 | `assistant` | `Markup` | `markdown` | AI 响应，包含交互历史 |
 | `tool` | 分组到 assistant | - | 工具结果，与助手消息合并 |
 
@@ -142,9 +143,49 @@ Markdown 格式的字符串，用于 Notebook 单元格显示。
 | 消息类型 | 渲染格式 |
 |---------|---------|
 | `reasoning_content` | `<details>` 折叠块，标题为 "💭 Thinking Process" |
-| `content` | 普通 Markdown 文本 |
+| `content` | 普通 Markdown 文本（通过 `serializeContentToString` 处理多模态内容） |
 | `tool_calls` | 引用块，显示 "🔧 **Call**: `functionName`" |
-| `tool` (result) | `<details>` 折叠块，标题为 "📝 Result: toolName"，内容截断至 200 字符 |
+| `tool` (result) | `<details>` 折叠块，标题为 "📝 Result: toolName"，内容通过 `serializeContentToString` 序列化 |
+
+---
+
+##### `serializeContentToString`
+
+```typescript
+private serializeContentToString(content: MessageContent | null | undefined): string
+```
+
+将多模态内容序列化为 Markdown 字符串。
+
+**参数说明：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `content` | `MessageContent \| null \| undefined` | 消息内容，可以是字符串或多模态内容数组 |
+
+**返回值：**
+
+Markdown 格式的字符串。
+
+**处理逻辑：**
+
+| 内容类型 | 处理方式 |
+|---------|---------|
+| `string` | 直接返回原字符串 |
+| `null` / `undefined` | 返回空字符串 |
+| `MessageContent[]`（多模态数组） | 遍历数组，拼接各部分内容 |
+
+**多模态内容类型处理：**
+
+| 类型 | 渲染格式 |
+|------|---------|
+| `text` | 直接追加文本内容 |
+| `image` | 转换为 `![image](url)` Markdown 格式 |
+| 其他类型 | 显示为 `[不支持的内容类型: type]` |
+
+**用途：**
+- 在 `deserializeNotebook` 中将 user/system 消息的多模态内容转换为 Notebook Cell 文本
+- 在 `renderInteractionToMarkdown` 中渲染助手消息和工具结果的多模态内容
 
 ---
 
@@ -176,11 +217,23 @@ interface AgentMetadata {
 ```typescript
 interface AgentMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
-    content?: string;
-    reasoning_content?: string;     // 推理内容（思维链）
-    tool_calls?: ToolCall[];        // 工具调用
-    name?: string;                  // 工具名称
-    tool_call_id?: string;          // 工具调用 ID
+    content?: string | MessageContent[];  // 支持纯文本或多模态内容
+    reasoning_content?: string;           // 推理内容（思维链）
+    tool_calls?: ToolCall[];              // 工具调用
+    name?: string;                        // 工具名称
+    tool_call_id?: string;                // 工具调用 ID
+}
+```
+
+### MessageContent
+
+```typescript
+interface MessageContent {
+    type: 'text' | 'image';
+    text?: string;          // 文本内容（当 type 为 'text' 时）
+    image_url?: {           // 图片信息（当 type 为 'image' 时）
+        url: string;
+    };
 }
 ```
 
@@ -223,6 +276,13 @@ const content = MutsumiSerializer.createDefaultContent(['/workspace']);
       "role": "assistant", 
       "content": "Hi there!",
       "reasoning_content": "User greeted me..."
+    },
+    {
+      "role": "user",
+      "content": [
+        { "type": "text", "text": "What's in this image?" },
+        { "type": "image", "image_url": { "url": "https://example.com/image.png" } }
+      ]
     }
   ]
 }
@@ -237,13 +297,13 @@ const content = MutsumiSerializer.createDefaultContent(['/workspace']);
 ```typescript
 import * as vscode from 'vscode';
 import { TextDecoder, TextEncoder } from 'util';
-import { AgentContext, AgentMessage, AgentMetadata } from '../types';
+import { AgentContext, AgentMessage, AgentMetadata, MessageContent } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 ```
 
 ### 类型定义来源
 
-- `AgentContext`, `AgentMessage`, `AgentMetadata` 来自 `../types`
+- `AgentContext`, `AgentMessage`, `AgentMetadata`, `MessageContent` 来自 `../types`
 - `uuidv4` 用于生成唯一标识符
 
 ### 在系统中的作用
@@ -251,6 +311,7 @@ import { v4 as uuidv4 } from 'uuid';
 - 被 `extension.ts` 注册为 Notebook 序列化器
 - 与 Notebook Controller 配合，实现完整的 Notebook 功能
 - 支持文件持久化和状态恢复
+- 支持多模态内容（文本 + 图片）的序列化和反序列化
 
 ---
 
@@ -267,3 +328,40 @@ import { v4 as uuidv4 } from 'uuid';
 ### 编码
 
 UTF-8
+
+---
+
+## 多模态内容支持
+
+### 概述
+
+`serializer.ts` 支持将多模态内容（文本和图像的混合）序列化为 Notebook 可显示的格式。
+
+### 序列化流程
+
+```
+AgentMessage (多模态)
+    ↓
+serializeContentToString()
+    ↓
+Markdown 字符串
+    ↓
+Notebook Cell
+```
+
+### 图像显示
+
+多模态内容中的图像在 Notebook Cell 中显示为：
+
+```markdown
+![image](https://example.com/image.png)
+```
+
+### 混合内容示例
+
+包含文本和图片的消息会渲染为：
+
+```markdown
+请分析这张图片：
+![image](https://example.com/chart.png)
+```
