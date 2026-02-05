@@ -20,6 +20,7 @@ export interface AgentMetadata {
     parent_agent_id: string | null;  // 父 Agent UUID（主 Agent 为 null）
     allowed_uris: string[];          // Agent 允许访问的 URI 列表
     is_task_finished?: boolean;      // 任务是否已完成（可选）
+    model?: string;                  // 使用的 AI 模型（可选）
 }
 ```
 

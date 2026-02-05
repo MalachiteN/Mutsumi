@@ -51,8 +51,12 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.workspace.onDidOpenNotebookDocument(doc => {
             if (doc.notebookType === 'mutsumi-notebook') {
                 const uuid = doc.metadata.uuid;
+                const model = doc.metadata.model;
                 if (uuid) {
-                    AgentOrchestrator.getInstance().notifyNotebookOpened(uuid, doc.uri, doc.metadata);
+                    AgentOrchestrator.getInstance().notifyNotebookOpened(uuid, doc.uri, {
+                        ...doc.metadata,
+                        model: model
+                    });
                 }
             }
         })
@@ -120,8 +124,65 @@ export function activate(context: vscode.ExtensionContext) {
             
             await vscode.workspace.fs.writeFile(newFileUri, initialContent);
             await vscode.window.showNotebookDocument(
-                await vscode.workspace.openNotebookDocument(newFileUri)
+                await vscode.workspace.openNotebookDocument(newFileUri),
+                { preview: false }
             );
+        })
+    );
+
+    // 模型选择命令
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.selectModel', async () => {
+            const editor = vscode.window.activeNotebookEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('No active notebook editor.');
+                return;
+            }
+
+            // 确保是 mutsumi-notebook 类型
+            if (editor.notebook.notebookType !== 'mutsumi-notebook') {
+                vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
+                return;
+            }
+            
+            const config = vscode.workspace.getConfiguration('mutsumi');
+            const modelsConfig = config.get<Record<string, string>>('models', {});
+            const modelNames = Object.keys(modelsConfig);
+            
+            if (modelNames.length === 0) {
+                vscode.window.showErrorMessage('No models configured in settings.');
+                return;
+            }
+            
+            const currentModel = editor.notebook.metadata?.model;
+
+            // 创建带当前模型标记的选项，显示模型名和标签
+            const items = modelNames.map(name => {
+                const label = modelsConfig[name];
+                const description = label ? `🏷️ ${label}` : undefined;
+                const detail = name === currentModel ? '$(check) Current' : undefined;
+                return {
+                    label: name,
+                    description,
+                    detail,
+                    picked: name === currentModel
+                };
+            });
+            
+            const selected = await vscode.window.showQuickPick(items, {
+                placeHolder: `Select model for this agent (current: ${currentModel || 'default'})`
+            });
+            
+            if (selected) {
+                // 更新 notebook metadata
+                const edit = new vscode.WorkspaceEdit();
+                const newMetadata = { ...editor.notebook.metadata, model: selected.label };
+                const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
+                edit.set(editor.notebook.uri, [nbEdit]);
+                await vscode.workspace.applyEdit(edit);
+                
+                vscode.window.showInformationMessage(`Model changed to: ${selected.label}`);
+            }
         })
     );
 
@@ -135,6 +196,7 @@ export function activate(context: vscode.ExtensionContext) {
                     await vscode.window.showNotebookDocument(doc, {
                         viewColumn: vscode.ViewColumn.Active,
                         preserveFocus: false,
+                        preview: false
                     });
                 } catch (e) {
                     vscode.window.showErrorMessage(`Failed to open agent file: ${e}`);

@@ -5,6 +5,7 @@ export interface AgentMetadata {
     parent_agent_id: string | null;
     allowed_uris: string[];
     is_task_finished?: boolean;
+    model?: string;
 }
 
 export type ContentPartText = { type: 'text'; text: string };

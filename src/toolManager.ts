@@ -10,7 +10,7 @@ import { searchFileContainsKeywordTool, searchFileNameIncludesTool } from './too
 import { getFileSizeTool, getEnvVarTool, systemInfoTool } from './tools.d/system_info';
 import { mkdirTool, createNewFileTool } from './tools.d/fs_write_ops';
 import { gitCmdTool } from './tools.d/git_cmd';
-import { selfForkTool, taskFinishTool } from './tools.d/agent_control';
+import { selfForkTool, taskFinishTool, getAvailableModelsTool } from './tools.d/agent_control';
 import { projectOutlineTool } from './tools.d/project_outline';
 import { getWarningErrorTool } from './tools.d/get_warning_error';
 
@@ -47,6 +47,7 @@ export class ToolManager {
         this.registerCommon(getWarningErrorTool);
 
         this.registerCommon(selfForkTool);
+        this.registerCommon(getAvailableModelsTool);
 
         // Sub Agent Only Tools
         this.registerSub(taskFinishTool);

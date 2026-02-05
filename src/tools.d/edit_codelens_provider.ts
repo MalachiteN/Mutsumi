@@ -72,7 +72,8 @@ export class DiffReviewAgent {
       'vscode.diff',
       originalUri,
       modifiedUri,
-      `Diff: ${path.basename(originalPath)}`
+      `Diff: ${path.basename(originalPath)}`,
+      { preview: false }
     );
 
     this.ensureCodeLensEnabled();

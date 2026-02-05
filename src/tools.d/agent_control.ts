@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { ITool, ToolContext } from './interface';
 import { AgentOrchestrator } from '../agentOrchestrator';
 
@@ -25,6 +26,10 @@ export const selfForkTool: ITool = {
                                     type: 'array', 
                                     items: { type: 'string' },
                                     description: 'Allowed paths.'
+                                },
+                                model: { 
+                                    type: 'string', 
+                                    description: 'The model name (must in the avaliable models list) that will be used by the sub-agent' 
                                 }
                             },
                             required: ['prompt', 'allowed_uris']
@@ -48,7 +53,7 @@ export const selfForkTool: ITool = {
 
         try {
             if (context.appendOutput) {
-                await context.appendOutput(`\n\n**🔄 Creating ${sub_agents.length} sub-agents...**\nPlease run them manually in the sidebar or opened windows.\nWaiting for completion...`);
+                await context.appendOutput(`\n\n**🔄 Created ${sub_agents.length} sub-agents...**\nPlease run them manually in the sidebar or opened windows.\nWaiting for completion...`);
             }
 
             // This blocks until all children are finished or deleted
@@ -88,6 +93,48 @@ export const taskFinishTool: ITool = {
         const summary = args.context_summary;
         
         AgentOrchestrator.getInstance().reportTaskFinished(myUuid, summary);
+        // Signal that the session should be terminated after this tool call
+        context.signalTermination?.();
         return 'Task Finished. Report submitted.';
+    }
+};
+
+export const getAvailableModelsTool: ITool = {
+    name: 'get_available_models',
+    definition: {
+        type: 'function',
+        function: {
+            name: 'get_available_models',
+            description: 'Get the configured models list and their labels',
+            parameters: {
+                type: 'object',
+                properties: {}
+            }
+        }
+    },
+    execute: async (_args: any, _context: ToolContext) => {
+        try {
+            const config = vscode.workspace.getConfiguration('mutsumi');
+            const models = config.get<Record<string, string>>('models', {});
+            
+            const modelEntries = Object.entries(models);
+            if (modelEntries.length === 0) {
+                return 'No models configured.';
+            }
+            
+            const lines: string[] = [];
+            for (const [modelName, label] of modelEntries) {
+                const trimmedLabel = label?.trim() || '';
+                if (trimmedLabel) {
+                    lines.push(`${modelName}: ${trimmedLabel}`);
+                } else {
+                    lines.push(modelName);
+                }
+            }
+            
+            return lines.join('\n');
+        } catch (err: any) {
+            return `Error reading models configuration: ${err.message}`;
+        }
     }
 };

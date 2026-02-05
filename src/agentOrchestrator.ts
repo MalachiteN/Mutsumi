@@ -81,7 +81,7 @@ export class AgentOrchestrator {
     public async requestFork(
         parentId: string, 
         contextSummary: string, 
-        subAgents: { prompt: string; allowed_uris: string[] }[],
+        subAgents: { prompt: string; allowed_uris: string[]; model?: string }[],
         signal?: AbortSignal
     ): Promise<string> {
         
@@ -107,7 +107,7 @@ export class AgentOrchestrator {
                 try {
                     const childUuid = uuidv4();
                     sessionChildUuids.add(childUuid);
-                    await this.createAndOpenAgent(childUuid, parentId, subAgent.prompt, subAgent.allowed_uris);
+                    await this.createAndOpenAgent(childUuid, parentId, subAgent.prompt, subAgent.allowed_uris, subAgent.model);
                 } catch (e) {
                     console.error('Failed to create sub agent', e);
                 }
@@ -125,7 +125,7 @@ export class AgentOrchestrator {
         });
     }
 
-    private async createAndOpenAgent(uuid: string, parentId: string, prompt: string, allowedUris: string[]) {
+    private async createAndOpenAgent(uuid: string, parentId: string, prompt: string, allowedUris: string[], model?: string) {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri;
         if (!workspaceRoot) return;
 
@@ -139,6 +139,15 @@ export class AgentOrchestrator {
         // 确保目录存在
         try { await vscode.workspace.fs.createDirectory(folderUri); } catch {}
 
+        // 从配置读取默认模型和可用模型列表
+        const config = vscode.workspace.getConfiguration('mutsumi');
+        const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
+        const availableModels = config.get<Record<string, string>>('models', {});
+        const availableModelNames = Object.keys(availableModels);
+
+        // 使用传入的 model 参数（必须在可用列表中），否则使用默认模型
+        const selectedModel = (model && availableModelNames.includes(model)) ? model : defaultModel;
+
         // 准备内容
         const content: any = {
             metadata: {
@@ -147,7 +156,8 @@ export class AgentOrchestrator {
                 created_at: new Date().toISOString(),
                 parent_agent_id: parentId,
                 allowed_uris: allowedUris,
-                is_task_finished: false
+                is_task_finished: false,
+                model: selectedModel
             },
             context: [
                 { role: 'user', content: prompt }
@@ -174,7 +184,8 @@ export class AgentOrchestrator {
             const doc = await vscode.workspace.openNotebookDocument(fileUri);
             await vscode.window.showNotebookDocument(doc, {
                 viewColumn: vscode.ViewColumn.Active,
-                preserveFocus: true 
+                preserveFocus: true,
+                preview: false
             });
         } catch (e) {
             console.error('Failed to open notebook window', e);

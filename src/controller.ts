@@ -34,7 +34,10 @@ export class AgentController {
         const config = vscode.workspace.getConfiguration('mutsumi');
         const apiKey = config.get<string>('apiKey');
         const baseUrl = config.get<string>('baseUrl');
-        const model = config.get<string>('model') || 'gpt-3.5-turbo';
+        const models = config.get<Array<{name: string, provider: string}>>('models') || [];
+        const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
+        // 优先使用Agent文件中的模型配置
+        const model = notebook.metadata?.model || defaultModel;
 
         // 2. Initialize Execution
         const execution = controller.createNotebookCellExecution(cell);

@@ -95,13 +95,11 @@ export class AgentRunner {
             // 4. Execute Tools
             let toolMessages: AgentMessage[] = [];
             try {
-                // Check if any tool call is 'task_finish'
-                const finishCall = toolCalls.find(tc => tc.function.name === 'task_finish');
-                if (finishCall) {
+                const result = await this.executeTools(execution, toolCalls, abortController.signal);
+                toolMessages = result.messages;
+                if (result.shouldTerminate) {
                     isTaskFinished = true;
                 }
-
-                toolMessages = await this.executeTools(execution, toolCalls, abortController.signal);
             } catch (err: any) {
                 if (err instanceof TerminationError) {
                     await this.appendErrorUI(execution, `_⛔ ${err.message}_`);
@@ -248,8 +246,9 @@ export class AgentRunner {
         execution: vscode.NotebookCellExecution,
         toolCalls: any[],
         abortSignal: AbortSignal
-    ): Promise<AgentMessage[]> {
+    ): Promise<{ messages: AgentMessage[]; shouldTerminate: boolean }> {
         const toolMessages: AgentMessage[] = [];
+        let shouldTerminate = false;
 
         for (const tc of toolCalls) {
             if (execution.token.isCancellationRequested) break;
@@ -266,6 +265,9 @@ export class AgentRunner {
                 appendOutput: async (content: string) => {
                     this.committedUiHtml += content;
                     await this.updateOutput(execution);
+                },
+                signalTermination: () => {
+                    shouldTerminate = true;
                 }
             };
 
@@ -290,7 +292,7 @@ export class AgentRunner {
                 content: toolResult
             });
         }
-        return toolMessages;
+        return { messages: toolMessages, shouldTerminate };
     }
 
     private commitRoundUI(content: string, reasoning: string) {

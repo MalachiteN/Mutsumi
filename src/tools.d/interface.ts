@@ -14,6 +14,11 @@ export interface ToolContext {
     execution?: vscode.NotebookCellExecution;
     appendOutput?: (content: string) => Promise<void>;
     abortSignal?: AbortSignal;
+    /**
+     * Signal that the session should be terminated after this tool call.
+     * The tool result will be added to the conversation before termination.
+     */
+    signalTermination?: () => void;
 }
 
 export interface ITool {

@@ -13,6 +13,8 @@ interface EditSession {
     reject: (reason: any) => void;
     originalUri: vscode.Uri;
     tempUri: vscode.Uri;
+    toolName: string;
+    signalTermination?: () => void;
 }
 
 // Map<OriginalFilePath, Session>
@@ -62,8 +64,12 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.commands.registerCommand('diffReview.action.reject', async (filePath: string, _action: DiffCodeLensAction) => {
         const session = activeSessions.get(filePath);
         if (session) {
+            const toolName = session.toolName;
+            // Signal that the session should be terminated after this tool call
+            session.signalTermination?.();
             cleanupSession(filePath);
-            session.reject(new TerminationError('User rejected the edit.'));
+            // Resolve with a rejection message that includes tool name, so the conversation can continue
+            session.resolve(`[Tool Call Rejected] The ${toolName} operation was rejected by user.`);
             vscode.window.showInformationMessage('Changes rejected.');
         }
     }));
@@ -166,7 +172,7 @@ function cleanupSession(filePath: string) {
 
 // --- Main Tool Logic ---
 
-export async function handleEdit(uriInput: string, newContent: string, context: ToolContext): Promise<string> {
+export async function handleEdit(uriInput: string, newContent: string, context: ToolContext, toolName: string = 'edit_file'): Promise<string> {
     if (!globalDiffAgent || !globalTempDir) {
         throw new Error("Edit support not activated. Please ensure the extension is correctly initialized.");
     }
@@ -200,7 +206,9 @@ export async function handleEdit(uriInput: string, newContent: string, context: 
             resolve,
             reject,
             originalUri: uri,
-            tempUri: tempUri
+            tempUri: tempUri,
+            toolName: toolName,
+            signalTermination: context.signalTermination
         };
 
         // Define Actions
@@ -234,7 +242,8 @@ export async function handleEdit(uriInput: string, newContent: string, context: 
                 context.abortSignal.addEventListener('abort', () => {
                     if (activeSessions.has(filePath)) {
                         cleanupSession(filePath);
-                        reject(new TerminationError('Edit cancelled by user or system.'));
+                        // Resolve with a cancellation message so the conversation can continue
+                        resolve(`[Tool Call Cancelled] The ${toolName} operation was cancelled by user or system.`);
                     }
                 });
             }

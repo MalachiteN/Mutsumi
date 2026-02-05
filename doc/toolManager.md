@@ -67,6 +67,7 @@ constructor() {
 | `project_outline` | 生成项目大纲 |
 | `get_warning_error` | 获取诊断信息 |
 | `self_fork` | 创建并行子 Agent |
+| `get_available_models` | 获取可用模型列表及其标签 |
 
 #### 子 Agent 专用工具（Sub Only Tools）
 

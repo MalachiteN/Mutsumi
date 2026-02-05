@@ -22,6 +22,6 @@ export const editFileFullReplaceTool: ITool = {
         if (!args.uri || args.new_content === undefined) {
             return 'Error: Missing arguments (uri, new_content).';
         }
-        return handleEdit(args.uri, args.new_content, context);
+        return handleEdit(args.uri, args.new_content, context, 'edit_file_full_replace');
     }
 };

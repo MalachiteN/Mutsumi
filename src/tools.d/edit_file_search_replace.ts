@@ -75,6 +75,6 @@ export const editFileSearchReplaceTool: ITool = {
         }
 
         // Delegate to core edit handler
-        return handleEdit(args.uri, newContent, context);
+        return handleEdit(args.uri, newContent, context, 'edit_file_search_replace');
     }
 };

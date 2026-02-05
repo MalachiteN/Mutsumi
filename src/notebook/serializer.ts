@@ -116,13 +116,18 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
     }
 
     static createDefaultContent(allowedUris: string[]): Uint8Array {
+        // 读取 VS Code 配置获取默认模型
+        const config = vscode.workspace.getConfiguration('mutsumi');
+        const defaultModel = config.get<string>('defaultModel');
+
         const raw: AgentContext = {
             metadata: {
                 uuid: uuidv4(),
                 name: 'New Agent',
                 created_at: new Date().toISOString(),
                 parent_agent_id: null,
-                allowed_uris: allowedUris
+                allowed_uris: allowedUris,
+                model: defaultModel || undefined
             },
             context: []
         };
