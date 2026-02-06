@@ -9,7 +9,7 @@ import { AgentTreeItem } from './sidebar/agentTreeItem';
 import { ReferenceCompletionProvider } from './notebook/completionProvider';
 import { CodebaseService } from './codebase/service';
 import { initializeRules } from './contextManagement/prompts';
-import { ImagePasteProvider } from './notebook/imagePasteProvider';
+import { ImagePasteProvider } from './contextManagement/imagePasteProvider';
 
 export function activate(context: vscode.ExtensionContext) {
     // 0. Initialize Codebase Service

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { isCommonIgnored } from '../tools.d/utils';
+import { ToolManager } from '../toolManager';
 
 export class ReferenceCompletionProvider implements vscode.CompletionItemProvider {
     
@@ -85,6 +86,29 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
             } catch (e) {
                 // Ignore read errors
             }
+        }
+
+        // 4. Tool Suggestions
+        try {
+            const tm = ToolManager.getInstance();
+            const tools = tm.getToolsDefinitions(false);
+            
+            for (const tool of tools) {
+                // Use type assertion to avoid strict typing issues with ChatCompletionTool union
+                const fn = (tool as any).function;
+                const name = fn.name;
+                const desc = fn.description || 'Tool';
+                
+                const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Function);
+                // Insert as [tool_name{ "arg": val }]
+                item.insertText = new vscode.SnippetString(`[${name}\{ "$1": $2 \}]`);
+                item.detail = 'Tool Call';
+                item.documentation = new vscode.MarkdownString(desc);
+                item.sortText = '002_' + name;
+                items.push(item);
+            }
+        } catch (e) {
+            // Ignore tool retrieval errors
         }
 
         return items;
