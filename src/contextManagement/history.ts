@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AgentMessage, AgentMetadata, MessageContent, ContentPartImage, ContentPartText } from '../types';
 import { getSystemPrompt } from './prompts';
-import { ContextResolver } from '../notebook/contextResolver';
+import { ContextResolver } from './contextResolver';
 
 /**
  * 构建 Agent 的对话历史上下文 (Async now)
@@ -21,7 +21,13 @@ export async function buildInteractionHistory(
     // 假设 workspaceFolder 获取逻辑 (简化版，取第一个)
     const wsUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : notebook.uri;
     
-    const systemPromptContent = await getSystemPrompt(wsUri, allowedUris, isSubAgent);
+    let systemPromptContent = await getSystemPrompt(wsUri, allowedUris);
+
+    // Resolve @[] references in the current prompt and append to system prompt
+    const contextInjection = await ContextResolver.resolveReferencesInText(currentPrompt, wsUri.fsPath, allowedUris);
+    if (contextInjection) {
+        systemPromptContent += "\n\n" + contextInjection;
+    }
 
     messages.push({
         role: 'system',
@@ -54,19 +60,7 @@ export async function buildInteractionHistory(
         }
     }
 
-    // 3. 处理当前 Prompt 中的 @ 引用
-    // 解析 @[path:...] 并读取内容
-    const contextInjection = await ContextResolver.resolveReferencesInText(currentPrompt, wsUri.fsPath);
-    
-    // 如果有引用内容，作为一个 User 消息先注入，明确告知 LLM 这是附加上下文
-    if (contextInjection) {
-        messages.push({
-            role: 'user',
-            content: contextInjection
-        });
-    }
-
-    // 4. 添加当前用户 Prompt (解析图片)
+    // 3. 添加当前用户 Prompt (解析图片)
     const currentMultiModalContent = await parseUserMessageWithImages(currentPrompt);
     messages.push({ role: 'user', content: currentMultiModalContent });
 

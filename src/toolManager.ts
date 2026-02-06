@@ -21,7 +21,19 @@ export class ToolManager {
     private mainOnlyTools = new Map<string, ITool>();
     private subOnlyTools = new Map<string, ITool>();
 
+    private static instance: ToolManager;
+
+    public static getInstance(): ToolManager {
+        if (!ToolManager.instance) {
+            ToolManager.instance = new ToolManager();
+        }
+        return ToolManager.instance;
+    }
+
     constructor() {
+        if (!ToolManager.instance) {
+            ToolManager.instance = this;
+        }
         // Common Tools
         this.registerCommon(readFileTool);
         this.registerCommon(lsTool);
