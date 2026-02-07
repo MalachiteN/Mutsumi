@@ -87,6 +87,12 @@
                 "title": "Select Model",
                 "category": "Mutsumi",
                 "icon": "$(server-environment)"
+            },
+            {
+                "command": "mutsumi.regenerateTitle",
+                "title": "Regenerate Title",
+                "category": "Mutsumi",
+                "icon": "$(symbol-keyword)"
             }
         ],
         "menus": {
@@ -130,6 +136,11 @@
                     "command": "mutsumi.selectModel",
                     "group": "navigation@1",
                     "when": "notebookType == mutsumi-notebook"
+                },
+                {
+                    "command": "mutsumi.regenerateTitle",
+                    "group": "navigation@2",
+                    "when": "notebookType == mutsumi-notebook"
                 }
             ]
         },
@@ -152,12 +163,11 @@
                         "type": "string"
                     },
                     "default": {
-                        "stepfun/step-3.5-flash":  "速度超快，有时有幻觉，只适合非重要任务" ,
-                        "moonshotai/kimi-k2.5": "最泛用，经济性好" ,
-                        "google/gemini-3-pro-preview": "超贵，但智能极高、上下文窗口大，适合无法分解的大规模复杂任务" ,
-                        "openai/gpt-5.2-codex": "较贵，适合较复杂的编码任务" ,
-                        "anthropic/claude-haiku-4.5": "较贵，适合阅读代码、生成可信度高的模块概览或文档", 
-                        "anthropic/claude-opus-4.5": "极贵，只适合开始新项目前为整个项目设计长远架构和开发计划"
+                        "stepfun/step-3.5-flash":  "速度超快，有时有幻觉，只适合非重要任务，如执行非常具体的指令、修改简单的配置文件等" ,
+                        "moonshotai/kimi-k2.5": "最泛用，经济性好，非常适合普通编码任务或作为子模块进一步拆分的调度者" ,
+                        "google/gemini-3-pro-preview": "超贵，但智能极高、上下文窗口大，适合无法分解、非常复杂的任务，或开始新项目前为整个项目设计长远架构和开发计划" ,
+                        "openai/gpt-5.2-codex": "较贵，但智能较高、上下文窗口较大，适合较复杂的编码任务、无法分解的复杂任务" ,
+                        "anthropic/claude-haiku-4.5": "较贵，适合阅读代码库、生成可信度高的模块概览或文档"
                     },
                     "description": "List of available AI models with labels. Key is model name, value contains label."
                 },
@@ -165,6 +175,11 @@
                     "type": "string",
                     "default": "moonshotai/kimi-k2.5",
                     "description": "Default model to use (must be one of the models in the list)"
+                },
+                "mutsumi.titleGeneratorModel": {
+                    "type": "string",
+                    "default": "stepfun/step-3.5-flash",
+                    "description": "Model used for generating agent titles from conversation context (must be one of the models in the list)"
                 }
             }
         }

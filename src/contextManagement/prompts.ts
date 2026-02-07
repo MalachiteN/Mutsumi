@@ -21,7 +21,7 @@ export async function initializeRules(extensionUri: vscode.Uri, workspaceUri: vs
     }
 }
 
-export async function getSystemPrompt(workspaceUri: vscode.Uri, allowedUris: string[]): Promise<string> {
+export async function getSystemPrompt(workspaceUri: vscode.Uri, allowedUris: string[], isSubAgent?: boolean): Promise<string> {
     const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
 
     // Read all .md files in rules directory
@@ -44,5 +44,12 @@ export async function getSystemPrompt(workspaceUri: vscode.Uri, allowedUris: str
 
     // Resolve &[] rules recursively using ContextAssembler
     const { ContextAssembler } = await import('./assembler');
-    return await ContextAssembler.assembleDocument(rawSystemPrompt, workspaceUri.fsPath, allowedUris);
+    let finalPrompt = await ContextAssembler.assembleDocument(rawSystemPrompt, workspaceUri.fsPath, allowedUris);
+
+    // Append Sub-Agent rules if applicable
+    if (isSubAgent) {
+        finalPrompt += `\n\n## Sub-Agent 身份标识\n你是一个 Sub-Agent（子代理）。结束任务时必须使用 \`task_finish\` 工具向 Parent Agent 报告完成状态。`;
+    }
+
+    return finalPrompt;
 }
