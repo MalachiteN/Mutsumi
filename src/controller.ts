@@ -1,45 +1,89 @@
+/**
+ * @fileoverview Agent controller for executing notebook cells.
+ * @module controller
+ */
+
 import * as vscode from 'vscode';
 import { ToolManager } from './toolManager';
 import { AgentRunner } from './agentRunner';
 import { buildInteractionHistory } from './contextManagement/history';
 import { AgentOrchestrator } from './agentOrchestrator';
 
+/**
+ * Controls the execution of agent notebooks.
+ * @description Manages the lifecycle of agent execution, including configuration loading,
+ * cell processing, and coordination with the AgentRunner for LLM interactions.
+ * @class AgentController
+ * @example
+ * const controller = new AgentController();
+ * await controller.execute(cells, notebook, notebookController);
+ */
 export class AgentController {
+    /** Tool manager instance for providing tools to agents */
     private tools = new ToolManager();
+    /** Execution order counter for tracking cell execution sequence */
     private executionOrder = 0;
 
+    /**
+     * Creates a new AgentController instance.
+     * @constructor
+     */
     constructor() {}
 
-    async execute(cells: vscode.NotebookCell[], notebook: vscode.NotebookDocument, controller: vscode.NotebookController) {
+    /**
+     * Executes one or more notebook cells.
+     * @description Processes each cell in sequence, notifying the orchestrator of
+     * start/stop events for the agent lifecycle.
+     * @param {vscode.NotebookCell[]} cells - Cells to execute
+     * @param {vscode.NotebookDocument} notebook - The notebook document
+     * @param {vscode.NotebookController} controller - The notebook controller
+     * @returns {Promise<void>}
+     * @example
+     * await agentController.execute([cell1, cell2], notebook, controller);
+     */
+    async execute(
+        cells: vscode.NotebookCell[], 
+        notebook: vscode.NotebookDocument, 
+        controller: vscode.NotebookController
+    ): Promise<void> {
         const uuid = notebook.metadata.uuid;
-        if (uuid) AgentOrchestrator.getInstance().notifyAgentStarted(uuid);
+        if (uuid) {
+            AgentOrchestrator.getInstance().notifyAgentStarted(uuid);
+        }
 
         try {
-            // Only process the last cell if it's a User cell (standard chat interaction)
-            // But in notebooks, users might execute any cell. We assume the triggered cell is the prompt.
             for (const cell of cells) {
                 await this.processCell(cell, notebook, controller);
             }
         } finally {
-            if (uuid) AgentOrchestrator.getInstance().notifyAgentStopped(uuid);
+            if (uuid) {
+                AgentOrchestrator.getInstance().notifyAgentStopped(uuid);
+            }
         }
     }
 
+    /**
+     * Processes a single notebook cell.
+     * @description Loads configuration, initializes execution, builds context history,
+     * runs the agent loop, and saves interaction metadata.
+     * @private
+     * @param {vscode.NotebookCell} cell - The cell to process
+     * @param {vscode.NotebookDocument} notebook - The notebook document
+     * @param {vscode.NotebookController} controller - The notebook controller
+     * @returns {Promise<void>}
+     */
     private async processCell(
         cell: vscode.NotebookCell,
         notebook: vscode.NotebookDocument,
         controller: vscode.NotebookController
-    ) {
-        // 1. Get Configuration
+    ): Promise<void> {
         const config = vscode.workspace.getConfiguration('mutsumi');
         const apiKey = config.get<string>('apiKey');
         const baseUrl = config.get<string>('baseUrl');
         const models = config.get<Array<{name: string, provider: string}>>('models') || [];
         const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
-        // 优先使用Agent文件中的模型配置
         const model = notebook.metadata?.model || defaultModel;
 
-        // 2. Initialize Execution
         const execution = controller.createNotebookCellExecution(cell);
         execution.executionOrder = ++this.executionOrder;
         execution.start(Date.now());
@@ -47,28 +91,27 @@ export class AgentController {
         if (!apiKey) {
             execution.replaceOutput([
                 new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.error(new Error('Please set mutsumi.apiKey in VSCode Settings.'))
+                    vscode.NotebookCellOutputItem.error(
+                        new Error('Please set mutsumi.apiKey in VSCode Settings.')
+                    )
                 ])
             ]);
             execution.end(false, Date.now());
             return;
         }
 
-        // Create AbortController
         const abortController = new AbortController();
         const tokenDisposable = execution.token.onCancellationRequested(() => {
             abortController.abort();
         });
 
         try {
-            // 3. Prepare Context (History)
             const { messages, allowedUris, isSubAgent } = await buildInteractionHistory(
                 notebook,
                 cell.index,
                 cell.document.getText()
             );
 
-            // 4. Initialize Runner
             const runner = new AgentRunner(
                 { apiKey, baseUrl, model },
                 this.tools,
@@ -77,10 +120,8 @@ export class AgentController {
                 isSubAgent
             );
 
-            // 5. Run Agent Loop
             const newMessages = await runner.run(execution, abortController, messages);
 
-            // 6. Save Interaction Metadata
             if (newMessages.length > 0) {
                 const newMetadata = {
                     ...cell.metadata,
@@ -88,17 +129,14 @@ export class AgentController {
                 };
                 const notebookEdit = vscode.NotebookEdit.updateCellMetadata(cell.index, newMetadata);
                 const workspaceEdit = new vscode.WorkspaceEdit();
-                // Use the NotebookEdit-specific overload of set()
                 (workspaceEdit as any).set(notebook.uri, [notebookEdit]);
                 await vscode.workspace.applyEdit(workspaceEdit);
             }
 
             execution.end(true, Date.now());
-
         } catch (err: any) {
-            // Check for cancellation or specific API errors
             const isCancellation = 
-                err.name === 'APIUserAbortError' || // OpenAI specific
+                err.name === 'APIUserAbortError' ||
                 err.name === 'AbortError' || 
                 execution.token.isCancellationRequested;
 

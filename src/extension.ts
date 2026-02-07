@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Main extension entry point for Mutsumi VSCode extension.
+ * @module extension
+ */
+
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { MutsumiSerializer } from './notebook/serializer';
@@ -10,9 +15,17 @@ import { ReferenceCompletionProvider } from './notebook/completionProvider';
 import { CodebaseService } from './codebase/service';
 import { initializeRules } from './contextManagement/prompts';
 import { ImagePasteProvider } from './contextManagement/imagePasteProvider';
-import { generateTitle, sanitizeFileName, ensureUniqueFileName } from './utils';
+import { buildInteractionHistory } from './contextManagement/history';
+import { generateTitle, sanitizeFileName } from './utils';
 import { AgentMessage } from './types';
 
+/**
+ * Checks if a file exists at the given URI.
+ * @param {vscode.Uri} uri - URI to check
+ * @returns {Promise<boolean>} True if the file exists
+ * @example
+ * const exists = await fileExists(uri);
+ */
 async function fileExists(uri: vscode.Uri): Promise<boolean> {
     try {
         await vscode.workspace.fs.stat(uri);
@@ -22,8 +35,18 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
     }
 }
 
-export function activate(context: vscode.ExtensionContext) {
-    // 0. Initialize Codebase Service
+/**
+ * Activates the Mutsumi extension.
+ * @description Registers all extension components including notebook serializer,
+ * sidebar provider, controller, event listeners, commands, and completion providers.
+ * @param {vscode.ExtensionContext} context - Extension context for registering disposables
+ * @example
+ * export function activate(context: vscode.ExtensionContext) {
+ *   // Extension activation logic
+ * }
+ */
+export function activate(context: vscode.ExtensionContext): void {
+    // Initialize Codebase Service
     CodebaseService.getInstance().initialize(context).catch(console.error);
 
     // 1. Notebook Serializer
@@ -56,8 +79,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     AgentOrchestrator.getInstance().registerController(agentController, controller);
 
-    // 4. Events Listeners for Agent Lifecycle
-    // 监听打开
+    // 4. Event Listeners for Agent Lifecycle
     context.subscriptions.push(
         vscode.workspace.onDidOpenNotebookDocument(doc => {
             if (doc.notebookType === 'mutsumi-notebook') {
@@ -73,7 +95,6 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // 监听关闭
     context.subscriptions.push(
         vscode.workspace.onDidCloseNotebookDocument(doc => {
             if (doc.notebookType === 'mutsumi-notebook') {
@@ -85,26 +106,38 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // 监听保存后自动重命名
+    // Auto-rename on save based on metadata name
     let isAutoRenaming = false;
     context.subscriptions.push(
         vscode.workspace.onDidSaveNotebookDocument(async doc => {
-            if (isAutoRenaming) return;
-            if (doc.notebookType !== 'mutsumi-notebook') return;
-            if (doc.uri.scheme !== 'file') return;
+            if (isAutoRenaming) {
+                return;
+            }
+            if (doc.notebookType !== 'mutsumi-notebook') {
+                return;
+            }
+            if (doc.uri.scheme !== 'file') {
+                return;
+            }
 
             const name = doc.metadata?.name;
-            if (typeof name !== 'string' || !name.trim()) return;
+            if (typeof name !== 'string' || !name.trim()) {
+                return;
+            }
 
             const sanitizedName = sanitizeFileName(name);
-            if (!sanitizedName) return;
+            if (!sanitizedName) {
+                return;
+            }
 
             const currentBaseName = path.basename(
                 doc.uri.fsPath,
                 path.extname(doc.uri.fsPath)
             );
 
-            if (sanitizedName === currentBaseName) return;
+            if (sanitizedName === currentBaseName) {
+                return;
+            }
 
             try {
                 const dir = path.dirname(doc.uri.fsPath);
@@ -128,8 +161,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // 监听文件删除
-    // 注意：onDidDeleteFiles 包含一个 fileDeleted 列表
+    // File deletion watcher
     const watcher = vscode.workspace.createFileSystemWatcher('**/*.mtm');
     context.subscriptions.push(watcher);
     context.subscriptions.push(
@@ -138,15 +170,15 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // 注册自动补全
+    // Register completion provider for reference syntax
     const completionProvider = vscode.languages.registerCompletionItemProvider(
-        'markdown', // 对应 Notebook Cell 的语言 ID
+        'markdown',
         new ReferenceCompletionProvider(),
-        '@' // 触发字符
+        '@'
     );
     context.subscriptions.push(completionProvider);
 
-    // 注册图片粘贴支持
+    // Register image paste support
     context.subscriptions.push(
         vscode.languages.registerDocumentPasteEditProvider(
             { language: 'markdown' },
@@ -159,6 +191,18 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // 5. Commands
+    registerCommands(context);
+
+    activateEditSupport(context);
+}
+
+/**
+ * Registers all extension commands.
+ * @private
+ * @param {vscode.ExtensionContext} context - Extension context
+ */
+function registerCommands(context: vscode.ExtensionContext): void {
+    // New Agent command
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.newAgent', async () => {
             const wsFolders = vscode.workspace.workspaceFolders;
@@ -168,7 +212,11 @@ export function activate(context: vscode.ExtensionContext) {
             }
             const root = wsFolders[0].uri;
             const agentDir = vscode.Uri.joinPath(root, '.mutsumi');
-            try { await vscode.workspace.fs.createDirectory(agentDir); } catch {}
+            try { 
+                await vscode.workspace.fs.createDirectory(agentDir); 
+            } catch {
+                // Directory may already exist
+            }
 
             await initializeRules(context.extensionUri, root);
 
@@ -184,7 +232,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // 模型选择命令
+    // Model selection command
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.selectModel', async () => {
             const editor = vscode.window.activeNotebookEditor;
@@ -193,7 +241,6 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            // 确保是 mutsumi-notebook 类型
             if (editor.notebook.notebookType !== 'mutsumi-notebook') {
                 vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
                 return;
@@ -210,7 +257,6 @@ export function activate(context: vscode.ExtensionContext) {
             
             const currentModel = editor.notebook.metadata?.model;
 
-            // 创建带当前模型标记的选项，显示模型名和标签
             const items = modelNames.map(name => {
                 const label = modelsConfig[name];
                 const description = label ? `🏷️ ${label}` : undefined;
@@ -228,7 +274,6 @@ export function activate(context: vscode.ExtensionContext) {
             });
             
             if (selected) {
-                // 更新 notebook metadata
                 const edit = new vscode.WorkspaceEdit();
                 const newMetadata = { ...editor.notebook.metadata, model: selected.label };
                 const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
@@ -240,7 +285,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // 重新生成标题命令
+    // Regenerate title command
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.regenerateTitle', async () => {
             const editor = vscode.window.activeNotebookEditor;
@@ -249,13 +294,11 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            // 确保是 mutsumi-notebook 类型
             if (editor.notebook.notebookType !== 'mutsumi-notebook') {
                 vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
                 return;
             }
 
-            // 1. 获取配置
             const config = vscode.workspace.getConfiguration('mutsumi');
             const apiKey = config.get<string>('apiKey');
             const baseUrl = config.get<string>('baseUrl');
@@ -271,13 +314,10 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            // 2. 从 notebook 中提取所有消息（context）
             const messages: AgentMessage[] = [];
             for (const cell of editor.notebook.getCells()) {
                 if (cell.kind === vscode.NotebookCellKind.Code) {
-                    // 用户消息
                     messages.push({ role: 'user', content: cell.document.getText() });
-                    // 检查是否有交互记录
                     if (cell.metadata?.mutsumi_interaction) {
                         messages.push(...(cell.metadata.mutsumi_interaction as AgentMessage[]));
                     }
@@ -289,11 +329,9 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            // 3. 调用 generateTitle 生成标题
             try {
                 const title = await generateTitle(messages, apiKey, baseUrl, titleModel);
 
-                // 4. 更新 notebook metadata
                 const edit = new vscode.WorkspaceEdit();
                 const newMetadata = { ...editor.notebook.metadata, name: title };
                 const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
@@ -308,7 +346,72 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // 打开文件
+    // Debug System Prompt command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.debugSystemPrompt', async () => {
+            const editor = vscode.window.activeNotebookEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('No active notebook editor.');
+                return;
+            }
+
+            if (editor.notebook.notebookType !== 'mutsumi-notebook') {
+                vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
+                return;
+            }
+
+            const cells = editor.notebook.getCells();
+            let lastCodeCellIndex = -1;
+            for (let i = cells.length - 1; i >= 0; i--) {
+                if (cells[i].kind === vscode.NotebookCellKind.Code) {
+                    lastCodeCellIndex = i;
+                    break;
+                }
+            }
+
+            if (lastCodeCellIndex === -1) {
+                vscode.window.showWarningMessage('No code cell found in notebook.');
+                return;
+            }
+
+            const lastCell = cells[lastCodeCellIndex];
+            const currentPrompt = lastCell.document.getText();
+
+            try {
+                const { messages } = await buildInteractionHistory(
+                    editor.notebook,
+                    lastCodeCellIndex,
+                    currentPrompt
+                );
+
+                const systemMessage = messages.find(m => m.role === 'system');
+                if (!systemMessage) {
+                    vscode.window.showWarningMessage('No system prompt found.');
+                    return;
+                }
+
+                const outputChannel = vscode.window.createOutputChannel('Mutsumi System Prompt');
+                outputChannel.clear();
+                outputChannel.appendLine('=== System Prompt Debug Output ===');
+                outputChannel.appendLine('');
+                outputChannel.appendLine(
+                    typeof systemMessage.content === 'string' 
+                        ? systemMessage.content 
+                        : JSON.stringify(systemMessage.content, null, 2)
+                );
+                outputChannel.appendLine('');
+                outputChannel.appendLine('=== End of System Prompt ===');
+                outputChannel.show();
+
+                vscode.window.showInformationMessage('System prompt output to "Mutsumi System Prompt" channel.');
+            } catch (error) {
+                console.error('Failed to debug system prompt:', error);
+                vscode.window.showErrorMessage(`Failed to debug system prompt: ${error}`);
+            }
+        })
+    );
+
+    // Open agent file command
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.openAgentFile', async (item: AgentTreeItem) => {
             if (item && item.agentData && item.agentData.fileUri) {
@@ -324,14 +427,12 @@ export function activate(context: vscode.ExtensionContext) {
                     vscode.window.showErrorMessage(`Failed to open agent file: ${e}`);
                 }
             }
-        }),
+        })
     );
 
-    // 复制文件/区域引用到剪贴板
+    // Copy reference command
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.copyReference', async (uri?: vscode.Uri) => {
-            // 如果是通过右键菜单触发，uri 参数会被传入
-            // 如果是通过命令面板触发，需要获取当前活动的编辑器
             let targetUri = uri;
             let selection: vscode.Selection | undefined;
             let editor = vscode.window.activeTextEditor;
@@ -345,15 +446,15 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
             } else {
-                // 如果右键点击的是当前打开的文件，也尝试获取选区
                 if (editor && editor.document.uri.toString() === targetUri.toString()) {
                     selection = editor.selection;
                 }
             }
 
-            if (!targetUri) return;
+            if (!targetUri) {
+                return;
+            }
 
-            // 计算相对路径
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(targetUri);
             let relativePath = targetUri.fsPath;
             if (workspaceFolder) {
@@ -363,17 +464,13 @@ export function activate(context: vscode.ExtensionContext) {
             let refString = '';
 
             if (selection && !selection.isEmpty && !selection.isSingleLine) {
-                // 多行选中：@[path:start:end] (行号从1开始)
                 const start = selection.start.line + 1;
                 const end = selection.end.line + 1;
                 refString = `@[${relativePath}:${start}:${end}]`;
             } else if (selection) {
-                // 单行或光标位置：@[path:line]
-                // 如果是光标位置，selection.start.line === selection.end.line
                 const line = selection.active.line + 1;
                 refString = `@[${relativePath}:${line}]`;
             } else {
-                // 纯文件引用 (如在资源管理器右键)
                 refString = `@[${relativePath}]`;
             }
 
@@ -381,8 +478,10 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.setStatusBarMessage(`Copied reference: ${refString}`, 3000);
         })
     );
-
-    activateEditSupport(context);
 }
 
-export function deactivate() {}
+/**
+ * Deactivates the extension.
+ * @description Cleanup function called when the extension is deactivated.
+ */
+export function deactivate(): void {}

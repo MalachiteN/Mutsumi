@@ -3,27 +3,45 @@ import * as path from 'path';
 import { isCommonIgnored } from '../tools.d/utils';
 import { ToolManager } from '../toolManager';
 
+/**
+ * @description Provider class for reference auto-completion functionality
+ * @class ReferenceCompletionProvider
+ * @implements {vscode.CompletionItemProvider}
+ * 
+ * @example
+ * // Register this provider in VS Code
+ * vscode.languages.registerCompletionItemProvider(
+ *     { scheme: 'file', language: 'markdown' },
+ *     new ReferenceCompletionProvider(),
+ *     '@'
+ * );
+ */
 export class ReferenceCompletionProvider implements vscode.CompletionItemProvider {
-    
+
+    /**
+     * @description Provide completion items
+     * @param {vscode.TextDocument} document - Current text document
+     * @param {vscode.Position} position - Cursor position
+     * @param {vscode.CancellationToken} token - Cancellation token
+     * @param {vscode.CompletionContext} context - Completion context
+     * @returns {Promise<vscode.CompletionItem[]>} Array of completion items
+     */
     async provideCompletionItems(
         document: vscode.TextDocument,
         position: vscode.Position,
         token: vscode.CancellationToken,
         context: vscode.CompletionContext
     ): Promise<vscode.CompletionItem[]> {
-        
-        // 1. Trigger Check
+
+        // Check trigger condition: user inputs @ followed by optional path characters
         const linePrefix = document.lineAt(position).text.substr(0, position.character);
-        
-        // 允许 @ 后紧跟部分路径字符 (如 @sr -> src/)
+
         const match = linePrefix.match(/@([^@\s]*)$/);
         if (!match) {
             return [];
         }
 
-        // 计算需要替换的范围：从 @ 后面的字符开始到光标位置
-        // 例如 "@sr|" -> range 覆盖 "sr"，插入 "[src/main.ts]" -> "@[src/main.ts]"
-        // 如果不指定 range，VS Code 可能会保留 "sr"，导致结果变为 "@[src/main.ts]sr"
+        // Calculate the range to be replaced, ensuring inserted text correctly replaces user input
         const userQuery = match[1];
         const range = new vscode.Range(
             position.translate(0, -userQuery.length),
@@ -32,13 +50,11 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) return [];
-        
+
         const items: vscode.CompletionItem[] = [];
 
-        // 2. File Suggestions (Using findFiles)
-        // findFiles 自动排除 .gitignore 和用户设置中排除的文件
-        // 第二个参数 exclude = undefined 表示使用默认排除规则
-        // 增加最大结果数以避免列表被截断 (50 -> 5000)，同时手动过滤 ignored 目录以防万一
+        // 2. File suggestions (using findFiles)
+        // findFiles automatically excludes files in .gitignore and user settings
         const files = await vscode.workspace.findFiles('**/*', undefined, 5000, token);
 
         for (const file of files) {
@@ -46,36 +62,36 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
 
             const relPath = vscode.workspace.asRelativePath(file);
 
-            // 手动过滤 ignored 目录 (如 out/)，确保即使 findFiles 漏网也能拦截
-            // 使用正则兼容 Windows 反斜杠和 POSIX 正斜杠
+            // Manually filter ignored directories to ensure interception even if findFiles misses
+            // Use regex to be compatible with Windows backslashes and POSIX forward slashes
             if (relPath.split(/[/\\]/).some(part => isCommonIgnored(part))) {
                 continue;
             }
 
             const item = new vscode.CompletionItem(relPath, vscode.CompletionItemKind.File);
-            
-            item.insertText = `[${relPath}]`; 
+
+            item.insertText = `[${relPath}]`;
             item.detail = 'File Reference';
             item.documentation = new vscode.MarkdownString(`Reference content of \`${relPath}\``);
-            // 提高文件匹配的优先级
-            item.sortText = '000_' + relPath; 
+            // Increase priority for file matches
+            item.sortText = '000_' + relPath;
             items.push(item);
         }
-        
-        // 3. Directory Suggestions (Shallow scan)
-        // findFiles 只返回文件，所以对于目录，我们还是需要 readDirectory
+
+        // 3. Directory suggestions (shallow scan)
+        // findFiles only returns files, so readDirectory is needed to get directories
         for (const folder of workspaceFolders) {
             if (token.isCancellationRequested) break;
-            
+
             const folderRoot = folder.uri;
             try {
                 const dirEntries = await vscode.workspace.fs.readDirectory(folderRoot);
-                
+
                 for (const [name, type] of dirEntries) {
                     if (type === vscode.FileType.Directory && !isCommonIgnored(name)) {
                         const prefix = workspaceFolders.length > 1 ? `${folder.name}/` : '';
                         const displayLabel = prefix + name + '/';
-                        
+
                         const item = new vscode.CompletionItem(displayLabel, vscode.CompletionItemKind.Folder);
                         item.insertText = `[${displayLabel}]`;
                         item.detail = 'Directory Reference';
@@ -88,22 +104,77 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
             }
         }
 
-        // 4. Tool Suggestions
+        // 4. Tool suggestions (with parameters)
         try {
             const tm = ToolManager.getInstance();
             const tools = tm.getToolsDefinitions(false);
-            
+
             for (const tool of tools) {
-                // Use type assertion to avoid strict typing issues with ChatCompletionTool union
+                // Use type assertion to avoid strict type issues with ChatCompletionTool union types
                 const fn = (tool as any).function;
                 const name = fn.name;
                 const desc = fn.description || 'Tool';
-                
+                const parameters = fn.parameters || {};
+
                 const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Function);
-                // Insert as [tool_name{ "arg": val }]
-                item.insertText = new vscode.SnippetString(`[${name}\{ "$1": $2 \}]`);
                 item.detail = 'Tool Call';
-                item.documentation = new vscode.MarkdownString(desc);
+
+                // Build parameter information and code snippets
+                const properties = parameters.properties || {};
+                const required = parameters.required || [];
+                const paramNames = Object.keys(properties);
+
+                // Build SnippetString with parameter placeholders
+                if (paramNames.length === 0) {
+                    // No parameters - insert empty object
+                    item.insertText = `[${name}{}]`;
+                } else {
+                    // Build code snippet placeholders for each parameter
+                    const snippets: string[] = [];
+                    paramNames.forEach((paramName, index) => {
+                        const paramDef = properties[paramName];
+                        const isRequired = required.includes(paramName);
+                        const paramType = paramDef.type || 'any';
+
+                        // Determine default value based on type
+                        let defaultValue = '""';
+                        if (paramType === 'number' || paramType === 'integer') {
+                            defaultValue = '0';
+                        } else if (paramType === 'boolean') {
+                            defaultValue = 'false';
+                        } else if (paramType === 'array') {
+                            defaultValue = '[]';
+                        } else if (paramType === 'object') {
+                            defaultValue = '{}';
+                        }
+
+                        snippets.push(`"${paramName}": ${defaultValue}`);
+                    });
+
+                    item.insertText = new vscode.SnippetString(
+                        `[${name}{${snippets.join(', ')}}]`
+                    );
+                }
+
+                // Build documentation with parameter details
+                let docContent = desc;
+                if (paramNames.length > 0) {
+                    docContent += '\n\n**Parameters:**\n\n';
+                    paramNames.forEach(paramName => {
+                        const paramDef = properties[paramName];
+                        const isRequired = required.includes(paramName);
+                        const paramType = paramDef.type || 'any';
+                        const paramDesc = paramDef.description || '';
+
+                        const reqMarker = isRequired ? '**(required)**' : '(optional)';
+                        docContent += `- \`${paramName}\` \`${paramType}\` ${reqMarker}`;
+                        if (paramDesc) {
+                            docContent += ` - ${paramDesc}`;
+                        }
+                        docContent += '\n';
+                    });
+                }
+                item.documentation = new vscode.MarkdownString(docContent);
                 item.sortText = '002_' + name;
                 items.push(item);
             }

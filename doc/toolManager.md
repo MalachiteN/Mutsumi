@@ -1,269 +1,175 @@
-# toolManager.ts 技术文档
+# toolManager.ts
 
-## 文件功能概述
+## 概述
 
-`toolManager.ts` 是 Mutsumi VSCode 插件的**工具管理器**，负责：
+Agent 工具的注册和执行管理器。维护独立的工具注册表（通用工具、仅主 agent 工具、仅子 agent 工具），提供工具定义获取和工具执行功能。
 
-- 管理所有可用的工具（注册、分类）
-- 根据 Agent 类型（主 Agent / 子 Agent）提供不同的工具集
-- 执行具体的工具调用
-- 将工具定义转换为 OpenAI Function Calling 格式
+## 类
 
-它是 Agent 与外部环境交互的"工具箱"。
+### `ToolManager`
 
----
+管理工具的注册和执行。
 
-## 主要类：ToolManager
+#### 属性
 
-### 类属性
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `commonTools` | `Map<string, ITool>` | 所有 agent 都可用的工具 |
+| `mainOnlyTools` | `Map<string, ITool>` | 仅主 agent 可用的工具 |
+| `subOnlyTools` | `Map<string, ITool>` | 仅子 agent 可用的工具 |
+| `instance` (static) | `ToolManager` | 单例实例 |
 
-| 属性名 | 类型 | 说明 |
-|--------|------|------|
-| `commonTools` | `Map<string, ITool>` | 通用工具（主/子 Agent 都可用） |
-| `mainOnlyTools` | `Map<string, ITool>` | 仅主 Agent 可用的工具 |
-| `subOnlyTools` | `Map<string, ITool>` | 仅子 Agent 可用的工具 |
-
----
-
-### 构造函数
-
-在构造函数中注册所有工具：
+#### 构造函数
 
 ```typescript
-constructor() {
-    // 注册通用工具
-    this.registerCommon(readFileTool);
-    this.registerCommon(lsTool);
-    // ... 更多通用工具
-
-    // 注册子 Agent 专用工具
-    this.registerSub(taskFinishTool);
-}
+constructor()
 ```
+
+创建新的 ToolManager 实例并注册所有工具。如果是第一个实例，设置为单例。
 
 ---
 
-### 工具分类
+#### 静态方法
 
-#### 通用工具（Common Tools）
+##### `getInstance(): ToolManager`
+
+获取 ToolManager 的单例实例。
+
+**返回：**
+- `ToolManager` - 单例实例
+
+---
+
+#### 私有方法
+
+##### `registerAllTools(): void`
+
+注册所有内置工具到各自的注册表。
+
+**通用工具（commonTools）：**
 
 | 工具 | 功能 |
 |------|------|
-| `read_file` | 读取文件内容 |
-| `ls` | 列出目录内容 |
-| `shell_exec` | 执行 Shell 命令 |
-| `edit_file_full_replace` | 全文替换文件 |
-| `edit_file_search_replace` | 搜索替换文件内容 |
-| `partially_read_by_range` | 按行范围读取文件 |
-| `partially_read_around_keyword` | 按关键词读取上下文 |
-| `search_file_contains_keyword` | 搜索文件内容 |
-| `search_file_name_includes` | 搜索文件名 |
-| `get_file_size` | 获取文件大小 |
-| `get_env_var` | 获取环境变量 |
-| `system_info` | 获取系统信息 |
-| `mkdir` | 创建目录 |
-| `create_file` | 创建新文件 |
-| `git_cmd` | 执行 Git 命令 |
-| `project_outline` | 生成项目大纲 |
-| `get_warning_error` | 获取诊断信息 |
-| `self_fork` | 创建并行子 Agent |
-| `get_available_models` | 获取可用模型列表及其标签 |
+| `readFileTool` | 读取文件内容 |
+| `lsTool` | 列出目录内容 |
+| `shellExecTool` | 执行 shell 命令 |
+| `editFileFullReplaceTool` | 完整替换文件内容 |
+| `editFileSearchReplaceTool` | 搜索替换文件内容 |
+| `partiallyReadByRangeTool` | 按行范围读取文件 |
+| `partiallyReadAroundKeywordTool` | 按关键字读取文件上下文 |
+| `searchFileContainsKeywordTool` | 搜索包含关键字的文件 |
+| `searchFileNameIncludesTool` | 搜索文件名包含关键字的文件 |
+| `getFileSizeTool` | 获取文件大小 |
+| `getEnvVarTool` | 获取环境变量 |
+| `systemInfoTool` | 获取系统信息 |
+| `mkdirTool` | 创建目录 |
+| `createNewFileTool` | 创建新文件 |
+| `gitCmdTool` | 执行 git 命令 |
+| `projectOutlineTool` | 生成项目代码结构大纲 |
+| `getWarningErrorTool` | 获取工作区警告和错误 |
+| `selfForkTool` | 创建子 agent |
+| `getAvailableModelsTool` | 获取可用模型列表 |
 
-#### 子 Agent 专用工具（Sub Only Tools）
+**仅子 agent 工具（subOnlyTools）：**
 
 | 工具 | 功能 |
 |------|------|
-| `task_finish` | 标记任务完成并返回结果 |
+| `taskFinishTool` | 子 agent 完成任务 |
 
 ---
 
-### 核心方法
+##### `registerCommon(tool: ITool): void`
 
-#### `getToolsDefinitions(isSubAgent: boolean): OpenAI.Chat.ChatCompletionTool[]`
+将工具注册为通用工具（所有 agent 可用）。
 
-**功能**：获取工具定义列表，用于 OpenAI API 调用。
+##### `registerMain(tool: ITool): void`
 
-**参数**：
-- `isSubAgent` - 是否为子 Agent
+将工具注册为仅主 agent 可用。
 
-**返回值**：OpenAI Chat Completion Tool 定义数组
+##### `registerSub(tool: ITool): void`
 
-**逻辑**：
-```typescript
-const tools: ITool[] = [
-    ...this.commonTools.values(),
-    ...(isSubAgent ? this.subOnlyTools.values() : this.mainOnlyTools.values())
-];
-return tools.map(t => t.definition);
-```
+将工具注册为仅子 agent 可用。
 
 ---
 
-#### `executeTool(name, args, context, isSubAgent): Promise<string>`
+#### 公共方法
 
-**功能**：执行指定的工具。
+##### `getToolsDefinitions(isSubAgent: boolean): OpenAI.Chat.ChatCompletionTool[]`
 
-**参数**：
-| 参数名 | 类型 | 说明 |
-|--------|------|------|
-| `name` | `string` | 工具名称 |
-| `args` | `any` | 工具参数 |
-| `context` | `ToolContext` | 工具执行上下文 |
-| `isSubAgent` | `boolean` | 是否为子 Agent |
+获取格式化为 OpenAI API 的工具定义。
 
-**返回值**：`Promise<string>` - 工具执行结果
+**参数：**
+- `isSubAgent` - 是否为子 agent 请求
 
-**访问控制逻辑**：
-1. 首先在 `commonTools` 中查找
-2. 如果未找到，根据 `isSubAgent` 在 `subOnlyTools` 或 `mainOnlyTools` 中查找
-3. 如果仍未找到，检查是否因权限问题不可用，返回相应错误信息
-4. 执行工具并返回结果
+**返回：**
+- `OpenAI.Chat.ChatCompletionTool[]` - 工具定义数组
 
-**错误消息**：
-- 子 Agent 尝试使用主 Agent 工具：`'Tool 'xxx' is not available for Sub-Agents.'`
-- 主 Agent 尝试使用子 Agent 工具：`'Tool 'xxx' is only available for Sub-Agents.'`
-- 未知工具：`'Error: Unknown tool 'xxx''`
+**过滤逻辑：**
+- 所有 agent：通用工具
+- 主 agent：通用工具 + 仅主 agent 工具
+- 子 agent：通用工具 + 仅子 agent 工具
 
 ---
 
-### 私有注册方法
+##### `executeTool(name, args, context, isSubAgent): Promise<string>`
 
-#### `registerCommon(tool: ITool): void`
+使用给定参数和上下文执行工具。
 
-注册通用工具。
+**参数：**
+- `name` - 要执行的工具名称
+- `args` - 工具的参数
+- `context` - 执行上下文（ToolContext）
+- `isSubAgent` - 调用者是否为子 agent
 
-#### `registerMain(tool: ITool): void`
+**返回：**
+- `Promise<string>` - 工具执行结果（字符串）
 
-注册主 Agent 专用工具。
+**执行流程：**
+1. 在通用工具中查找
+2. 如未找到，根据 `isSubAgent` 在对应注册表中查找
+3. 如仍未找到，返回错误信息（区分权限错误和未知工具）
+4. 调用工具的 `execute` 方法
 
-#### `registerSub(tool: ITool): void`
+**错误处理：**
+- 子 agent 尝试使用主 agent 工具：返回权限错误
+- 主 agent 尝试使用子 agent 工具：返回权限错误
+- 未知工具：返回未知工具错误
 
-注册子 Agent 专用工具。
+## 工具分类说明
 
----
-
-## 工具接口
-
-### `ITool`
-
-工具必须实现的接口：
-
-```typescript
-interface ITool {
-    name: string;                                    // 工具名称
-    definition: OpenAI.Chat.ChatCompletionTool;      // OpenAI 工具定义
-    execute(args: any, context: ToolContext): Promise<string>;  // 执行函数
-}
-```
-
-### `ToolContext`
-
-工具执行上下文：
-
-```typescript
-interface ToolContext {
-    allowedUris: string[];                           // 允许访问的 URI
-    notebook: vscode.NotebookDocument;               // Notebook 文档
-    execution: vscode.NotebookCellExecution;         // 单元格执行对象
-    abortSignal: AbortSignal;                        // 中止信号
-    appendOutput: (content: string) => Promise<void>; // 追加输出函数
-}
-```
-
----
-
-## 与其他模块的关系
+### 权限控制
 
 ```
-ToolManager
-    ├── 被 AgentRunner 创建和使用
-    ├── 被 controller.ts 创建
-    ├── 调用各个工具模块（tools.d/*）
-    ├── 转换工具定义为 OpenAI 格式
-    └── 执行工具调用并返回结果
+┌─────────────────┐
+│   通用工具       │  ← 所有 agent 可用
+├─────────────────┤
+│  主 agent 工具   │  ← 仅主 agent 可用
+├─────────────────┤
+│  子 agent 工具   │  ← 仅子 agent 可用
+└─────────────────┘
 ```
 
----
+### 设计目的
+
+- **通用工具**：基础文件操作、搜索、执行等所有 agent 都需要的能力
+- **子 agent 专用**：`task_finish` 只有子 agent 需要调用，用于向父 agent 报告完成状态
 
 ## 使用示例
 
-### 在 AgentRunner 中使用
-
 ```typescript
-// 创建 ToolManager
-const tools = new ToolManager();
+const toolManager = new ToolManager();
 
-// 获取工具定义（用于 OpenAI API）
-const toolDefinitions = tools.getToolsDefinitions(isSubAgent);
+// 获取主 agent 的工具定义
+const mainTools = toolManager.getToolsDefinitions(false);
+
+// 获取子 agent 的工具定义
+const subTools = toolManager.getToolsDefinitions(true);
 
 // 执行工具
-const result = await tools.executeTool(
-    'read_file',
-    { uri: 'src/index.ts' },
-    context,
-    isSubAgent
+const result = await toolManager.executeTool(
+  'read_file',
+  { uri: 'file.txt' },
+  context,
+  false
 );
 ```
-
-### 工具定义示例
-
-```typescript
-export const readFileTool: ITool = {
-    name: 'read_file',
-    definition: {
-        type: 'function',
-        function: {
-            name: 'read_file',
-            description: 'Read the contents of a file at the given URI',
-            parameters: {
-                type: 'object',
-                properties: {
-                    uri: {
-                        type: 'string',
-                        description: 'The file URI or path to read'
-                    }
-                },
-                required: ['uri']
-            }
-        }
-    },
-    execute: async (args, context) => {
-        // 执行逻辑
-    }
-};
-```
-
----
-
-## 工具权限设计
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                      主 Agent                            │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │              通用工具（Common）                   │    │
-│  │  • 文件操作  • Shell  • Git  • 搜索  • ...       │    │
-│  └─────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │           主 Agent 专用工具（Main Only）          │    │
-│  │              （当前为空，预留扩展）                │    │
-│  └─────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────┐
-│                      子 Agent                            │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │              通用工具（Common）                   │    │
-│  │  • 文件操作  • Shell  • Git  • 搜索  • ...       │    │
-│  └─────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │           子 Agent 专用工具（Sub Only）           │    │
-│  │  • task_finish - 标记任务完成                    │    │
-│  └─────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-```
-
-这种设计确保：
-- 只有子 Agent 可以调用 `task_finish` 结束任务
-- 子 Agent 拥有与主 Agent 几乎相同的工具能力
-- 未来可灵活扩展主/子 Agent 的专用工具

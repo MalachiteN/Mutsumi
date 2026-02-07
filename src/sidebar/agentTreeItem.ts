@@ -1,17 +1,39 @@
 import * as vscode from 'vscode';
 import { AgentRuntimeStatus } from '../types';
 
+/**
+ * @description Agent node data interface, defining the basic information of Agent tree items
+ * @interface AgentNodeData
+ */
 export interface AgentNodeData {
+    /** @description Unique identifier of the Agent */
     uuid: string;
+    /** @description Display name of the Agent */
     name: string;
+    /** @description Current running status of the Agent */
     status: AgentRuntimeStatus;
+    /** @description UUID of the parent Agent, null indicates root node */
     parentId?: string | null;
+    /** @description File URI associated with the Agent */
     fileUri: string;
 }
 
+/**
+ * @description Agent tree node item for displaying Agent hierarchical structure in the sidebar
+ * @class AgentTreeItem
+ * @extends {vscode.TreeItem}
+ * @example
+ * const item = new AgentTreeItem(agentData, vscode.TreeItemCollapsibleState.Collapsed);
+ */
 export class AgentTreeItem extends vscode.TreeItem {
+    /** @description List of child Agent nodes */
     public children: AgentTreeItem[] = [];
 
+    /**
+     * @description Creates a new Agent tree node item
+     * @param {AgentNodeData} agentData - Agent node data
+     * @param {vscode.TreeItemCollapsibleState} collapsibleState - Collapsible state of the node
+     */
     constructor(
         public readonly agentData: AgentNodeData,
         collapsibleState: vscode.TreeItemCollapsibleState
@@ -21,17 +43,27 @@ export class AgentTreeItem extends vscode.TreeItem {
         this.description = this.getStatusLabel(agentData.status);
         this.iconPath = this.getIconPath(agentData.status);
         
-        // Context Value 用于菜单控制
-        // 区分是 Parent 还是 Child，也许菜单选项不同
+        /**
+         * Sets contextValue based on parentId to distinguish between root Agent and child Agent
+         * This value is used to control the display options of the context menu
+         */
         this.contextValue = agentData.parentId ? 'childAgent' : 'rootAgent';
 
-        // 关键：不再绑定点击命令，从而恢复默认的折叠/展开行为
-        // 若需自定义点击行为 (如打开文件)，通常建议不要覆盖默认点击，
-        // 除非它是叶子节点且一定是打开文件。
-        // 按照需求：左键点击任何 Agent 都是切换折叠状态。
+        /**
+         * Does not set the command property to maintain default tree node behavior
+         * Left-click will toggle the collapse/expand state of the node
+         */
         this.command = undefined; 
     }
 
+    /**
+     * @description Gets the corresponding display label based on Agent status
+     * @private
+     * @param {AgentRuntimeStatus} status - Running status of the Agent
+     * @returns {string} Localized display text of the status
+     * @example
+     * const label = this.getStatusLabel('running'); // Returns 'Running'
+     */
     private getStatusLabel(status: AgentRuntimeStatus): string {
         switch (status) {
             case 'running': return 'Running';
@@ -42,6 +74,14 @@ export class AgentTreeItem extends vscode.TreeItem {
         }
     }
 
+    /**
+     * @description Gets the corresponding icon based on Agent status
+     * @private
+     * @param {AgentRuntimeStatus} status - Running status of the Agent
+     * @returns {vscode.ThemeIcon} Corresponding theme icon
+     * @example
+     * const icon = this.getIconPath('running'); // Returns spinning sync icon
+     */
     private getIconPath(status: AgentRuntimeStatus): vscode.ThemeIcon {
         switch (status) {
             case 'running': return new vscode.ThemeIcon('sync~spin');

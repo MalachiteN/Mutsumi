@@ -2,16 +2,42 @@ import * as vscode from 'vscode';
 import { AgentTreeItem, AgentNodeData } from './agentTreeItem';
 import { AgentOrchestrator } from '../agentOrchestrator';
 
+/**
+ * @description Agent tree data provider, implements VSCode TreeDataProvider interface
+ * Responsible for managing the hierarchical structure of Agents, obtaining data from AgentOrchestrator and converting it to tree display
+ * @class AgentTreeDataProvider
+ * @implements {vscode.TreeDataProvider<AgentTreeItem>}
+ * @example
+ * const provider = new AgentTreeDataProvider();
+ * vscode.window.createTreeView('mutsumi.agentSidebar', { treeDataProvider: provider });
+ */
 export class AgentTreeDataProvider implements vscode.TreeDataProvider<AgentTreeItem> {
+    /** @description Tree data change event emitter, used to trigger view refresh */
     private _onDidChangeTreeData = new vscode.EventEmitter<AgentTreeItem | undefined | null>();
+    
+    /** @description Tree data change event, VSCode subscribes to this event to update the view */
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
+    /** @description Root node list, caches all currently displayed Agent tree nodes */
     private rootItems: AgentTreeItem[] = [];
 
+    /**
+     * @description Gets the tree item of the specified element
+     * @param {AgentTreeItem} element - The tree node to get
+     * @returns {vscode.TreeItem} Corresponding VSCode tree item
+     */
     getTreeItem(element: AgentTreeItem): vscode.TreeItem {
         return element;
     }
 
+    /**
+     * @description Gets the child nodes of the specified element
+     * @param {AgentTreeItem} [element] - Parent node, returns root node list when not specified
+     * @returns {Thenable<AgentTreeItem[]>} Promise of child node array
+     * @example
+     * const children = await provider.getChildren(rootItem); // Get child nodes
+     * const roots = await provider.getChildren(); // Get all root nodes
+     */
     getChildren(element?: AgentTreeItem): Thenable<AgentTreeItem[]> {
         if (!element) {
             return Promise.resolve(this.rootItems);
@@ -19,17 +45,22 @@ export class AgentTreeDataProvider implements vscode.TreeDataProvider<AgentTreeI
         return Promise.resolve(element.children);
     }
 
+    /**
+     * @description Refreshes the Agent tree view
+     * Obtains the latest Agent data from AgentOrchestrator and rebuilds the hierarchical structure
+     * @returns {Promise<void>}
+     * @example
+     * await provider.refresh(); // Refresh and re-render the entire tree
+     */
     public async refresh(): Promise<void> {
         this.rootItems = [];
         const orch = AgentOrchestrator.getInstance();
-        const allAgents = orch.getAgentTreeNodes(); // 获取扁平列表
+        const allAgents = orch.getAgentTreeNodes();
 
         const nodeMap = new Map<string, AgentTreeItem>();
         
-        // 1. 创建所有 Item
+        // Create all Agent tree node items
         allAgents.forEach(info => {
-            // 计算状态决定是否可折叠：如果有子节点挂在这个 UUID 下，它应该是 Collapsed
-            // 但这里我们先统一设为 None，随后在构建层级时更新为 Collapsed
             const item = new AgentTreeItem(
                 {
                     uuid: info.uuid,
@@ -43,17 +74,16 @@ export class AgentTreeDataProvider implements vscode.TreeDataProvider<AgentTreeI
             nodeMap.set(info.uuid, item);
         });
 
-        // 2. 构建层级关系
+        // Build Agent hierarchical relationships
         allAgents.forEach(info => {
             const item = nodeMap.get(info.uuid)!;
             if (info.parentId && nodeMap.has(info.parentId)) {
                 const parent = nodeMap.get(info.parentId)!;
                 parent.children.push(item);
-                // 只有当父节点有子节点时，才设为可折叠
+                // When the parent node has children, set it to expandable state
                 parent.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
             } else {
-                // 没有 Parent 或 Parent 不在当前显示列表中（比如Parent被关闭且Hidden了）
-                // 则作为根节点
+                // No parent or parent not in current display list, treated as root node
                 this.rootItems.push(item);
             }
         });
@@ -61,8 +91,13 @@ export class AgentTreeDataProvider implements vscode.TreeDataProvider<AgentTreeI
         this._onDidChangeTreeData.fire(null);
     }
 
+    /**
+     * @description Gets the corresponding Agent tree node by UUID
+     * @param {string} uuid - Unique identifier of the Agent
+     * @returns {AgentTreeItem | undefined} Found tree node, returns undefined if not found
+     * @note Currently a placeholder implementation, can maintain UUID to node mapping internally when needed
+     */
     public getAgentItem(uuid: string): AgentTreeItem | undefined {
-        // Helper if needed, implies keeping a map
         return undefined; 
     }
 }

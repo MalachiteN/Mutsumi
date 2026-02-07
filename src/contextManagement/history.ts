@@ -1,10 +1,18 @@
 import * as vscode from 'vscode';
 import { AgentMessage, AgentMetadata, MessageContent, ContentPartImage, ContentPartText } from '../types';
 import { getSystemPrompt } from './prompts';
-import { ContextResolver } from './contextResolver';
+import { ContextAssembler, ParseMode } from './contextAssembler';
 
 /**
- * 构建 Agent 的对话历史上下文 (Async now)
+ * @description Build Agent's conversation history context
+ * @param {vscode.NotebookDocument} notebook - Notebook document object
+ * @param {number} currentCellIndex - Current cell index
+ * @param {string} currentPrompt - Current user input prompt text
+ * @returns {Promise<{ messages: AgentMessage[], allowedUris: string[], isSubAgent: boolean }>} Object containing message list, allowed URIs list, and sub-agent identifier
+ * @example
+ * const { messages, allowedUris, isSubAgent } = await buildInteractionHistory(notebook, 5, 'Hello');
+ * // messages[0] is system prompt
+ * // messages[messages.length-1] is current user input
  */
 export async function buildInteractionHistory(
     notebook: vscode.NotebookDocument,
@@ -13,18 +21,18 @@ export async function buildInteractionHistory(
 ): Promise<{ messages: AgentMessage[], allowedUris: string[], isSubAgent: boolean }> {
     const messages: AgentMessage[] = [];
     
-    // 1. 获取 System Prompt (Dynamic)
+    // Get system prompt (dynamically built)
     const metadata = notebook.metadata as AgentMetadata;
     const allowedUris = metadata.allowed_uris || ['/'];
     const isSubAgent = !!metadata.parent_agent_id;
 
-    // 假设 workspaceFolder 获取逻辑 (简化版，取第一个)
+    // Get workspace folder URI
     const wsUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : notebook.uri;
     
     let systemPromptContent = await getSystemPrompt(wsUri, allowedUris, isSubAgent);
 
-    // Resolve @[] references in the current prompt and append to system prompt
-    const contextInjection = await ContextResolver.resolveReferencesInText(currentPrompt, wsUri.fsPath, allowedUris);
+    // Parse @[path] references in current prompt and append to system prompt
+    const contextInjection = await ContextAssembler.resolveUserPromptReferences(currentPrompt, wsUri.fsPath, allowedUris);
     if (contextInjection) {
         systemPromptContent += "\n\n" + contextInjection;
     }
@@ -34,22 +42,18 @@ export async function buildInteractionHistory(
         content: systemPromptContent
     });
 
-    // 2. 从之前的 Cell 中加载历史
+    // Load history from previous cells
     for (let i = 0; i < currentCellIndex; i++) {
         const prevCell = notebook.cellAt(i);
         const role = prevCell.metadata?.role || 'user';
         
         const content = prevCell.document.getText();
         if (content.trim()) {
-            // 如果是 User 消息，尝试解析图片
-            // 注意：只有当 metadata 中没有 mutsumi_interaction（即还没运行过）或者单纯是历史记录时
-            // 对于已经运行过的 user cell，也需要重新构建 User 消息。
-            
             if (role === 'user') {
                 const multiModalContent = await parseUserMessageWithImages(content);
                 messages.push({ role: 'user', content: multiModalContent });
             } else {
-                // Assistant 消息通常是纯文本或 tool calls，暂不涉及图片输出（除非未来支持生成图片）
+                // Assistant messages are typically plain text or tool calls
                 messages.push({ role: role as any, content });
             }
         }
@@ -60,16 +64,29 @@ export async function buildInteractionHistory(
         }
     }
 
-    // 3. 添加当前用户 Prompt (解析图片)
+    // Add current user prompt (parse images)
     const currentMultiModalContent = await parseUserMessageWithImages(currentPrompt);
     messages.push({ role: 'user', content: currentMultiModalContent });
 
     return { messages, allowedUris, isSubAgent };
 }
 
-// 图片正则：![alt](uri)
+/** Image regex: matches Markdown images in ![alt](uri) format */
 const IMG_REGEX = /!\[([^\]]*)\]\(([^)]+)\)/g;
 
+/**
+ * @description Parse image references in user message, convert to multimodal content format
+ * @private
+ * @param {string} text - User input text
+ * @returns {Promise<MessageContent>} Parsed content, returns content array if contains images, otherwise returns original text
+ * @example
+ * const content = await parseUserMessageWithImages('Hello ![screenshot](file:///path/to/img.png) world');
+ * // Returns: [
+ * //   { type: 'text', text: 'Hello ' },
+ * //   { type: 'image_url', image_url: { url: 'data:image/png;base64,...', detail: 'auto' } },
+ * //   { type: 'text', text: ' world' }
+ * // ]
+ */
 async function parseUserMessageWithImages(text: string): Promise<MessageContent> {
     const matches = [...text.matchAll(IMG_REGEX)];
     
@@ -84,7 +101,7 @@ async function parseUserMessageWithImages(text: string): Promise<MessageContent>
         const [fullMatch, altText, uriStr] = match;
         const index = match.index!;
 
-        // 添加图片前的文本
+        // Add text before image
         if (index > lastIndex) {
             content.push({
                 type: 'text',
@@ -92,7 +109,7 @@ async function parseUserMessageWithImages(text: string): Promise<MessageContent>
             });
         }
 
-        // 处理图片
+        // Process image
         try {
             const imageBase64 = await readImageAsBase64(uriStr);
             if (imageBase64) {
@@ -100,11 +117,11 @@ async function parseUserMessageWithImages(text: string): Promise<MessageContent>
                     type: 'image_url',
                     image_url: {
                         url: imageBase64,
-                        detail: 'auto' // 可以根据需要调整
+                        detail: 'auto'
                     }
                 });
             } else {
-                // 如果读取失败，保留原始 Markdown
+                // If read fails, preserve original Markdown
                 content.push({ type: 'text', text: fullMatch });
             }
         } catch (e) {
@@ -115,7 +132,7 @@ async function parseUserMessageWithImages(text: string): Promise<MessageContent>
         lastIndex = index + fullMatch.length;
     }
 
-    // 添加剩余文本
+    // Add remaining text
     if (lastIndex < text.length) {
         content.push({
             type: 'text',
@@ -126,15 +143,23 @@ async function parseUserMessageWithImages(text: string): Promise<MessageContent>
     return content;
 }
 
+/**
+ * @description Read image file and convert to Base64 encoded data URL
+ * @private
+ * @param {string} uriStr - Image URI string
+ * @returns {Promise<string | null>} Base64 encoded image data URL, returns null if read fails
+ * @description Supports local files (file://) and web images (http/https)
+ * @description Automatically infers MIME type from file extension
+ * @example
+ * const base64 = await readImageAsBase64('file:///path/to/image.png');
+ * // Returns: 'data:image/png;base64,iVBORw0KGgo...'
+ */
 async function readImageAsBase64(uriStr: string): Promise<string | null> {
     try {
         const uri = vscode.Uri.parse(uriStr);
-        // 只处理 file 协议，且位于本地的文件
+        // Only handle file protocol, and local files
         if (uri.scheme !== 'file') {
-             // 暂不支持网络图片，除非 LLM 原生支持 URL。
-             // OpenAI 支持 http URL，但这里我们的需求是本地临时文件。
-             // 如果是 http，直接返回 null 吗？或者直接透传 url？
-             // OpenAI API 接受 http URL。如果用户贴了个网络图，我们可以直接传 URL。
+             // Web images not supported yet, unless LLM natively supports URLs
              if (uri.scheme === 'http' || uri.scheme === 'https') {
                  return uriStr; 
              }
@@ -144,7 +169,7 @@ async function readImageAsBase64(uriStr: string): Promise<string | null> {
         const bytes = await vscode.workspace.fs.readFile(uri);
         const buffer = Buffer.from(bytes);
         
-        // 简单的 MIME 类型推断
+        // Simple MIME type inference
         const ext = uriStr.split('.').pop()?.toLowerCase();
         let mimeType = 'image/jpeg';
         if (ext === 'png') mimeType = 'image/png';

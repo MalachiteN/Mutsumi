@@ -1,20 +1,47 @@
-// 映射 Tree-sitter 的节点类型到我们的大纲类别
-// 这里只列出我们关心的节点类型
+/**
+ * @fileoverview Language configuration definitions for Tree-sitter based code parsing.
+ * Provides mappings from Tree-sitter node types to outline categories for various programming languages.
+ * @module definitions
+ */
 
+/**
+ * Configuration interface for a programming language's Tree-sitter parser.
+ * @interface LanguageConfig
+ */
 export interface LanguageConfig {
-    wasmName: string; // e.g., 'tree-sitter-typescript.wasm'
-    // 能够产生大纲条目的节点类型
-    // key: node type (e.g., 'class_declaration')
-    // value: 映射到的通用类型名称 (e.g., 'Class')
+    /** 
+     * The name of the WebAssembly file for this language's Tree-sitter parser.
+     * @example 'tree-sitter-typescript.wasm'
+     */
+    wasmName: string;
+
+    /**
+     * Mapping from Tree-sitter node types to outline category names.
+     * Keys are node types (e.g., 'class_declaration'), values are category names (e.g., 'Class').
+     */
     definitions: Record<string, string>;
-    // 如何提取名称的字段名 (通常是 'name')，如果为 null 则尝试获取第一个子标识符
+
+    /**
+     * The field name used to extract the identifier/name from a node.
+     * If not specified, the parser will attempt to find the first child identifier.
+     * @example 'name'
+     */
     nameField?: string;
-    // 需要进一步递归扫描成员的节点类型
-    containers: Set<string>; 
+
+    /**
+     * Set of node types that can contain other definitions (e.g., classes, namespaces).
+     * These nodes will be recursively scanned for child members.
+     */
+    containers: Set<string>;
 }
 
+/**
+ * Language configurations for all supported programming languages.
+ * Maps language IDs to their Tree-sitter parser configurations.
+ * @type {Record<string, LanguageConfig>}
+ */
 export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
-    // === JavaScript Family ===
+    /** JavaScript/TypeScript family */
     'typescript': {
         wasmName: 'tree-sitter-typescript.wasm',
         definitions: {
@@ -26,7 +53,7 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
             'type_alias_declaration': 'Type',
             'enum_declaration': 'Enum',
             'module': 'Module',
-            'lexical_declaration': 'Variable', 
+            'lexical_declaration': 'Variable',
             'variable_declaration': 'Variable'
         },
         containers: new Set([
@@ -74,7 +101,7 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         containers: new Set(['component', 'program'])
     },
 
-    // === C/C++ Family ===
+    /** C/C++ family */
     'c': {
         wasmName: 'tree-sitter-c.wasm',
         definitions: {
@@ -111,7 +138,7 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         containers: new Set(['compilation_unit', 'namespace_declaration', 'class_declaration', 'interface_declaration', 'struct_declaration', 'declaration_list'])
     },
 
-    // === Java/Kotlin ===
+    /** Java/Kotlin family */
     'java': {
         wasmName: 'tree-sitter-java.wasm',
         definitions: {
@@ -135,7 +162,7 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         containers: new Set(['source_file', 'class_declaration', 'class_body'])
     },
 
-    // === Python ===
+    /** Python */
     'python': {
         wasmName: 'tree-sitter-python.wasm',
         definitions: {
@@ -145,7 +172,7 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         containers: new Set(['class_definition', 'module', 'block'])
     },
 
-    // === Go/Rust ===
+    /** Go/Rust family */
     'go': {
         wasmName: 'tree-sitter-go.wasm',
         definitions: {
@@ -172,7 +199,7 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         containers: new Set(['source_file', 'impl_item', 'mod_item', 'declaration_list'])
     },
 
-    // === Shell/Scripting ===
+    /** Shell/Scripting languages */
     'bash': {
         wasmName: 'tree-sitter-bash.wasm',
         definitions: {
@@ -211,7 +238,7 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         containers: new Set(['program', 'class_declaration', 'interface_declaration', 'trait_declaration', 'class_interface_clause'])
     },
 
-    // === Mobile ===
+    /** Mobile development */
     'swift': {
         wasmName: 'tree-sitter-swift.wasm',
         definitions: {
@@ -245,7 +272,7 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         containers: new Set(['translation_unit', 'class_interface', 'class_implementation'])
     },
 
-    // === Config/Data ===
+    /** Configuration/Data formats */
     'json': {
         wasmName: 'tree-sitter-json.wasm',
         definitions: {
@@ -278,11 +305,11 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         containers: new Set(['stylesheet', 'media_statement', 'block'])
     },
 
-    // === Functional/Other ===
+    /** Functional/Other languages */
     'elixir': {
         wasmName: 'tree-sitter-elixir.wasm',
         definitions: {
-            'call': 'Call' // Elixir defmodule/def are calls
+            'call': 'Call'
         },
         containers: new Set(['source_file', 'call', 'do_block'])
     },
@@ -332,7 +359,8 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         },
         containers: new Set(['source_unit', 'contract_body'])
     },
-    // Minimal support for others
+
+    /** Minimal support for other languages */
     'elisp': {
         wasmName: 'tree-sitter-elisp.wasm',
         definitions: { 'function_definition': 'Function' },
@@ -370,7 +398,12 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
     }
 };
 
-// 文件扩展名到语言ID的映射
+/**
+ * Maps file extensions to their corresponding language IDs.
+ * Used to determine the appropriate Tree-sitter parser for a given file.
+ * @type {Record<string, string>}
+ * @example EXT_TO_LANG['.ts'] // returns 'typescript'
+ */
 export const EXT_TO_LANG: Record<string, string> = {
     '.ts': 'typescript',
     '.tsx': 'tsx',
