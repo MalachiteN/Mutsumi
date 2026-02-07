@@ -1,31 +1,37 @@
+/**
+ * @fileoverview Utility functions for the Mutsumi VSCode extension.
+ * @module utils
+ */
+
 import OpenAI from 'openai';
 import { AgentMessage } from './types';
 
 /**
- * 将消息列表按 user prompt 划分成对话轮次
- * 每轮从 user 开始，到下一个 user 之前结束（最后一轮到列表末尾）
- * @param messages 完整消息历史
- * @returns 每一轮的消息数组
+ * Splits a conversation into rounds based on user prompts.
+ * @description Each round starts with a user message and ends before the next user message.
+ * @private
+ * @param {AgentMessage[]} messages - Complete message history
+ * @returns {AgentMessage[][]} Array of message arrays, each representing one conversation round
+ * @example
+ * const rounds = splitIntoRounds(messages);
+ * // rounds[0] contains first user message and assistant response
  */
 function splitIntoRounds(messages: AgentMessage[]): AgentMessage[][] {
+    const dialogMessages = messages.filter(msg => msg.role !== 'system');
     const rounds: AgentMessage[][] = [];
     let currentRound: AgentMessage[] = [];
 
-    for (const msg of messages) {
+    for (const msg of dialogMessages) {
         if (msg.role === 'user') {
-            // 遇到新的 user 消息，如果当前轮非空，则结束上一轮
             if (currentRound.length > 0) {
                 rounds.push(currentRound);
             }
-            // 开始新的一轮
             currentRound = [msg];
         } else {
-            // assistant 或 tool 消息，加入当前轮
             currentRound.push(msg);
         }
     }
 
-    // 最后一轮（可能是不完整的，但也算一轮）
     if (currentRound.length > 0) {
         rounds.push(currentRound);
     }
@@ -34,12 +40,18 @@ function splitIntoRounds(messages: AgentMessage[]): AgentMessage[][] {
 }
 
 /**
- * 根据对话上下文生成标题
- * @param messages 对话消息历史
- * @param apiKey OpenAI API Key
- * @param baseUrl OpenAI Base URL
- * @param model 使用的模型
- * @returns 生成的标题
+ * Generates a concise title based on conversation context.
+ * @description Uses an LLM to analyze recent conversation rounds and generate
+ * a descriptive title summarizing the discussion topic.
+ * @param {AgentMessage[]} messages - Conversation message history
+ * @param {string} apiKey - OpenAI API key
+ * @param {string | undefined} baseUrl - OpenAI base URL (optional)
+ * @param {string} model - Model identifier to use for title generation
+ * @returns {Promise<string>} Generated title string
+ * @throws {Error} If the API call fails
+ * @example
+ * const title = await generateTitle(messages, 'sk-...', undefined, 'gpt-4');
+ * console.log(title); // "Database Schema Design"
  */
 export async function generateTitle(
     messages: AgentMessage[],
@@ -53,12 +65,9 @@ export async function generateTitle(
         defaultHeaders: { 'Client-Name': 'Mutsumi-VSCode' }
     });
 
-    // 按 user 分隔划分成对话轮次，取最近6整轮（或全部）
     const rounds = splitIntoRounds(messages);
     const recentRounds = rounds.length <= 6 ? rounds : rounds.slice(-6);
     const contextMessages = recentRounds.flat();
-
-    // 将完整的上下文消息序列化为 JSON，保留所有字段（reasoning_content, tool_calls 等）
     const contextJson = JSON.stringify(contextMessages, null, 2);
 
     const response = await openai.chat.completions.create({
@@ -66,15 +75,15 @@ export async function generateTitle(
         messages: [
             {
                 role: 'system',
-                content: '请根据以下对话内容生成一个简短的标题，标题应该概括对话的主要内容。' +
-                    '对话数据以 JSON 格式提供，包含 user、assistant、tool 等角色的消息，' +
-                    'assistant 消息中可能包含 reasoning_content（思考过程）和 tool_calls（工具调用）。' +
-                    '要求：\n1. 长度控制在10-20个字符\n2. 不要包含特殊符号如\\/:*?"<>|等' +
-                    '\n3. 直接返回标题文本，不要有任何解释或前缀'
+                content: 'Please generate a short title based on the following conversation content. ' +
+                    'The title should summarize the main topic of the conversation. ' +
+                    'Conversation data is provided in JSON format, containing messages from user, assistant, tool roles. ' +
+                    'Requirements:\n1. Length should be 10-20 characters\n2. No special characters like \\\/:*?"<>|' +
+                    '\n3. Return only the title text, no explanations or prefixes'
             },
             {
                 role: 'user',
-                content: `请为以下对话生成标题：\n\n${contextJson.substring(0, 4000)}` // 限制上下文长度
+                content: `Please generate a title for this conversation:\n\n${contextJson.substring(0, 4000)}`
             }
         ],
         temperature: 0.7,
@@ -82,11 +91,8 @@ export async function generateTitle(
     });
 
     let title = response.choices[0]?.message?.content?.trim() || 'New Agent';
-    
-    // 清理标题中的非法字符
     title = sanitizeFileName(title);
     
-    // 限制长度
     if (title.length > 30) {
         title = title.substring(0, 30);
     }
@@ -95,23 +101,32 @@ export async function generateTitle(
 }
 
 /**
- * 清理文件名中的非法字符
- * @param name 原始名称
- * @returns 清理后的名称
+ * Sanitizes a string to be safe for use as a file name.
+ * @description Removes or replaces characters that are invalid in file systems
+ * and normalizes whitespace.
+ * @param {string} name - Original name to sanitize
+ * @returns {string} Sanitized name safe for file system use
+ * @example
+ * const safe = sanitizeFileName('file:name?test');
+ * console.log(safe); // "file-name-test"
  */
 export function sanitizeFileName(name: string): string {
-    // 移除或替换 Windows/Unix 文件系统中的非法字符
     return name
-        .replace(/[\\/:*?"<>|]/g, '-')  // 替换非法字符为 -
-        .replace(/\s+/g, ' ')             // 合并多个空格
+        .replace(/[\\/:*?"<>|]/g, '-')
+        .replace(/\s+/g, ' ')
         .trim();
 }
 
 /**
- * 确保文件名唯一，如果已存在则添加数字后缀
- * @param baseName 基础文件名（不含扩展名）
- * @param existingNames 现有文件名列表
- * @returns 唯一的文件名
+ * Ensures a file name is unique by appending a numeric suffix if needed.
+ * @description Checks against existing names and generates a unique variant
+ * by adding "-1", "-2", etc. as needed.
+ * @param {string} baseName - Base file name without extension
+ * @param {string[]} existingNames - Array of existing file names to check against
+ * @returns {string} Unique file name
+ * @example
+ * const unique = ensureUniqueFileName('agent', ['agent', 'agent-1']);
+ * console.log(unique); // "agent-2"
  */
 export function ensureUniqueFileName(baseName: string, existingNames: string[]): string {
     if (!existingNames.includes(baseName)) {

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Orchestrates agent lifecycle, fork sessions, and UI state management.
+ * @module agentOrchestrator
+ */
+
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -5,29 +10,65 @@ import { AgentSidebarProvider } from './sidebar/agentSidebar';
 import { AgentController } from './controller';
 import { AgentStateInfo, AgentRuntimeStatus } from './types';
 
+/**
+ * Represents an active fork session with its state and callbacks.
+ * @interface ForkSession
+ */
 interface ForkSession {
+    /** Parent agent ID that initiated the fork */
     parentId: string;
+    /** Resolve callback for the fork promise */
     resolve: (value: string | PromiseLike<string>) => void;
+    /** Reject callback for the fork promise */
     reject: (reason?: any) => void;
+    /** Set of child agent UUIDs in this session */
     childUuids: Set<string>;
-    results: Map<string, string>; // uuid -> report content
-    deletedChildren: Set<string>; // 记录被删除的子Agent
+    /** Map of child UUID to their result reports */
+    results: Map<string, string>;
+    /** Set of child UUIDs that were deleted */
+    deletedChildren: Set<string>;
 }
 
+/**
+ * Orchestrates agent lifecycle, state management, and fork operations.
+ * @description Manages the global agent registry, handles fork sessions for sub-agents,
+ * and coordinates UI updates through the sidebar provider.
+ * @class AgentOrchestrator
+ * @example
+ * const orchestrator = AgentOrchestrator.getInstance();
+ * orchestrator.setSidebar(sidebarProvider);
+ * await orchestrator.requestFork(parentId, summary, subAgents);
+ */
 export class AgentOrchestrator {
+    /** Singleton instance */
     private static instance: AgentOrchestrator;
+    /** Sidebar provider for UI updates */
     private sidebar?: AgentSidebarProvider;
+    /** Agent controller reference */
     private agentController?: AgentController;
+    /** Notebook controller reference */
     private notebookController?: vscode.NotebookController;
     
-    // 全局 Agent 状态注册表 (UUID -> Info)
+    /** Global agent state registry (UUID -> Info) */
     private agentRegistry = new Map<string, AgentStateInfo>();
     
-    // 活跃的 Fork 会话 (ParentUUID -> Session)
+    /** Active fork sessions (ParentUUID -> Session) */
     private activeForks = new Map<string, ForkSession>();
 
+    /**
+     * Private constructor to enforce singleton pattern.
+     * @private
+     * @constructor
+     */
     private constructor() {}
 
+    /**
+     * Gets the singleton instance of AgentOrchestrator.
+     * @static
+     * @returns {AgentOrchestrator} The singleton instance
+     * @example
+     * const orchestrator = AgentOrchestrator.getInstance();
+     */
     public static getInstance(): AgentOrchestrator {
         if (!AgentOrchestrator.instance) {
             AgentOrchestrator.instance = new AgentOrchestrator();
@@ -35,48 +76,96 @@ export class AgentOrchestrator {
         return AgentOrchestrator.instance;
     }
 
-    public setSidebar(sidebar: AgentSidebarProvider) {
+    /**
+     * Sets the sidebar provider for UI updates.
+     * @param {AgentSidebarProvider} sidebar - The sidebar provider instance
+     * @example
+     * orchestrator.setSidebar(sidebarProvider);
+     */
+    public setSidebar(sidebar: AgentSidebarProvider): void {
         this.sidebar = sidebar;
     }
 
-    public registerController(agentController: AgentController, notebookController: vscode.NotebookController) {
+    /**
+     * Registers the agent and notebook controllers.
+     * @param {AgentController} agentController - The agent controller
+     * @param {vscode.NotebookController} notebookController - The notebook controller
+     * @example
+     * orchestrator.registerController(agentController, notebookController);
+     */
+    public registerController(
+        agentController: AgentController, 
+        notebookController: vscode.NotebookController
+    ): void {
         this.agentController = agentController;
         this.notebookController = notebookController;
     }
 
     /**
-     * 计算并获取用于 TreeView 展示的节点列表
+     * Computes and returns nodes for TreeView display.
+     * @description Filters agents based on UI rules:
+     * - Finished sub-agents with closed windows are hidden
+     * - Hidden parents (window closed, not running) are hidden
+     * - Standby parents (window open, not running) are shown
+     * @returns {AgentStateInfo[]} Array of agent nodes to display
+     * @example
+     * const nodes = orchestrator.getAgentTreeNodes();
+     * // Returns filtered list for sidebar display
      */
     public getAgentTreeNodes(): AgentStateInfo[] {
         const nodes: AgentStateInfo[] = [];
 
         for (const agent of this.agentRegistry.values()) {
-            // UI Rule: If a sub-agent is finished and the window is closed, hide it from the tree
             if (agent.isTaskFinished && !agent.isWindowOpen) {
                 continue;
             }
 
-            // UI Rule: Standby parents (window open, not running) -> Show
-            // UI Rule: Hidden parents (window closed, not running) -> Hide (Skip)
             if (!agent.parentId && !agent.isRunning && !agent.isWindowOpen) {
                 continue;
             }
 
-            // Otherwise show it
             nodes.push(agent);
         }
         return nodes;
     }
 
+    /**
+     * Computes the runtime status of an agent.
+     * @description Determines status based on running state, completion, and parent relationship.
+     * @param {AgentStateInfo} agent - The agent state info
+     * @returns {AgentRuntimeStatus} The computed runtime status
+     * @example
+     * const status = orchestrator.computeStatus(agent);
+     * // Returns 'running', 'finished', 'pending', or 'standby'
+     */
     public computeStatus(agent: AgentStateInfo): AgentRuntimeStatus {
-        if (agent.isRunning) return 'running';
-        if (agent.isTaskFinished) return 'finished';
-        if (agent.parentId) return 'pending'; // 子Agent，未运行未完成
-        return 'standby'; // 母Agent，未运行
+        if (agent.isRunning) {
+            return 'running';
+        }
+        if (agent.isTaskFinished) {
+            return 'finished';
+        }
+        if (agent.parentId) {
+            return 'pending';
+        }
+        return 'standby';
     }
 
     /**
-     * 工具调用请求 Fork
+     * Requests a fork to create sub-agents.
+     * @description Creates multiple sub-agents as specified, waits for their completion,
+     * and aggregates their results into a final report.
+     * @param {string} parentId - UUID of the parent agent
+     * @param {string} contextSummary - Summary context for the fork operation
+     * @param {Array<{prompt: string; allowed_uris: string[]; model?: string}>} subAgents - Sub-agent configurations
+     * @param {AbortSignal} [signal] - Optional abort signal for cancellation
+     * @returns {Promise<string>} Aggregated report from all sub-agents
+     * @throws {Error} If the operation is aborted
+     * @example
+     * const report = await orchestrator.requestFork(parentId, 'Task summary', [
+     *   { prompt: 'Process A', allowed_uris: ['/path'] },
+     *   { prompt: 'Process B', allowed_uris: ['/path'] }
+     * ]);
      */
     public async requestFork(
         parentId: string, 
@@ -84,7 +173,6 @@ export class AgentOrchestrator {
         subAgents: { prompt: string; allowed_uris: string[]; model?: string }[],
         signal?: AbortSignal
     ): Promise<string> {
-        
         return new Promise(async (resolve, reject) => {
             if (signal?.aborted) {
                 return reject(new Error('Operation aborted'));
@@ -102,21 +190,24 @@ export class AgentOrchestrator {
 
             this.activeForks.set(parentId, session);
 
-            // Create files and open windows
             for (const subAgent of subAgents) {
                 try {
                     const childUuid = uuidv4();
                     sessionChildUuids.add(childUuid);
-                    await this.createAndOpenAgent(childUuid, parentId, subAgent.prompt, subAgent.allowed_uris, subAgent.model);
+                    await this.createAndOpenAgent(
+                        childUuid, 
+                        parentId, 
+                        subAgent.prompt, 
+                        subAgent.allowed_uris, 
+                        subAgent.model
+                    );
                 } catch (e) {
                     console.error('Failed to create sub agent', e);
                 }
             }
 
-            // 更新 UI
             this.refreshUI();
             
-            // 挂起，等待 checkSessionCompletion 在未来被调用
             if (signal) {
                 signal.addEventListener('abort', () => {
                     this.cancelSession(parentId, 'User aborted execution');
@@ -125,9 +216,29 @@ export class AgentOrchestrator {
         });
     }
 
-    private async createAndOpenAgent(uuid: string, parentId: string, prompt: string, allowedUris: string[], model?: string) {
+    /**
+     * Creates a new sub-agent file and opens its notebook window.
+     * @private
+     * @param {string} uuid - UUID for the new agent
+     * @param {string} parentId - Parent agent ID
+     * @param {string} prompt - Initial prompt for the agent
+     * @param {string[]} allowedUris - Allowed URIs for the agent
+     * @param {string} [model] - Model identifier to use
+     * @returns {Promise<void>}
+     * @example
+     * await this.createAndOpenAgent(uuid, parentId, 'Process files', ['/workspace'], 'gpt-4');
+     */
+    private async createAndOpenAgent(
+        uuid: string, 
+        parentId: string, 
+        prompt: string, 
+        allowedUris: string[], 
+        model?: string
+    ): Promise<void> {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri;
-        if (!workspaceRoot) return;
+        if (!workspaceRoot) {
+            return;
+        }
 
         const folderUri = workspaceRoot.with({
             path: path.posix.join(workspaceRoot.path, '.mutsumi'),
@@ -136,19 +247,19 @@ export class AgentOrchestrator {
             path: path.posix.join(folderUri.path, `${uuid}.mtm`),
         });
 
-        // 确保目录存在
-        try { await vscode.workspace.fs.createDirectory(folderUri); } catch {}
+        try { 
+            await vscode.workspace.fs.createDirectory(folderUri); 
+        } catch {
+            // Directory may already exist
+        }
 
-        // 从配置读取默认模型和可用模型列表
         const config = vscode.workspace.getConfiguration('mutsumi');
         const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
         const availableModels = config.get<Record<string, string>>('models', {});
         const availableModelNames = Object.keys(availableModels);
 
-        // 使用传入的 model 参数（必须在可用列表中），否则使用默认模型
         const selectedModel = (model && availableModelNames.includes(model)) ? model : defaultModel;
 
-        // 准备内容
         const content: any = {
             metadata: {
                 uuid: uuid,
@@ -167,19 +278,17 @@ export class AgentOrchestrator {
         const encoded = new TextEncoder().encode(JSON.stringify(content, null, 2));
         await vscode.workspace.fs.writeFile(fileUri, encoded);
 
-        // Register in memory
         this.agentRegistry.set(uuid, {
             uuid,
             parentId,
             name: prompt.slice(0, 20),
             fileUri: fileUri.toString(),
-            isWindowOpen: true, // Will be opened immediately below
+            isWindowOpen: true,
             isRunning: false,
             isTaskFinished: false,
             prompt
         });
 
-        // Open window automatically
         try {
             const doc = await vscode.workspace.openNotebookDocument(fileUri);
             await vscode.window.showNotebookDocument(doc, {
@@ -192,7 +301,13 @@ export class AgentOrchestrator {
         }
     }
 
-    private cancelSession(parentId: string, reason: string) {
+    /**
+     * Cancels an active fork session.
+     * @private
+     * @param {string} parentId - Parent agent ID of the session to cancel
+     * @param {string} reason - Reason for cancellation
+     */
+    private cancelSession(parentId: string, reason: string): void {
         const session = this.activeForks.get(parentId);
         if (session) {
             session.reject(new Error(reason));
@@ -201,15 +316,20 @@ export class AgentOrchestrator {
         }
     }
 
-    // ================== 事件监听与状态更新 ==================
+    // ================== Event Notifications ==================
 
     /**
-     * 当文件被打开时调用 (Extension -> Orchestrator)
+     * Notifies that a notebook has been opened.
+     * @description Called when a notebook document is opened. Registers or updates
+     * the agent state in the registry.
+     * @param {string} uuid - Agent UUID
+     * @param {vscode.Uri} uri - Document URI
+     * @param {any} metadata - Notebook metadata
+     * @example
+     * orchestrator.notifyNotebookOpened(uuid, uri, metadata);
      */
-    public notifyNotebookOpened(uuid: string, uri: vscode.Uri, metadata: any) {
+    public notifyNotebookOpened(uuid: string, uri: vscode.Uri, metadata: any): void {
         let agent = this.agentRegistry.get(uuid);
-        
-        // Check if metadata says it's finished
         const isFinished = !!metadata?.is_task_finished;
 
         if (!agent) {
@@ -226,7 +346,6 @@ export class AgentOrchestrator {
         } else {
             agent.isWindowOpen = true;
             agent.fileUri = uri.toString();
-            // If we re-open and find it marked as finished, update state
             if (isFinished) {
                 agent.isTaskFinished = true;
             }
@@ -235,21 +354,28 @@ export class AgentOrchestrator {
     }
 
     /**
-     * 当文件被关闭时调用
+     * Notifies that a notebook has been closed.
+     * @description Updates the agent's window state. Finished sub-agents will be hidden.
+     * @param {string} uuid - Agent UUID
+     * @example
+     * orchestrator.notifyNotebookClosed(uuid);
      */
-    public notifyNotebookClosed(uuid: string) {
+    public notifyNotebookClosed(uuid: string): void {
         const agent = this.agentRegistry.get(uuid);
         if (agent) {
             agent.isWindowOpen = false;
-            // If it's a finished sub-agent, this will cause it to hide on next refresh
             this.refreshUI();
         }
     }
 
     /**
-     * 当 Agent 开始运行时调用 (Controller -> Orchestrator)
+     * Notifies that an agent has started running.
+     * @description Called by the controller when execution begins.
+     * @param {string} uuid - Agent UUID
+     * @example
+     * orchestrator.notifyAgentStarted(uuid);
      */
-    public notifyAgentStarted(uuid: string) {
+    public notifyAgentStarted(uuid: string): void {
         const agent = this.agentRegistry.get(uuid);
         if (agent) {
             agent.isRunning = true;
@@ -258,9 +384,13 @@ export class AgentOrchestrator {
     }
 
     /**
-     * 当 Agent 停止运行时调用
+     * Notifies that an agent has stopped running.
+     * @description Called by the controller when execution ends.
+     * @param {string} uuid - Agent UUID
+     * @example
+     * orchestrator.notifyAgentStopped(uuid);
      */
-    public notifyAgentStopped(uuid: string) {
+    public notifyAgentStopped(uuid: string): void {
         const agent = this.agentRegistry.get(uuid);
         if (agent) {
             agent.isRunning = false;
@@ -269,16 +399,23 @@ export class AgentOrchestrator {
     }
 
     /**
-     * 当 task_finish 工具被调用时
+     * Reports that a sub-agent task has finished.
+     * @description Called when the task_finish tool is invoked by a sub-agent.
+     * Stores the result and checks if all sub-agents in the fork session are complete.
+     * @param {string} childUuid - Child agent UUID
+     * @param {string} summary - Task completion summary
+     * @example
+     * orchestrator.reportTaskFinished(childUuid, 'Task completed successfully');
      */
-    public reportTaskFinished(childUuid: string, summary: string) {
+    public reportTaskFinished(childUuid: string, summary: string): void {
         const agent = this.agentRegistry.get(childUuid);
-        if (!agent) return;
+        if (!agent) {
+            return;
+        }
 
         agent.isTaskFinished = true;
         this.refreshUI();
 
-        // 如果它是某个 Fork 会话的子 Agent
         if (agent.parentId) {
             const session = this.activeForks.get(agent.parentId);
             if (session && session.childUuids.has(childUuid)) {
@@ -289,11 +426,15 @@ export class AgentOrchestrator {
     }
 
     /**
-     * 当文件被删除时调用 (Extension -> Orchestrator)
+     * Notifies that an agent file has been deleted.
+     * @description Removes the agent from the registry and updates any active fork sessions.
+     * @param {vscode.Uri} uri - URI of the deleted file
+     * @returns {Promise<void>}
+     * @example
+     * await orchestrator.notifyFileDeleted(uri);
      */
-    public async notifyFileDeleted(uri: vscode.Uri) {
+    public async notifyFileDeleted(uri: vscode.Uri): Promise<void> {
         const uriStr = uri.toString();
-        // 查找对应的 Agent
         let deletedUuid: string | undefined;
         for (const [uuid, agent] of this.agentRegistry.entries()) {
             if (agent.fileUri === uriStr) {
@@ -304,16 +445,12 @@ export class AgentOrchestrator {
 
         if (deletedUuid) {
             const agent = this.agentRegistry.get(deletedUuid)!;
-            
-            // 从注册表移除
             this.agentRegistry.delete(deletedUuid);
 
-            // 如果它是某个 Fork 的子 Agent，视为 Reject/Cancel
             if (agent.parentId) {
                 const session = this.activeForks.get(agent.parentId);
                 if (session && session.childUuids.has(deletedUuid)) {
                     session.deletedChildren.add(deletedUuid);
-                    // 尝试检查是否所有子任务都已处理完（无论完成还是删除）
                     this.checkSessionCompletion(agent.parentId);
                 }
             }
@@ -322,16 +459,19 @@ export class AgentOrchestrator {
         }
     }
 
-    private checkSessionCompletion(parentId: string) {
+    /**
+     * Checks if a fork session is complete and resolves the promise.
+     * @private
+     * @description Called when a child agent finishes or is deleted. If all children
+     * have been accounted for, generates the final report and resolves the session.
+     * @param {string} parentId - Parent agent ID of the session
+     */
+    private checkSessionCompletion(parentId: string): void {
         const session = this.activeForks.get(parentId);
-        if (!session) return;
+        if (!session) {
+            return;
+        }
 
-        const totalChildren = session.childUuids.size;
-        const finishedCount = session.results.size;
-        const deletedCount = session.deletedChildren.size;
-
-        // 检查所有子 Agent 是否都有了结果（不论是成功报告还是被删除）
-        // 注意：这里简单的逻辑是只要子 Agent 的集合中，每一个 UUID 要么在 results 里，要么在 deletedChildren 里
         let allAccountedFor = true;
         for (const childId of session.childUuids) {
             if (!session.results.has(childId) && !session.deletedChildren.has(childId)) {
@@ -341,15 +481,14 @@ export class AgentOrchestrator {
         }
 
         if (allAccountedFor) {
-            // 生成报告
             const successSummaries = Array.from(session.results.entries())
                 .map(([uuid, text]) => {
-                    const name = this.agentRegistry.get(uuid)?.name || uuid.slice(0,6);
+                    const name = this.agentRegistry.get(uuid)?.name || uuid.slice(0, 6);
                     return `### Sub-agent '${name}' Finished:\n${text}`;
                 });
             
             const deletedSummaries = Array.from(session.deletedChildren).map(uuid => {
-                return `### Sub-agent ${uuid.slice(0,6)} was deleted (Cancelled).`;
+                return `### Sub-agent ${uuid.slice(0, 6)} was deleted (Cancelled).`;
             });
 
             const finalReport = [...successSummaries, ...deletedSummaries].join('\n\n----------------\n\n');
@@ -361,15 +500,25 @@ export class AgentOrchestrator {
             }
             
             this.activeForks.delete(parentId);
-            // Parent will resume running automatically as the await returns
         }
     }
 
-    public getAgentById(uuid: string) {
+    /**
+     * Retrieves an agent by its UUID.
+     * @param {string} uuid - Agent UUID
+     * @returns {AgentStateInfo | undefined} The agent state info or undefined if not found
+     * @example
+     * const agent = orchestrator.getAgentById(uuid);
+     */
+    public getAgentById(uuid: string): AgentStateInfo | undefined {
         return this.agentRegistry.get(uuid);
     }
 
-    private refreshUI() {
+    /**
+     * Refreshes the sidebar UI.
+     * @private
+     */
+    private refreshUI(): void {
         if (this.sidebar) {
             this.sidebar.update();
         }

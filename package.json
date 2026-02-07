@@ -93,6 +93,12 @@
                 "title": "Regenerate Title",
                 "category": "Mutsumi",
                 "icon": "$(symbol-keyword)"
+            },
+            {
+                "command": "mutsumi.debugSystemPrompt",
+                "title": "Debug System Prompt",
+                "category": "Mutsumi",
+                "icon": "$(debug-console)"
             }
         ],
         "menus": {
@@ -140,6 +146,11 @@
                 {
                     "command": "mutsumi.regenerateTitle",
                     "group": "navigation@2",
+                    "when": "notebookType == mutsumi-notebook"
+                },
+                {
+                    "command": "mutsumi.debugSystemPrompt",
+                    "group": "navigation@3",
                     "when": "notebookType == mutsumi-notebook"
                 }
             ]
