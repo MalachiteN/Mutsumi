@@ -4,6 +4,7 @@ import { ToolManager } from './toolManager';
 import { AgentOrchestrator } from './agentOrchestrator';
 import { ToolContext, TerminationError } from './tools.d/interface';
 import { AgentMessage } from './types';
+import { generateTitle } from './utils';
 
 export interface AgentRunOptions {
     model: string;
@@ -117,7 +118,45 @@ export class AgentRunner {
             }
         }
         
+        if (this.isFirstCell(execution)) {
+            void this.generateTitleIfNeeded(messages);
+        }
+
         return newMessages;
+    }
+
+    private isFirstCell(execution: vscode.NotebookCellExecution): boolean {
+        const cells = this.notebook.getCells();
+        return cells.indexOf(execution.cell) === 0;
+    }
+
+    private async generateTitleIfNeeded(allMessages: AgentMessage[]) {
+        const config = vscode.workspace.getConfiguration('mutsumi');
+        const titleModel = config.get<string>('titleGeneratorModel');
+        const apiKey = config.get<string>('apiKey');
+        const baseUrl = config.get<string>('baseUrl');
+        
+        if (!titleModel || !apiKey) return;
+
+        try {
+            const title = await generateTitle(
+                allMessages,
+                apiKey,
+                baseUrl,
+                titleModel
+            );
+
+            const edit = new vscode.WorkspaceEdit();
+            const newMetadata = {
+                ...this.notebook.metadata,
+                name: title
+            };
+            const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
+            (edit as any).set(this.notebook.uri, [nbEdit]);
+            await vscode.workspace.applyEdit(edit);
+        } catch (error) {
+            console.error('Failed to generate notebook title:', error);
+        }
     }
 
     private async markNotebookAsFinished() {

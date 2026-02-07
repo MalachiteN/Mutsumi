@@ -21,7 +21,7 @@ export async function buildInteractionHistory(
     // 假设 workspaceFolder 获取逻辑 (简化版，取第一个)
     const wsUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : notebook.uri;
     
-    let systemPromptContent = await getSystemPrompt(wsUri, allowedUris);
+    let systemPromptContent = await getSystemPrompt(wsUri, allowedUris, isSubAgent);
 
     // Resolve @[] references in the current prompt and append to system prompt
     const contextInjection = await ContextResolver.resolveReferencesInText(currentPrompt, wsUri.fsPath, allowedUris);

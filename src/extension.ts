@@ -10,6 +10,17 @@ import { ReferenceCompletionProvider } from './notebook/completionProvider';
 import { CodebaseService } from './codebase/service';
 import { initializeRules } from './contextManagement/prompts';
 import { ImagePasteProvider } from './contextManagement/imagePasteProvider';
+import { generateTitle, sanitizeFileName, ensureUniqueFileName } from './utils';
+import { AgentMessage } from './types';
+
+async function fileExists(uri: vscode.Uri): Promise<boolean> {
+    try {
+        await vscode.workspace.fs.stat(uri);
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 export function activate(context: vscode.ExtensionContext) {
     // 0. Initialize Codebase Service
@@ -70,6 +81,49 @@ export function activate(context: vscode.ExtensionContext) {
                 if (uuid) {
                     AgentOrchestrator.getInstance().notifyNotebookClosed(uuid);
                 }
+            }
+        })
+    );
+
+    // 监听保存后自动重命名
+    let isAutoRenaming = false;
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveNotebookDocument(async doc => {
+            if (isAutoRenaming) return;
+            if (doc.notebookType !== 'mutsumi-notebook') return;
+            if (doc.uri.scheme !== 'file') return;
+
+            const name = doc.metadata?.name;
+            if (typeof name !== 'string' || !name.trim()) return;
+
+            const sanitizedName = sanitizeFileName(name);
+            if (!sanitizedName) return;
+
+            const currentBaseName = path.basename(
+                doc.uri.fsPath,
+                path.extname(doc.uri.fsPath)
+            );
+
+            if (sanitizedName === currentBaseName) return;
+
+            try {
+                const dir = path.dirname(doc.uri.fsPath);
+                let suffix = 0;
+                let candidate = sanitizedName;
+                let targetUri = vscode.Uri.file(path.join(dir, `${candidate}.mtm`));
+
+                while (await fileExists(targetUri)) {
+                    suffix += 1;
+                    candidate = `${sanitizedName}-${suffix}`;
+                    targetUri = vscode.Uri.file(path.join(dir, `${candidate}.mtm`));
+                }
+
+                isAutoRenaming = true;
+                await vscode.workspace.fs.rename(doc.uri, targetUri, { overwrite: false });
+            } catch (error) {
+                console.error('Failed to auto-rename notebook:', error);
+            } finally {
+                isAutoRenaming = false;
             }
         })
     );
@@ -182,6 +236,74 @@ export function activate(context: vscode.ExtensionContext) {
                 await vscode.workspace.applyEdit(edit);
                 
                 vscode.window.showInformationMessage(`Model changed to: ${selected.label}`);
+            }
+        })
+    );
+
+    // 重新生成标题命令
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.regenerateTitle', async () => {
+            const editor = vscode.window.activeNotebookEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('No active notebook editor.');
+                return;
+            }
+
+            // 确保是 mutsumi-notebook 类型
+            if (editor.notebook.notebookType !== 'mutsumi-notebook') {
+                vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
+                return;
+            }
+
+            // 1. 获取配置
+            const config = vscode.workspace.getConfiguration('mutsumi');
+            const apiKey = config.get<string>('apiKey');
+            const baseUrl = config.get<string>('baseUrl');
+            const titleModel = config.get<string>('titleGeneratorModel') || config.get<string>('defaultModel');
+
+            if (!apiKey) {
+                vscode.window.showErrorMessage('Please set mutsumi.apiKey in VSCode Settings.');
+                return;
+            }
+
+            if (!titleModel) {
+                vscode.window.showErrorMessage('Please set mutsumi.titleGeneratorModel or mutsumi.defaultModel in VSCode Settings.');
+                return;
+            }
+
+            // 2. 从 notebook 中提取所有消息（context）
+            const messages: AgentMessage[] = [];
+            for (const cell of editor.notebook.getCells()) {
+                if (cell.kind === vscode.NotebookCellKind.Code) {
+                    // 用户消息
+                    messages.push({ role: 'user', content: cell.document.getText() });
+                    // 检查是否有交互记录
+                    if (cell.metadata?.mutsumi_interaction) {
+                        messages.push(...(cell.metadata.mutsumi_interaction as AgentMessage[]));
+                    }
+                }
+            }
+
+            if (messages.length === 0) {
+                vscode.window.showWarningMessage('No conversation context found.');
+                return;
+            }
+
+            // 3. 调用 generateTitle 生成标题
+            try {
+                const title = await generateTitle(messages, apiKey, baseUrl, titleModel);
+
+                // 4. 更新 notebook metadata
+                const edit = new vscode.WorkspaceEdit();
+                const newMetadata = { ...editor.notebook.metadata, name: title };
+                const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
+                edit.set(editor.notebook.uri, [nbEdit]);
+                await vscode.workspace.applyEdit(edit);
+
+                vscode.window.showInformationMessage(`Title regenerated: ${title}`);
+            } catch (error) {
+                console.error('Failed to regenerate title:', error);
+                vscode.window.showErrorMessage(`Failed to regenerate title: ${error}`);
             }
         })
     );
