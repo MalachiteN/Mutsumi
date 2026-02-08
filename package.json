@@ -99,6 +99,12 @@
                 "title": "Debug System Prompt",
                 "category": "Mutsumi",
                 "icon": "$(debug-console)"
+            },
+            {
+                "command": "mutsumi.recompileSkills",
+                "title": "Recompile All Skills",
+                "category": "Mutsumi",
+                "icon": "$(refresh)"
             }
         ],
         "menus": {
@@ -123,12 +129,12 @@
                 {
                     "command": "mutsumi.copyReference",
                     "group": "mutsumi-group",
-                    "when": "editorHasSelection" 
+                    "when": "editorHasSelection"
                 },
                 {
-                     "command": "mutsumi.copyReference",
-                     "group": "mutsumi-group",
-                     "when": "!editorHasSelection"
+                    "command": "mutsumi.copyReference",
+                    "group": "mutsumi-group",
+                    "when": "!editorHasSelection"
                 }
             ],
             "explorer/context": [
@@ -152,6 +158,11 @@
                     "command": "mutsumi.debugSystemPrompt",
                     "group": "navigation@3",
                     "when": "notebookType == mutsumi-notebook"
+                },
+                {
+                    "command": "mutsumi.recompileSkills",
+                    "group": "navigation@4",
+                    "when": "notebookType == mutsumi-notebook"
                 }
             ]
         },
@@ -174,10 +185,10 @@
                         "type": "string"
                     },
                     "default": {
-                        "stepfun/step-3.5-flash":  "速度超快，有时有幻觉，只适合非重要任务，如执行非常具体的指令、修改简单的配置文件等" ,
-                        "moonshotai/kimi-k2.5": "最泛用，经济性好，非常适合普通编码任务或作为子模块进一步拆分的调度者" ,
-                        "google/gemini-3-pro-preview": "超贵，但智能极高、上下文窗口大，适合无法分解、非常复杂的任务，或开始新项目前为整个项目设计长远架构和开发计划" ,
-                        "openai/gpt-5.2-codex": "较贵，但智能较高、上下文窗口较大，适合较复杂的编码任务、无法分解的复杂任务" ,
+                        "stepfun/step-3.5-flash": "速度超快，有时有幻觉，只适合非重要任务，如执行非常具体的指令、修改简单的配置文件等",
+                        "moonshotai/kimi-k2.5": "最泛用，经济性好，非常适合普通编码任务或作为子模块进一步拆分的调度者",
+                        "google/gemini-3-pro-preview": "超贵，但智能极高、上下文窗口大，适合无法分解、非常复杂的任务，或开始新项目前为整个项目设计长远架构和开发计划",
+                        "openai/gpt-5.2-codex": "较贵，但智能较高、上下文窗口较大，适合较复杂的编码任务、无法分解的复杂任务",
                         "anthropic/claude-haiku-4.5": "较贵，适合阅读代码库、生成可信度高的模块概览或文档"
                     },
                     "description": "List of available AI models with labels. Key is model name, value contains label."
@@ -210,10 +221,11 @@
     },
     "dependencies": {
         "@types/diff": "^8.0.0",
+        "@types/vscode": "^1.108.1",
         "diff": "^8.0.3",
-        "web-tree-sitter": "^0.22.2",
+        "gray-matter": "^4.0.3",
         "openai": "^6.17.0",
         "uuid": "^9.0.1",
-        "@types/vscode": "^1.108.1"
+        "web-tree-sitter": "^0.22.2"
     }
 }

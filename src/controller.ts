@@ -20,7 +20,7 @@ import { AgentOrchestrator } from './agentOrchestrator';
  */
 export class AgentController {
     /** Tool manager instance for providing tools to agents */
-    private tools = new ToolManager();
+    private tools = ToolManager.getInstance();
     /** Execution order counter for tracking cell execution sequence */
     private executionOrder = 0;
 

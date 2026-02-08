@@ -18,6 +18,7 @@ import { gitCmdTool } from './tools.d/git_cmd';
 import { selfForkTool, taskFinishTool, getAvailableModelsTool } from './tools.d/agent_control';
 import { projectOutlineTool } from './tools.d/project_outline';
 import { getWarningErrorTool } from './tools.d/get_warning_error';
+import { SkillManager } from './skillManager';
 
 import OpenAI from 'openai';
 
@@ -29,6 +30,7 @@ import OpenAI from 'openai';
  * @class ToolManager
  * @example
  * const toolManager = new ToolManager();
+ * await toolManager.loadSkills();
  * const definitions = toolManager.getToolsDefinitions(false);
  * const result = await toolManager.executeTool('read_file', args, context, false);
  */
@@ -66,6 +68,8 @@ export class ToolManager {
             ToolManager.instance = this;
         }
         this.registerAllTools();
+        // Fire and forget skill loading
+        this.loadSkills().catch(err => console.error('Failed to load skills:', err));
     }
 
     /**
@@ -132,9 +136,17 @@ export class ToolManager {
     }
 
     /**
+     * Loads dynamic skills from the workspace.
+     * @returns {Promise<void>}
+     */
+    public async loadSkills(): Promise<void> {
+        await SkillManager.getInstance().loadSkills();
+    }
+
+    /**
      * Gets tool definitions formatted for OpenAI API.
      * @description Returns tool definitions filtered by agent type.
-     * Main agents get common + main-only tools, sub-agents get common + sub-only tools.
+     * Main agents get common + main-only tools + skills, sub-agents get common + sub-only tools + skills.
      * @param {boolean} isSubAgent - Whether requesting for a sub-agent
      * @returns {OpenAI.Chat.ChatCompletionTool[]} Array of tool definitions
      * @example
@@ -142,9 +154,11 @@ export class ToolManager {
      * // Returns definitions for main agent
      */
     public getToolsDefinitions(isSubAgent: boolean): OpenAI.Chat.ChatCompletionTool[] {
+        const skillTools = SkillManager.getInstance().getTools();
         const tools: ITool[] = [
             ...this.commonTools.values(),
-            ...(isSubAgent ? this.subOnlyTools.values() : this.mainOnlyTools.values())
+            ...(isSubAgent ? this.subOnlyTools.values() : this.mainOnlyTools.values()),
+            ...skillTools
         ];
         return tools.map(t => t.definition);
     }
@@ -180,6 +194,12 @@ export class ToolManager {
             } else {
                 tool = this.mainOnlyTools.get(name);
             }
+        }
+
+        if (!tool) {
+            // Check skills
+            const skillTools = SkillManager.getInstance().getTools();
+            tool = skillTools.find(s => s.name === name);
         }
 
         if (!tool) {

@@ -154,16 +154,22 @@ export function checkAccess(targetUri: vscode.Uri, allowedUris: string[]): boole
     for (const allowed of allowedUris) {
         if (allowed === '/') return true;
         
+        let allowedUri: vscode.Uri;
         let allowedPath: string;
         try {
-            // If it looks like a URI scheme, parse it to get fsPath
+            // If it looks like a URI scheme, parse it
             if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(allowed)) {
-                allowedPath = vscode.Uri.parse(allowed).fsPath;
+                allowedUri = vscode.Uri.parse(allowed);
+            } else if (allowed.startsWith('/') || /^[a-zA-Z]:[\\\/]/.test(allowed)) {
+                // Absolute path
+                allowedUri = vscode.Uri.file(allowed);
             } else {
-                // Otherwise treat as file path
-                allowedPath = allowed;
+                // Relative path - resolve it the same way as targetUri
+                allowedUri = resolveUri(allowed);
             }
+            allowedPath = allowedUri.fsPath;
         } catch {
+            // Fallback: treat as-is
             allowedPath = allowed;
         }
 
