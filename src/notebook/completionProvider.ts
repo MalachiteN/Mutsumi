@@ -98,7 +98,7 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
                 const paramNames = Object.keys(properties);
 
                 if (paramNames.length === 0) {
-                    item.insertText = `[${name},{}]`;
+                    item.insertText = `[${name}{}]`;
                 } else {
                     const snippets: string[] = [];
                     paramNames.forEach((paramName) => {

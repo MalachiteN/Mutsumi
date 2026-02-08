@@ -26,6 +26,8 @@ export interface AgentMetadata {
     contextItems?: ContextItem[];
     /** Persisted macro definitions (macro name to macro value mapping) */
     macroContext?: Record<string, string>;
+    /** List of sub-agent UUIDs created by this agent */
+    sub_agents_list?: string[];
 }
 
 /**
@@ -135,6 +137,9 @@ export interface AgentStateInfo {
     
     /** Cached prompt text for the agent */
     prompt?: string;
+    
+    /** Set of child agent UUIDs for building the tree structure */
+    childIds?: Set<string>;
 }
 
 /**

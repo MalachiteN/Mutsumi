@@ -14,6 +14,7 @@
 
 ```typescript
 interface EditSession {
+    id: string;
     resolve: (value: string) => Promise<void>;
     reject: (reason: any) => void;
     originalUri: vscode.Uri;
@@ -23,6 +24,7 @@ interface EditSession {
 
 | 属性 | 类型 | 描述 |
 |------|------|------|
+| `id` | `string` | 会话唯一标识符 |
 | `resolve` | `function` | 完成编辑会话的 Promise 解析函数 |
 | `reject` | `function` | 拒绝编辑会话的 Promise 拒绝函数 |
 | `originalUri` | `vscode.Uri` | 原始文件的 URI |
@@ -50,6 +52,20 @@ interface EditSession {
 | `diffReview.action.reject` | 拒绝修改，放弃变更 | 点击 CodeLens 的 Reject 按钮 |
 | `diffReview.action.partiallyAccept` | 应用修改后切换到标准编辑模式 | 点击 Partially Accept 按钮 |
 | `diffReview.action.continueGenerate` | 完成手动编辑，生成反馈报告 | 点击 Continue Mutsumi Generate 按钮 |
+| `mutsumi.reopenEditDiff` | 从侧边栏重新打开 Diff 编辑器 | 侧边栏操作 |
+
+---
+
+### `mutsumi.reopenEditDiff` 命令
+
+从侧边栏重新打开编辑会话的 Diff 编辑器。
+
+**支持两种模式：**
+
+| 会话状态 | 行为 |
+|----------|------|
+| `pending` | 重新打开 Diff 视图，显示 Accept/Partially Accept/Reject 按钮 |
+| `partially_accepted` | 打开标准编辑器，显示 Continue 按钮 |
 
 ---
 
@@ -74,7 +90,7 @@ interface EditSession {
 4. 检查是否存在同文件的进行中的会话，如有则取消
 5. 创建临时文件 URI
 6. 定义操作按钮（Accept / Partially Accept / Reject）
-7. 注册编辑会话
+7. 使用 editFileSessionManager.addSession() 注册会话
 8. 添加中止信号监听器
 9. 启动 Diff 视图
 10. 返回 Promise，等待用户操作
@@ -89,15 +105,26 @@ interface EditSession {
 | Partially Accept | 应用修改，切换到标准编辑器，显示"继续生成"按钮 |
 | Continue Generate | 生成用户修改与 AI 提案的 Diff，返回反馈消息 |
 
+**错误处理：**
+- 当发生错误时，调用 `cleanupSession()` 并解析会话
+
 ---
 
-### `cleanupSession(filePath): void`
+### `cleanupSession(filePath, resolveManagerSession?): void`
 
 清理编辑会话的资源。
+
+**参数：**
+
+| 参数 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `filePath` | `string` | - | 文件路径，用于标识会话 |
+| `resolveManagerSession` | `boolean` | `true` | 是否解析会话管理器中的会话 |
 
 **清理内容：**
 - 清除 CodeLens 操作按钮
 - 从 `activeSessions` Map 中移除会话
+- 调用 `editFileSessionManager.resolveSession(session.id)` 解析会话管理器中的会话
 - 删除临时文件
 
 ---
@@ -145,7 +172,7 @@ interface EditSession {
 | `path` | 路径处理 |
 | `diff` | 生成文件差异对比 |
 | `interface.ts` | ToolContext、TerminationError |
-| `utils.ts` | resolveUri、checkAccess |
+| `utils.ts` | resolveUri、checkAccess、editFileSessionManager |
 | `edit_codelens_provider.ts` | DiffReviewAgent |
 | `edit_codelens_types.ts` | DiffCodeLensAction |
 

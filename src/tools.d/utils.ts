@@ -56,6 +56,41 @@ class ApprovalRequestManager {
         });
     }
 
+    /**
+     * Create a request and return both the ID and the promise.
+     * This allows the caller to set up additional handling (e.g., notification buttons)
+     * before awaiting the result.
+     */
+    public createRequest(actionDescription: string, targetUri: string, details?: string): { id: string; promise: Promise<boolean> } {
+        let resolveFn: (approved: boolean) => void;
+        const promise = new Promise<boolean>((resolve) => {
+            resolveFn = resolve;
+        });
+
+        const id = uuidv4();
+        const request: ApprovalRequest = {
+            id,
+            actionDescription,
+            targetUri,
+            details,
+            timestamp: new Date(),
+            status: 'pending',
+            resolve: (approved: boolean) => {
+                request.status = approved ? 'approved' : 'rejected';
+                // 短暂延迟后移除，让用户看到状态变化
+                setTimeout(() => {
+                    this.requests.delete(id);
+                    this._onDidChangeRequests.fire();
+                }, 1000);
+                resolveFn(approved);
+            }
+        };
+        this.requests.set(id, request);
+        this._onDidChangeRequests.fire();
+
+        return { id, promise };
+    }
+
     public approveRequest(id: string): void {
         const request = this.requests.get(id);
         if (request && request.status === 'pending') {
@@ -85,6 +120,89 @@ class ApprovalRequestManager {
 
 export const approvalManager = ApprovalRequestManager.getInstance();
 
+// ====== Edit File Session Management ======
+
+export interface EditFileSession {
+    id: string;
+    filePath: string;
+    originalUri: vscode.Uri;
+    tempUri: vscode.Uri;
+    toolName: string;
+    timestamp: Date;
+    status: 'pending' | 'partially_accepted' | 'resolved';
+}
+
+class EditFileSessionManager {
+    private static instance: EditFileSessionManager;
+    private sessions: Map<string, EditFileSession> = new Map();
+    private _onDidChangeSessions = new vscode.EventEmitter<void>();
+    public readonly onDidChangeSessions = this._onDidChangeSessions.event;
+
+    private constructor() {}
+
+    public static getInstance(): EditFileSessionManager {
+        if (!EditFileSessionManager.instance) {
+            EditFileSessionManager.instance = new EditFileSessionManager();
+        }
+        return EditFileSessionManager.instance;
+    }
+
+    public addSession(session: Omit<EditFileSession, 'id' | 'timestamp' | 'status'>): string {
+        const id = uuidv4();
+        const fullSession: EditFileSession = {
+            ...session,
+            id,
+            timestamp: new Date(),
+            status: 'pending'
+        };
+        this.sessions.set(id, fullSession);
+        this._onDidChangeSessions.fire();
+        return id;
+    }
+
+    public markPartiallyAccepted(id: string): void {
+        const session = this.sessions.get(id);
+        if (session) {
+            session.status = 'partially_accepted';
+            this._onDidChangeSessions.fire();
+        }
+    }
+
+    public resolveSession(id: string): void {
+        const session = this.sessions.get(id);
+        if (session) {
+            session.status = 'resolved';
+            // 短暂延迟后移除，让用户看到状态变化
+            setTimeout(() => {
+                this.sessions.delete(id);
+                this._onDidChangeSessions.fire();
+            }, 1000);
+        }
+    }
+
+    public getSession(id: string): EditFileSession | undefined {
+        return this.sessions.get(id);
+    }
+
+    public getActiveSessions(): EditFileSession[] {
+        return Array.from(this.sessions.values())
+            .filter(s => s.status !== 'resolved')
+            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    }
+
+    public getAllSessions(): EditFileSession[] {
+        return Array.from(this.sessions.values())
+            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    }
+
+    public removeSession(id: string): void {
+        this.sessions.delete(id);
+        this._onDidChangeSessions.fire();
+    }
+}
+
+export const editFileSessionManager = EditFileSessionManager.getInstance();
+
 /**
  * Request user approval for a potentially dangerous operation.
  * Shows a notification and adds a request to the approval sidebar.
@@ -107,17 +225,29 @@ export async function requestApproval(
             `Agent wants to: **${actionDescription}**\n` +
             `Target: \`${targetUri}\`\n` +
             (details ? `Details: ${details}\n` : '') +
-            `\n_Please check the Mutsumi sidebar to approve or reject this request._\n`
+            `\n_Please check the Mutsumi sidebar or notification to approve or reject this request._\n`
         );
     }
 
-    // 显示非模态通知（不带按钮）
-    vscode.window.showInformationMessage(
-        `Mutsumi: Agent requests permission to ${actionDescription}. Check sidebar to respond.`
-    );
+    // 创建请求并获取 ID 和 Promise
+    const { id, promise: requestPromise } = approvalManager.createRequest(actionDescription, targetUri, details);
 
-    // 添加到授权管理器并等待用户响应
-    const approved = await approvalManager.addRequest(actionDescription, targetUri, details);
+    // 显示带有快速批准/拒绝按钮的通知
+    vscode.window.showInformationMessage(
+        `Mutsumi: Agent requests permission to ${actionDescription}`,
+        '✅ Approve',
+        '❌ Reject'
+    ).then(selection => {
+        if (selection === '✅ Approve') {
+            approvalManager.approveRequest(id);
+        } else if (selection === '❌ Reject') {
+            approvalManager.rejectRequest(id);
+        }
+        // 如果用户关闭通知而不点击按钮，请求仍保留在侧边栏等待处理
+    });
+
+    // 等待用户响应（通过通知按钮或侧边栏）
+    const approved = await requestPromise;
 
     // 更新 Notebook 输出
     if (context.appendOutput) {

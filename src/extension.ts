@@ -82,12 +82,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // 4. Event Listeners for Agent Lifecycle
     context.subscriptions.push(
-        vscode.workspace.onDidOpenNotebookDocument(doc => {
+        vscode.workspace.onDidOpenNotebookDocument(async doc => {
             if (doc.notebookType === 'mutsumi-notebook') {
                 const uuid = doc.metadata.uuid;
                 const model = doc.metadata.model;
                 if (uuid) {
-                    AgentOrchestrator.getInstance().notifyNotebookOpened(uuid, doc.uri, {
+                    await AgentOrchestrator.getInstance().notifyNotebookOpened(uuid, doc.uri, {
                         ...doc.metadata,
                         model: model
                     });
@@ -166,8 +166,8 @@ export function activate(context: vscode.ExtensionContext): void {
     const watcher = vscode.workspace.createFileSystemWatcher('**/*.mtm');
     context.subscriptions.push(watcher);
     context.subscriptions.push(
-        watcher.onDidDelete((uri) => {
-            AgentOrchestrator.getInstance().notifyFileDeleted(uri);
+        watcher.onDidDelete(async (uri) => {
+            await AgentOrchestrator.getInstance().notifyFileDeleted(uri);
         })
     );
 
@@ -275,8 +275,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
             });
             
             if (selected) {
+                // Read file to get complete metadata (editor.notebook.metadata may not contain custom fields)
+                const content = await vscode.workspace.fs.readFile(editor.notebook.uri);
+                const raw = JSON.parse(new TextDecoder().decode(content));
+                
                 const edit = new vscode.WorkspaceEdit();
-                const newMetadata = { ...editor.notebook.metadata, model: selected.label };
+                const newMetadata = { ...raw.metadata, model: selected.label };
                 const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
                 edit.set(editor.notebook.uri, [nbEdit]);
                 await vscode.workspace.applyEdit(edit);
@@ -333,8 +337,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
             try {
                 const title = await generateTitle(messages, apiKey, baseUrl, titleModel);
 
+                // Read file to get complete metadata (editor.notebook.metadata may not contain custom fields)
+                const content = await vscode.workspace.fs.readFile(editor.notebook.uri);
+                const raw = JSON.parse(new TextDecoder().decode(content));
+
                 const edit = new vscode.WorkspaceEdit();
-                const newMetadata = { ...editor.notebook.metadata, name: title };
+                const newMetadata = { ...raw.metadata, name: title };
                 const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
                 edit.set(editor.notebook.uri, [nbEdit]);
                 await vscode.workspace.applyEdit(edit);

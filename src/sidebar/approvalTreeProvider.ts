@@ -1,56 +1,66 @@
 import * as vscode from 'vscode';
-import { ApprovalTreeItem } from './approvalTreeItem';
-import { approvalManager, ApprovalRequest } from '../tools.d/utils';
+import { ApprovalTreeItem, EditFileTreeItem } from './approvalTreeItem';
+import { approvalManager, editFileSessionManager } from '../tools.d/utils';
+
+/**
+ * Union type for tree items in the approval sidebar
+ */
+export type ApprovalSidebarItem = ApprovalTreeItem | EditFileTreeItem;
 
 /**
  * @description Approval request tree data provider, implements VSCode TreeDataProvider interface
- * Responsible for managing the list of approval requests for tool calls, works with approvalManager
+ * Responsible for managing the list of approval requests and edit file sessions, works with approvalManager and editFileSessionManager
  * @class ApprovalTreeDataProvider
- * @implements {vscode.TreeDataProvider<ApprovalTreeItem>}
+ * @implements {vscode.TreeDataProvider<ApprovalSidebarItem>}
  * @example
  * const provider = new ApprovalTreeDataProvider();
  * vscode.window.createTreeView('mutsumi.approvalSidebar', { treeDataProvider: provider });
  */
-export class ApprovalTreeDataProvider implements vscode.TreeDataProvider<ApprovalTreeItem> {
+export class ApprovalTreeDataProvider implements vscode.TreeDataProvider<ApprovalSidebarItem> {
     /** @description Tree data change event emitter for triggering view refresh */
-    private _onDidChangeTreeData = new vscode.EventEmitter<ApprovalTreeItem | undefined | null>();
-    
+    private _onDidChangeTreeData = new vscode.EventEmitter<ApprovalSidebarItem | undefined | null>();
+
     /** @description Tree data change event that VSCode subscribes to for view updates */
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
     /**
      * @description Creates approval request data provider instance
-     * Automatically subscribes to approvalManager's request change events to maintain data synchronization
+     * Automatically subscribes to approvalManager's and editFileSessionManager's change events to maintain data synchronization
      */
     constructor() {
         approvalManager.onDidChangeRequests(() => {
+            this.refresh();
+        });
+        editFileSessionManager.onDidChangeSessions(() => {
             this.refresh();
         });
     }
 
     /**
      * @description Gets the tree item for the specified element
-     * @param {ApprovalTreeItem} element - The tree node to get
+     * @param {ApprovalSidebarItem} element - The tree node to get
      * @returns {vscode.TreeItem} Corresponding VSCode tree item
      */
-    getTreeItem(element: ApprovalTreeItem): vscode.TreeItem {
+    getTreeItem(element: ApprovalSidebarItem): vscode.TreeItem {
         return element;
     }
 
     /**
      * @description Gets child nodes of the specified element
-     * @param {ApprovalTreeItem} [element] - Parent node, approval requests are a flat list, always returns empty array
-     * @returns {Thenable<ApprovalTreeItem[]>} Promise of child node array
+     * @param {ApprovalSidebarItem} [element] - Parent node, this is a flat list, always returns empty array for children
+     * @returns {Thenable<ApprovalSidebarItem[]>} Promise of child node array
      * @example
      * const children = await provider.getChildren(item); // Returns []
-     * const allRequests = await provider.getChildren(); // Returns all approval requests
+     * const allItems = await provider.getChildren();  // Returns all approval requests and edit file sessions
      */
-    getChildren(element?: ApprovalTreeItem): Thenable<ApprovalTreeItem[]> {
+    getChildren(element?: ApprovalSidebarItem): Thenable<ApprovalSidebarItem[]> {
         if (element) {
             return Promise.resolve([]);
         }
 
-        // Get all requests, pending status first, same status sorted by time in descending order
+        const items: ApprovalSidebarItem[] = [];
+
+        // Get all approval requests
         const requests = approvalManager.getAllRequests();
         requests.sort((a, b) => {
             // Pending status requests are displayed first
@@ -59,8 +69,13 @@ export class ApprovalTreeDataProvider implements vscode.TreeDataProvider<Approva
             // Under the same status, newer requests are listed first
             return b.timestamp.getTime() - a.timestamp.getTime();
         });
+        items.push(...requests.map(r => new ApprovalTreeItem(r)));
 
-        return Promise.resolve(requests.map(r => new ApprovalTreeItem(r)));
+        // Get all active edit file sessions
+        const sessions = editFileSessionManager.getActiveSessions();
+        items.push(...sessions.map(s => new EditFileTreeItem(s)));
+
+        return Promise.resolve(items);
     }
 
     /**

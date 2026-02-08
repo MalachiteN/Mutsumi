@@ -11,8 +11,9 @@
 ```
 extension.ts (入口)
     ├── controller.ts (单元格执行控制)
-    ├── agentOrchestrator.ts (Agent调度)
-    │       └── agentRunner.ts (Agent运行)
+    ├── agentOrchestrator.ts (Agent调度与树结构管理)
+    │       ├── agentRunner.ts (Agent运行)
+    │       └── Agent树结构 (parentId/childIds/sub_agents_list)
     ├── toolManager.ts (工具管理)
     │       └── skillManager.ts (动态技能管理)
     ├── types.ts (类型定义)
@@ -25,7 +26,7 @@ extension.ts (入口)
 |------|----------|
 | extension.ts | 插件主入口，注册6个命令，处理activate/deactivate |
 | controller.ts | AgentController类，管理Notebook单元格执行生命周期 |
-| agentOrchestrator.ts | AgentOrchestrator单例，管理Agent生命周期、fork会话、UI状态 |
+| agentOrchestrator.ts | AgentOrchestrator单例，管理Agent生命周期、fork会话、UI状态，维护Agent树结构（parentId/childIds/sub_agents_list） |
 | agentRunner.ts | AgentRunner类，处理流式响应、工具调用解析、UI更新 |
 | toolManager.ts | ToolManager类，管理19个内置工具的注册和执行，支持主/子agent权限控制 |
 | skillManager.ts | SkillManager类，管理基于 Markdown 的动态技能工具发现、编译与执行 |
@@ -41,7 +42,7 @@ extension.ts (入口)
 - `ExecutionStatus` - 执行状态枚举
 
 ### 类
-- `AgentOrchestrator` - Agent调度器（单例）
+- `AgentOrchestrator` - Agent调度器（单例），管理Agent树结构
 - `AgentRunner` - Agent运行器
 - `AgentController` - 单元格执行控制器
 - `ToolManager` - 工具管理器（单例）

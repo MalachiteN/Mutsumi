@@ -83,7 +83,10 @@ public getAgentTreeNodes(): AgentStateInfo[]
 
 **返回值**: `AgentStateInfo[]` - 要在侧边栏显示的 Agent 节点数组
 
-**过滤规则**:
+**说明**:
+- 现在显示整个树（如果树中任何节点窗口打开），而不是单独过滤每个 Agent
+- 获取所有 Agent，按根 Agent 分组
+- 对于每棵树，如果树中有任何窗口打开，则整棵树可见
 - 窗口已关闭的已完成子 Agent 会被隐藏
 - 窗口已关闭且未运行的隐藏父 Agent 会被隐藏
 - 窗口打开但未运行的待机父 Agent 会显示
@@ -138,7 +141,7 @@ public async requestFork(
 通知 Notebook 已被打开。
 
 ```typescript
-public notifyNotebookOpened(uuid: string, uri: vscode.Uri, metadata: any): void
+public async notifyNotebookOpened(uuid: string, uri: vscode.Uri, metadata: any): Promise<void>
 ```
 
 **参数**:
@@ -146,7 +149,11 @@ public notifyNotebookOpened(uuid: string, uri: vscode.Uri, metadata: any): void
 - `uri` - 文档 URI
 - `metadata` - Notebook 元数据
 
-**说明**: 在 Notebook 文档打开时调用，在注册表中注册或更新 Agent 状态。
+**说明**: 
+- 在 Notebook 文档打开时调用，在注册表中注册或更新 Agent 状态
+- 现在为异步方法，加载整个树和祖先
+- 如果 metadata 中包含父 ID，则递归加载整个祖先链
+- 加载子 Agent 树，确保整棵树的 Agent 都在注册表中
 
 ##### notifyNotebookClosed()
 
@@ -212,7 +219,12 @@ public async notifyFileDeleted(uri: vscode.Uri): Promise<void>
 **参数**:
 - `uri` - 被删除文件的 URI
 
-**说明**: 从注册表中移除 Agent 并更新任何活跃的 fork 会话。
+**说明**: 
+- 从注册表中移除 Agent 并更新任何活跃的 fork 会话
+- 现在清理双向引用：
+  - 从父节点的 `childIds` 中移除该 Agent 的 UUID
+  - 从父节点的 `sub_agents_list` 中移除对应条目
+  - 将该 Agent 的所有子节点的 `parentId` 设为 null
 
 ##### getAgentById()
 
@@ -247,6 +259,8 @@ private async createAndOpenAgent(
 - 在工作区 `.mutsumi` 目录下创建 `.mtm` 文件
 - 使用配置中的默认模型（如果未指定模型）
 - 在文件中写入元数据和初始上下文
+- 现在写入 `sub_agents_list` 到 metadata（初始为空数组）
+- 更新父节点的 `childIds`，将新创建的子 Agent UUID 添加进去
 
 ##### cancelSession()
 
@@ -273,6 +287,97 @@ private checkSessionCompletion(parentId: string): void
 ```typescript
 private refreshUI(): void
 ```
+
+##### getRootId()
+
+获取树的根 Agent ID，通过遍历父指针。
+
+```typescript
+private getRootId(uuid: string): string
+```
+
+**参数**:
+- `uuid` - Agent UUID
+
+**返回值**: `string` - 根 Agent 的 UUID
+
+**说明**: 沿着 `parentId` 链向上遍历，直到找到没有父节点的根 Agent。
+
+##### hasAnyWindowOpenInTree()
+
+检查树中是否有任何 Agent 窗口打开。
+
+```typescript
+private hasAnyWindowOpenInTree(rootId: string): boolean
+```
+
+**参数**:
+- `rootId` - 树根 Agent 的 UUID
+
+**返回值**: `boolean` - 如果树中任何 Agent 窗口打开则返回 true
+
+**说明**: 遍历以 rootId 为根的整棵树，检查是否有任何 Agent 的窗口处于打开状态。
+
+##### loadAgentFromFile()
+
+从文件加载 Agent。
+
+```typescript
+private async loadAgentFromFile(uuid: string): Promise<AgentStateInfo | undefined>
+```
+
+**参数**:
+- `uuid` - Agent UUID
+
+**返回值**: `Promise<AgentStateInfo | undefined>` - Agent 状态信息，如果文件不存在则返回 undefined
+
+**说明**: 从 `.mutsumi` 目录下的 `.mtm` 文件读取 Agent 的 metadata 并构建 AgentStateInfo 对象。
+
+##### loadAgentTree()
+
+递归加载整个 Agent 树。
+
+```typescript
+private async loadAgentTree(uuid: string, visited?: Set<string>): Promise<void>
+```
+
+**参数**:
+- `uuid` - 当前 Agent 的 UUID
+- `visited` - 可选，已访问的 UUID 集合，用于防止循环引用
+
+**说明**: 
+- 递归加载指定 Agent 及其所有后代
+- 使用 visited 集合防止循环引用导致的无限递归
+- 将所有加载的 Agent 添加到注册表中
+
+##### updateAgentParentInFile()
+
+更新文件中 Agent 的父引用。
+
+```typescript
+private async updateAgentParentInFile(uuid: string, newParentId: string | null): Promise<void>
+```
+
+**参数**:
+- `uuid` - Agent UUID
+- `newParentId` - 新的父 Agent UUID，null 表示移除父引用
+
+**说明**: 更新 `.mtm` 文件中 Agent 的 `parentId` 字段。
+
+##### updateParentSubAgentsList()
+
+更新父 Agent 的 sub_agents_list。
+
+```typescript
+private async updateParentSubAgentsList(parentUuid: string): Promise<void>
+```
+
+**参数**:
+- `parentUuid` - 父 Agent 的 UUID
+
+**说明**: 
+- 根据当前注册表中的 childIds 重新构建 sub_agents_list
+- 更新父 Agent 对应的 `.mtm` 文件中的 metadata
 
 ## 使用示例
 

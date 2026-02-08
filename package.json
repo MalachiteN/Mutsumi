@@ -111,6 +111,12 @@
                 "title": "View Context Items",
                 "category": "Mutsumi",
                 "icon": "$(list-unordered)"
+            },
+            {
+                "command": "mutsumi.reopenEditDiff",
+                "title": "Reopen Diff Editor",
+                "category": "Mutsumi",
+                "icon": "$(git-compare)"
             }
         ],
         "menus": {
