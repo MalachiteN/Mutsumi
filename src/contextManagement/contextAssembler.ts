@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TextDecoder } from 'util';
+const matter = require('gray-matter');
 import { ToolManager } from '../toolManager';
 import { ToolContext } from '../tools.d/interface';
+import { Preprocessor } from './preprocessor';
 
 /**
  * Parse Mode Enumeration
@@ -16,6 +18,30 @@ export enum ParseMode {
 }
 
 /**
+ * Result of parsing static includes
+ * @description Contains the parsed content and collected front matter params
+ */
+interface StaticIncludeResult {
+    /** Parsed content with includes resolved */
+    content: string;
+    /** Collected Params from all Markdown files' front matter */
+    params: string[];
+}
+
+/**
+ * Result of prepareSkill
+ * @description Contains the final content, description from top-level file, and merged params
+ */
+interface PrepareSkillResult {
+    /** Assembled content */
+    content: string;
+    /** Description from the top-level Markdown file's front matter (empty string if not found) */
+    description: string;
+    /** All collected and deduplicated Params from all levels */
+    params: string[];
+}
+
+/**
  * Context Assembler Class
  * @description Responsible for parsing and assembling dynamic context, supports file reference @[path] and tool call @[tool] syntax
  * @example
@@ -25,16 +51,110 @@ export enum ParseMode {
 export class ContextAssembler {
 
     /**
-     * @description Assemble document, recursively parse static file references and dynamic tool calls
+     * @description Run preprocessor to process @{...} syntax
+     * @param {string} text - Source text that may contain @{...} tags
+     * @returns {string} Preprocessed text with @{...} tags processed
+     * @example
+     * const text = '@{include: "header.md"}';
+     * const result = ContextAssembler.preprocess(text);
+     */
+    static preprocess(text: string): string {
+        if (!text.includes('@{')) {
+            return text;
+        }
+        const preprocessor = new Preprocessor();
+        const { result: preprocessedText } = preprocessor.process(text);
+        return preprocessedText;
+    }
+
+    /**
+     * @description Parse and resolve static file references @[path] and dynamic tool calls @[tool{...}]
+     * @description This is the core parsing logic without preprocessor
      * @param {string} text - Source text containing @[] tags
+     * @param {string} workspaceRoot - Root path for resolving relative paths
+     * @param {string[]} allowedUris - List of URIs allowed to access during tool execution (security check)
+     * @param {ParseMode} [mode=ParseMode.INLINE] - Parsing mode (INLINE means replace in place, APPEND means append to buffer)
+     * @param {string[]} [appendBuffer] - Result buffer for APPEND mode
+     * @returns {Promise<PrepareSkillResult>} Object containing content, description, and merged params
+     * @example
+     * const text = '@[README.md]';
+     * const result = await ContextAssembler.prepareSkill(text, '/workspace', ['/workspace'], ParseMode.INLINE);
+     */
+    static async prepareSkill(
+        text: string,
+        workspaceRoot: string,
+        allowedUris: string[],
+        mode: ParseMode = ParseMode.INLINE,
+        appendBuffer?: string[]
+    ): Promise<PrepareSkillResult> {
+        // Step 0: Parse top-level front matter
+        let content = text;
+        let description = '';
+        let topLevelParams: string[] = [];
+
+        try {
+            // Check if it looks like it has front matter
+            if (text.startsWith('---')) {
+                const parsed = matter(text);
+                content = parsed.content;
+                if (parsed.data) {
+                    if (typeof parsed.data.Description === 'string') {
+                        description = parsed.data.Description;
+                    }
+                    if (Array.isArray(parsed.data.Params)) {
+                        topLevelParams = parsed.data.Params.filter((p: any) => typeof p === 'string');
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Error parsing top-level front matter:', e);
+            // Fallback: treat as raw text
+        }
+
+        if (!content.includes('@[')) {
+            return { content: content, description, params: topLevelParams };
+        }
+
+        // Step 1: Recursively resolve all static file references (flatten)
+        const staticResult = await this.resolveStaticIncludes(
+            content,
+            workspaceRoot,
+            allowedUris,
+            0,
+            mode,
+            appendBuffer
+        );
+
+        // Step 2: Resolve all dynamic tool calls in the flattened text
+        const resolvedText = await this.resolveDynamicTools(
+            staticResult.content,
+            allowedUris,
+            mode,
+            appendBuffer
+        );
+
+        // Merge and deduplicate params
+        const allParams = [...topLevelParams, ...staticResult.params];
+        const uniqueParams = [...new Set(allParams)];
+
+        if (mode === ParseMode.APPEND) {
+            return { content: text, description, params: uniqueParams };
+        }
+        return { content: resolvedText, description, params: uniqueParams };
+    }
+
+    /**
+     * @description Assemble document with full pipeline: preprocessor + static includes + dynamic tools
+     * @description This is a combination function that runs preprocess() first, then prepareSkill()
+     * @param {string} text - Source text containing @[path] and/or @{...} tags
      * @param {string} workspaceRoot - Root path for resolving relative paths
      * @param {string[]} allowedUris - List of URIs allowed to access during tool execution (security check)
      * @param {ParseMode} [mode=ParseMode.INLINE] - Parsing mode (INLINE means replace in place, APPEND means append to buffer)
      * @param {string[]} [appendBuffer] - Result buffer for APPEND mode
      * @returns {Promise<string>} Fully assembled text (INLINE mode) or original text (APPEND mode)
      * @example
-     * const text = '@[README.md]';
-     * const result = await ContextAssembler.assembleDocument(text, '/workspace', ['/workspace'], ParseMode.INLINE);
+     * const text = '@{preprocess: true} @[README.md]';
+     * const result = await ContextAssembler.assembleDocument(text, '/workspace', ['/workspace']);
      */
     static async assembleDocument(
         text: string,
@@ -43,15 +163,14 @@ export class ContextAssembler {
         mode: ParseMode = ParseMode.INLINE,
         appendBuffer?: string[]
     ): Promise<string> {
-        if (!text.includes('@[')) return text;
+        // Step 1: Run preprocessor
+        text = this.preprocess(text);
 
-        // Step 1: Recursively resolve all static file references (flatten)
-        const flattenedText = await this.resolveStaticIncludes(text, workspaceRoot, allowedUris, 0, mode, appendBuffer);
-
-        // Step 2: Resolve all dynamic tool calls in the flattened text
-        const resolvedText = await this.resolveDynamicTools(flattenedText, allowedUris, mode, appendBuffer);
-
-        return mode === ParseMode.APPEND ? text : resolvedText;
+        // Step 2: Run prepareSkill for static includes and dynamic tools
+        const result = await this.prepareSkill(text, workspaceRoot, allowedUris, mode, appendBuffer);
+        
+        // Only return the content, ignore description and params
+        return result.content;
     }
 
     /**
@@ -63,7 +182,7 @@ export class ContextAssembler {
      * @example
      * const text = '@[src/utils.ts]';
      * const result = await ContextAssembler.resolveUserPromptReferences(text, '/workspace', ['/workspace']);
-     * // Returns: ### User Provided Context References:\n\n#### Source: src/utils.ts\n\n```\n...\n```
+     * // Returns: ### User Provided Context References:\n\n#### Source: src/utils.ts\n\n```\n...```
      */
     static async resolveUserPromptReferences(
         text: string,
@@ -86,7 +205,7 @@ export class ContextAssembler {
      * @param {number} depth - Current recursion depth
      * @param {ParseMode} mode - Parsing mode
      * @param {string[]} [appendBuffer] - Append mode buffer
-     * @returns {Promise<string>} Parsed text
+     * @returns {Promise<StaticIncludeResult>} Parsed content and params
      */
     private static async resolveStaticIncludes(
         text: string,
@@ -95,13 +214,14 @@ export class ContextAssembler {
         depth: number,
         mode: ParseMode,
         appendBuffer?: string[]
-    ): Promise<string> {
-        if (depth > 20) return text; // Prevent infinite recursion
-        if (!text.includes('@[')) return text;
+    ): Promise<StaticIncludeResult> {
+        if (depth > 20) return { content: text, params: [] }; // Prevent infinite recursion
+        if (!text.includes('@[')) return { content: text, params: [] };
 
         let result = '';
         let lastIndex = 0;
         let hasChanges = false;
+        const allParams: string[] = [];
 
         let i = 0;
         while (i < text.length) {
@@ -132,18 +252,47 @@ export class ContextAssembler {
                 try {
                     const { uri, startLine, endLine } = this.parseReference(content, root);
                     const rawContent = await this.readResource(uri, startLine, endLine);
+                    
+                    // Check if this is a Markdown file
+                    const isMarkdown = this.isMarkdownFile(uri);
+                    let fileParams: string[] = [];
+                    let processedContent = rawContent;
+
+                    // Only Markdown files: parse front matter and collect Params
+                    if (isMarkdown) {
+                        const parsed = matter(rawContent);
+                        processedContent = parsed.content;
+                        
+                        // Collect Params if it exists and is an array
+                        if (parsed.data && Array.isArray(parsed.data.Params)) {
+                            fileParams = parsed.data.Params.filter((p: any) => typeof p === 'string');
+                        }
+                    }
 
                     const shouldRecurse = this.shouldRecurseFile(uri);
-                    let flattenedContent = rawContent;
+                    let flattenedContent: string;
+                    let childParams: string[] = [];
+                    
                     if (shouldRecurse) {
-                        flattenedContent = await this.resolveStaticIncludes(
-                            rawContent,
+                        const childResult = await this.resolveStaticIncludes(
+                            processedContent,
                             root,
                             allowedUris,
                             depth + 1,
-                            ParseMode.INLINE
+                            ParseMode.INLINE,
+                            undefined
                         );
+                        flattenedContent = childResult.content;
+                        childParams = childResult.params;
+                    } else {
+                        flattenedContent = processedContent;
                     }
+
+                    // Merge params: current file params (empty if not Markdown) + child params
+                    const mergedParams = [...fileParams, ...childParams];
+                    
+                    // Add to allParams (will deduplicate at the end)
+                    allParams.push(...mergedParams);
 
                     const resolvedContent = mode === ParseMode.APPEND
                         ? await this.resolveDynamicTools(flattenedContent, allowedUris, ParseMode.INLINE)
@@ -172,11 +321,28 @@ export class ContextAssembler {
             i = lastIndex;
         }
 
+        // Deduplicate params
+        const uniqueParams = [...new Set(allParams)];
+
         if (mode === ParseMode.APPEND) {
-            return text;
+            return { content: text, params: uniqueParams };
         }
 
-        return hasChanges ? result : text;
+        return { 
+            content: hasChanges ? result : text, 
+            params: uniqueParams
+        };
+    }
+
+    /**
+     * @description Check if file is a Markdown file
+     * @private
+     * @param {vscode.Uri} uri - File URI
+     * @returns {boolean} Returns true if .md file
+     */
+    private static isMarkdownFile(uri: vscode.Uri): boolean {
+        const ext = path.extname(uri.fsPath).toLowerCase();
+        return ext === '.md';
     }
 
     /**

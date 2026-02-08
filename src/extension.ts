@@ -18,6 +18,7 @@ import { ImagePasteProvider } from './contextManagement/imagePasteProvider';
 import { buildInteractionHistory } from './contextManagement/history';
 import { generateTitle, sanitizeFileName } from './utils';
 import { AgentMessage } from './types';
+import { ToolManager } from './toolManager';
 
 /**
  * Checks if a file exists at the given URI.
@@ -476,6 +477,21 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
             await vscode.env.clipboard.writeText(refString);
             vscode.window.setStatusBarMessage(`Copied reference: ${refString}`, 3000);
+        })
+    );
+
+    // Recompile all skills command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.recompileSkills', async () => {
+            try {
+                const { SkillManager } = await import('./skillManager');
+                const skillManager = SkillManager.getInstance();
+                await skillManager.recompileAllSkills();
+                vscode.window.showInformationMessage('All skills recompiled successfully.');
+            } catch (error) {
+                console.error('Failed to recompile skills:', error);
+                vscode.window.showErrorMessage(`Failed to recompile skills: ${error}`);
+            }
         })
     );
 }

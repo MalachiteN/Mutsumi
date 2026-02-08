@@ -94,6 +94,12 @@ constructor()
 
 #### 公共方法
 
+##### `loadSkills(): Promise<void>`
+
+加载动态 Skill 工具。代理调用 `SkillManager.loadSkills()`。
+
+---
+
 ##### `getToolsDefinitions(isSubAgent: boolean): OpenAI.Chat.ChatCompletionTool[]`
 
 获取格式化为 OpenAI API 的工具定义。
@@ -105,9 +111,9 @@ constructor()
 - `OpenAI.Chat.ChatCompletionTool[]` - 工具定义数组
 
 **过滤逻辑：**
-- 所有 agent：通用工具
-- 主 agent：通用工具 + 仅主 agent 工具
-- 子 agent：通用工具 + 仅子 agent 工具
+- 所有 agent：通用工具 + **Skill 工具**
+- 主 agent：通用工具 + 仅主 agent 工具 + **Skill 工具**
+- 子 agent：通用工具 + 仅子 agent 工具 + **Skill 工具**
 
 ---
 
@@ -127,8 +133,9 @@ constructor()
 **执行流程：**
 1. 在通用工具中查找
 2. 如未找到，根据 `isSubAgent` 在对应注册表中查找
-3. 如仍未找到，返回错误信息（区分权限错误和未知工具）
-4. 调用工具的 `execute` 方法
+3. **如未找到，在 Skill 工具中查找**
+4. 如仍未找到，返回错误信息（区分权限错误和未知工具）
+5. 调用工具的 `execute` 方法
 
 **错误处理：**
 - 子 agent 尝试使用主 agent 工具：返回权限错误
@@ -146,6 +153,8 @@ constructor()
 │  主 agent 工具   │  ← 仅主 agent 可用
 ├─────────────────┤
 │  子 agent 工具   │  ← 仅子 agent 可用
+├─────────────────┤
+│  Skill 工具     │  ← 所有 agent 可用 (动态加载)
 └─────────────────┘
 ```
 

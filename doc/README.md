@@ -14,6 +14,7 @@ extension.ts (入口)
     ├── agentOrchestrator.ts (Agent调度)
     │       └── agentRunner.ts (Agent运行)
     ├── toolManager.ts (工具管理)
+    │       └── skillManager.ts (动态技能管理)
     ├── types.ts (类型定义)
     └── utils.ts (工具函数)
 ```
@@ -27,6 +28,7 @@ extension.ts (入口)
 | agentOrchestrator.ts | AgentOrchestrator单例，管理Agent生命周期、fork会话、UI状态 |
 | agentRunner.ts | AgentRunner类，处理流式响应、工具调用解析、UI更新 |
 | toolManager.ts | ToolManager类，管理19个内置工具的注册和执行，支持主/子agent权限控制 |
+| skillManager.ts | SkillManager类，管理基于 Markdown 的动态技能工具发现、编译与执行 |
 | types.ts | 核心类型定义：AgentMetadata、AgentMessage、ToolRequest/Result等 |
 | utils.ts | 工具函数：标题生成、文件名清理、唯一文件名保证 |
 
