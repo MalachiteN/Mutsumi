@@ -56,7 +56,9 @@ VSCode Mutsumi 插件的主入口文件。负责插件的激活、注册所有�
 | 新建Agent | `mutsumi.newAgent` | 在 .mutsumi 目录创建新的 agent 文件 |
 | 选择模型 | `mutsumi.selectModel` | 为当前 notebook 选择 LLM 模型 |
 | 重新生成标题 | `mutsumi.regenerateTitle` | 基于对话内容生成新标题 |
-| 调试系统提示 | `mutsumi.debugSystemPrompt` | 输出当前系统提示到输出面板 |
+| Debug Context | `mutsumi.debugContext` | 显示完整的LLM上下文调试输出（所有消息，而不仅是系统提示） |
+| View Context Items | `mutsumi.viewContext` | 显示当前会话的所有上下文项（文件和规则） |
+| 重新编译技能 | `mutsumi.recompileSkills` | 重新编译所有已注册的技能 |
 | 打开Agent文件 | `mutsumi.openAgentFile` | 从侧边栏打开 agent 文件 |
 | 复制引用 | `mutsumi.copyReference` | 复制文件引用到剪贴板（支持行号范围） |
 

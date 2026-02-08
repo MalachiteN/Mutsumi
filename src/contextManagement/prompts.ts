@@ -1,18 +1,10 @@
 import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
+import { ContextItem } from '../types';
+import { ContextAssembler, ParseMode } from './contextAssembler';
 
 /**
  * @description Initialize rules directory and default rules file
- * @param {vscode.Uri} extensionUri - Extension's root URI
- * @param {vscode.Uri} workspaceUri - Workspace URI
- * @returns {Promise<void>}
- * @description Create default rules file in workspace .mutsumi/rules directory
- * @description If default.md doesn't exist, copy from extension's assets directory
- * @example
- * const extUri = context.extensionUri;
- * const wsUri = vscode.workspace.workspaceFolders[0].uri;
- * await initializeRules(extUri, wsUri);
- * // Result: create .mutsumi/rules/default.md (if not exists)
  */
 export async function initializeRules(extensionUri: vscode.Uri, workspaceUri: vscode.Uri) {
     const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
@@ -35,47 +27,57 @@ export async function initializeRules(extensionUri: vscode.Uri, workspaceUri: vs
 }
 
 /**
- * @description Get system prompt
- * @param {vscode.Uri} workspaceUri - Workspace URI
- * @param {string[]} allowedUris - List of allowed URIs
- * @param {boolean} [isSubAgent] - Whether it's a sub-agent
- * @returns {Promise<string>} Assembled system prompt
- * @description Read all .md files in .mutsumi/rules directory and merge
- * @description Use ContextAssembler to recursively parse @[path] references
- * @description If it's a sub-agent, append sub-agent identity description
- * @example
- * const prompt = await getSystemPrompt(wsUri, ['/workspace'], false);
- * // Returns system prompt containing rules file content and runtime context
+ * @description Get static system prompt (identity, sub-agent info)
  */
 export async function getSystemPrompt(workspaceUri: vscode.Uri, allowedUris: string[], isSubAgent?: boolean): Promise<string> {
-    const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
+    // Only return static identity and runtime context
+    let prompt = `### Runtime Context
+Current Allowed URIs: ${JSON.stringify(allowedUris)}`;
 
-    // Read all .md files in rules directory
-    let combinedRules = '';
+    if (isSubAgent) {
+        prompt += `\n\n## Sub-Agent Identity\nYou are a Sub-Agent. When finishing a task, you must use the \`task_finish\` tool to report completion status to the Parent Agent.`;
+    }
+
+    return prompt;
+}
+
+/**
+ * @description Get rules content as structured context items
+ */
+export async function getRulesContext(workspaceUri: vscode.Uri, allowedUris: string[]): Promise<ContextItem[]> {
+    const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
+    const items: ContextItem[] = [];
+
     try {
         const files = await vscode.workspace.fs.readDirectory(rulesDir);
+        // Sort files to ensure deterministic order
+        files.sort((a, b) => a[0].localeCompare(b[0]));
+
         for (const [name, type] of files) {
             if (type === vscode.FileType.File && name.endsWith('.md')) {
                 const fileUri = vscode.Uri.joinPath(rulesDir, name);
                 const content = await vscode.workspace.fs.readFile(fileUri);
-                combinedRules += `\n\n### Rule (${name})\n${new TextDecoder().decode(content)}`;
+                const decodedContent = new TextDecoder().decode(content);
+
+                // We process the rule content to resolve any nested @[...] references (INLINE)
+                // Rules should be fully expanded when presented
+                const expandedContent = await ContextAssembler.assembleDocument(
+                    decodedContent,
+                    workspaceUri.fsPath,
+                    allowedUris,
+                    ParseMode.INLINE
+                );
+
+                items.push({
+                    type: 'rule', // Treating rules as a special type of context
+                    key: name,
+                    content: expandedContent
+                } as any); // cast to any to allow 'rule' type if strict check fails, or update ContextItem type definition if needed
             }
         }
     } catch (e) {
         console.error('Error reading rules', e);
     }
 
-    // Append runtime context (allowed URIs list)
-    const rawSystemPrompt = `${combinedRules.trim()}\n\n### Runtime Context\nCurrent Allowed URIs: ${JSON.stringify(allowedUris)}`;
-
-    // Use ContextAssembler to recursively parse @[path] references
-    const { ContextAssembler, ParseMode } = await import('./contextAssembler');
-    let finalPrompt = await ContextAssembler.assembleDocument(rawSystemPrompt, workspaceUri.fsPath, allowedUris, ParseMode.INLINE);
-
-    // If it's a sub-agent, append sub-agent identity
-    if (isSubAgent) {
-        finalPrompt += `\n\n## Sub-Agent Identity\nYou are a Sub-Agent. When finishing a task, you must use the \`task_finish\` tool to report completion status to the Parent Agent.`;
-    }
-
-    return finalPrompt;
+    return items;
 }

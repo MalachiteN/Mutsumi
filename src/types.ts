@@ -22,6 +22,8 @@ export interface AgentMetadata {
     is_task_finished?: boolean;
     /** Model identifier used for this agent */
     model?: string;
+    /** Persisted context items (Files, Rules) valid for the whole session */
+    contextItems?: ContextItem[];
 }
 
 /**
@@ -131,4 +133,20 @@ export interface AgentStateInfo {
     
     /** Cached prompt text for the agent */
     prompt?: string;
+}
+
+/**
+ * Context item representing a referenced resource (file, tool result, or rule).
+ * Stored in cell metadata for persistence, not in message content.
+ * @interface ContextItem
+ */
+export interface ContextItem {
+    /** Type of context item */
+    type: 'file' | 'tool' | 'rule';
+    /** Key identifier (file path, tool name, or rule name) */
+    key: string;
+    /** Content or execution result */
+    content: string;
+    /** Additional metadata (e.g., tool arguments) */
+    metadata?: any;
 }

@@ -2,16 +2,20 @@
 
 ## 功能概述
 
-本文件负责构建 Agent 的对话历史上下文，包括：
-- 获取系统提示词并处理用户提示中的上下文引用
-- 从 Notebook 历史单元格加载对话记录
-- 解析用户消息中的图片引用，转换为多模态内容格式
+本文件负责构建 Agent 的对话历史 (Context Window)。
+
+采用 Ghost Block 注入机制解决长对话中 System Prompt 被遗忘以及文件被重复读取的问题：
+
+1. **System Prompt 极简化**: 仅保留最基本的身份指令。
+2. **上下文跟随 User Message**: 所有的规则 (Rules)、用户引用的文件 (Files)、预执行的工具结果 (Tools) 都被打包成一个 JSON 结构的 "Ghost Block"。
+3. **动态追加**: 这个 Ghost Block 被追加到**当前最新的 User Message** 末尾。
+4. **历史累积**: 扫描历史对话，收集之前所有 User Message 中引用的上下文，确保模型在当前回合仍能访问之前引用的文件，而无需重新读取。
 
 ## 导出的函数
 
 ### buildInteractionHistory
 
-构建 Agent 的交互历史，返回完整的消息列表供 LLM 使用。
+构建发送给 LLM 的完整消息列表。
 
 ```typescript
 export async function buildInteractionHistory(
@@ -25,85 +29,42 @@ export async function buildInteractionHistory(
 }>
 ```
 
-**参数:**
-- `notebook` - Notebook 文档对象
-- `currentCellIndex` - 当前单元格索引
-- `currentPrompt` - 当前用户输入的提示文本
+**构建流程:**
 
-**返回值:**
-包含三个字段的对象：
-- `messages` - 消息列表（第一条是系统提示，最后一条是当前用户输入）
-- `allowedUris` - 允许访问的URI列表（来自 Notebook 元数据）
-- `isSubAgent` - 是否为子Agent标识
+1. **生成静态 System Prompt**: 调用 `prompts.getSystemPrompt`。
+2. **初始化上下文收集器 (Map)**: 用于去重和累积上下文项。
+3. **收集规则**: 调用 `prompts.getRulesContext`，存入收集器。
+4. **回溯历史**: 
+   - 遍历之前的 User Cell。
+   - 对每个历史 User Prompt 调用 `ContextAssembler.resolveContext`，提取引用的文件和工具。
+   - 将提取出的项存入收集器（自动去重：同名文件覆盖，同参数工具覆盖）。
+   - 将历史消息（**不带 Ghost Block**）加入消息列表。
+5. **处理当前 Prompt**:
+   - 解析当前 Prompt 中的引用，存入收集器。
+   - 解析图片多模态内容。
+6. **构建 Ghost Block**:
+   - 将收集器中所有内容（规则 + 历史引用 + 当前引用）序列化为 `<content_reference>` JSON 块。
+   - 格式如下：
+     ```xml
+     <content_reference>
+     {
+       "rules": [ ... ],
+       "files": { "path/to/file": "content..." },
+       "tools": [ { "name": "...", "args": ..., "result": "..." } ]
+     }
+     </content_reference>
+     ```
+7. **注入**: 将 Ghost Block 追加到当前 User Message 的 `content` 中。
 
-**消息构建流程:**
-1. 获取系统提示词（动态构建）
-2. 解析当前提示中的 `@[path]` 引用并追加到系统提示
-3. 遍历历史单元格，加载对话记录
-4. 解析当前用户提示中的图片，转换为多模态格式
-5. 添加当前用户提示到消息列表
-
-**示例:**
-```typescript
-const { messages, allowedUris, isSubAgent } = await buildInteractionHistory(
-    notebook, 
-    5, 
-    'Hello'
-);
-// messages[0] 是系统提示
-// messages[messages.length-1] 是当前用户输入
-```
+**结果:**
+模型总是能在最新的 User 消息末尾看到所有相关的上下文信息，如同拥有了完美的"短期记忆"。
 
 ## 内部函数
 
 ### parseUserMessageWithImages
 
-解析用户消息中的图片引用，转换为多模态内容格式。
-
-```typescript
-async function parseUserMessageWithImages(text: string): Promise<MessageContent>
-```
-
-**参数:**
-- `text` - 用户输入文本
-
-**返回值:**
-- 如果包含图片，返回内容对象数组
-- 否则返回原始文本字符串
-
-**支持的图片格式:**
-Markdown 图片语法 `![alt](uri)`
-
-**输出格式示例:**
-```typescript
-[
-  { type: 'text', text: 'Hello ' },
-  { type: 'image_url', image_url: { url: 'data:image/png;base64,...', detail: 'auto' } },
-  { type: 'text', text: ' world' }
-]
-```
+解析 Markdown 图片语法 `![alt](uri)` 为多模态消息格式。
 
 ### readImageAsBase64
 
-读取图片文件并转换为 Base64 编码的数据URL。
-
-```typescript
-async function readImageAsBase64(uriStr: string): Promise<string | null>
-```
-
-**参数:**
-- `uriStr` - 图片URI字符串
-
-**返回值:**
-- Base64 编码的图片数据URL，格式为 `data:image/png;base64,...`
-- 读取失败时返回 null
-
-**支持的协议:**
-- `file://` - 本地文件
-- `http://` / `https://` - 网络图片（直接返回URL）
-
-**自动识别的MIME类型:**
-- `.png` → `image/png`
-- `.jpg/.jpeg` → `image/jpeg`
-- `.webp` → `image/webp`
-- `.gif` → `image/gif`
+读取本地图片并转为 Base64。

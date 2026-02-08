@@ -95,8 +95,8 @@
                 "icon": "$(symbol-keyword)"
             },
             {
-                "command": "mutsumi.debugSystemPrompt",
-                "title": "Debug System Prompt",
+                "command": "mutsumi.debugContext",
+                "title": "Debug Context",
                 "category": "Mutsumi",
                 "icon": "$(debug-console)"
             },
@@ -105,6 +105,12 @@
                 "title": "Recompile All Skills",
                 "category": "Mutsumi",
                 "icon": "$(refresh)"
+            },
+            {
+                "command": "mutsumi.viewContext",
+                "title": "View Context Items",
+                "category": "Mutsumi",
+                "icon": "$(list-unordered)"
             }
         ],
         "menus": {
@@ -155,13 +161,18 @@
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.debugSystemPrompt",
+                    "command": "mutsumi.debugContext",
                     "group": "navigation@3",
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
                     "command": "mutsumi.recompileSkills",
                     "group": "navigation@4",
+                    "when": "notebookType == mutsumi-notebook"
+                },
+                {
+                    "command": "mutsumi.viewContext",
+                    "group": "navigation@5",
                     "when": "notebookType == mutsumi-notebook"
                 }
             ]

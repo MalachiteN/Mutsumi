@@ -41,7 +41,8 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                     name: 'New Agent',
                     created_at: new Date().toISOString(),
                     parent_agent_id: null,
-                    allowed_uris: ['/']
+                    allowed_uris: ['/'],
+                    contextItems: []
                 },
                 context: []
             };
@@ -156,7 +157,8 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 created_at: new Date().toISOString(),
                 parent_agent_id: null,
                 allowed_uris: allowedUris,
-                model: defaultModel || undefined
+                model: defaultModel || undefined,
+                contextItems: []
             },
             context: []
         };
@@ -190,7 +192,9 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
             }
             else if (role === 'user') {
                 // User cells store raw string content
-                context.push({ role: 'user', content: cell.value });
+                // Strip ghost block if present (it should only exist in metadata, not in persisted content)
+                const cleanContent = this.stripGhostBlockFromCell(cell.value);
+                context.push({ role: 'user', content: cleanContent });
 
                 // Check if interaction metadata exists
                 if (cell.metadata?.mutsumi_interaction) {
@@ -246,6 +250,19 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
             }
         }
         return displayText;
+    }
+
+    /**
+     * @description Strip ghost block from cell content during serialization
+     * Ghost block should only exist in metadata, not in persisted message content
+     */
+    private stripGhostBlockFromCell(value: string): string {
+        const GHOST_BLOCK_MARKER = '<content_reference>';
+        const index = value.indexOf(GHOST_BLOCK_MARKER);
+        if (index !== -1) {
+            return value.substring(0, index).trimEnd();
+        }
+        return value;
     }
 
     /**

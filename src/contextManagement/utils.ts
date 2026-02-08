@@ -1,0 +1,269 @@
+import * as vscode from 'vscode';
+import * as path from 'path';
+import { TextDecoder } from 'util';
+import { ToolManager } from '../toolManager';
+import { ToolContext } from '../tools.d/interface';
+import { MessageContent, ContentPartText, ContentPartImage, ContextItem } from '../types';
+
+// Ghost block marker for filtering during serialization
+export const GHOST_BLOCK_MARKER = '<content_reference>';
+
+/** Image regex: matches Markdown images in ![alt](uri) format */
+export const IMG_REGEX = /!\[([^\]]*)\]\(([^)]+)\)/g;
+
+/**
+ * Get language identifier for Markdown code block based on file extension
+ */
+export function getLanguageIdentifier(ext: string): string {
+    const langMap: Record<string, string> = {
+        'ts': 'typescript',
+        'tsx': 'tsx',
+        'js': 'javascript',
+        'jsx': 'jsx',
+        'py': 'python',
+        'rb': 'ruby',
+        'go': 'go',
+        'rs': 'rust',
+        'java': 'java',
+        'kt': 'kotlin',
+        'swift': 'swift',
+        'c': 'c',
+        'cpp': 'cpp',
+        'cc': 'cpp',
+        'h': 'c',
+        'hpp': 'cpp',
+        'cs': 'csharp',
+        'php': 'php',
+        'html': 'html',
+        'htm': 'html',
+        'css': 'css',
+        'scss': 'scss',
+        'sass': 'sass',
+        'less': 'less',
+        'json': 'json',
+        'xml': 'xml',
+        'yaml': 'yaml',
+        'yml': 'yaml',
+        'toml': 'toml',
+        'md': 'markdown',
+        'sh': 'bash',
+        'bash': 'bash',
+        'zsh': 'zsh',
+        'fish': 'fish',
+        'ps1': 'powershell',
+        'sql': 'sql',
+        'dockerfile': 'dockerfile',
+        'makefile': 'makefile',
+        'vue': 'vue',
+        'svelte': 'svelte',
+        'astro': 'astro'
+    };
+    return langMap[ext.toLowerCase()] || '';
+}
+
+/**
+ * Read image file as base64 data URL
+ */
+export async function readImageAsBase64(uriStr: string): Promise<string | null> {
+    try {
+        const uri = vscode.Uri.parse(uriStr);
+        if (uri.scheme !== 'file') {
+             if (uri.scheme === 'http' || uri.scheme === 'https') {
+                 return uriStr; 
+             }
+             return null;
+        }
+
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        const buffer = Buffer.from(bytes);
+        
+        const ext = uriStr.split('.').pop()?.toLowerCase();
+        let mimeType = 'image/jpeg';
+        if (ext === 'png') mimeType = 'image/png';
+        if (ext === 'webp') mimeType = 'image/webp';
+        if (ext === 'gif') mimeType = 'image/gif';
+
+        return `data:${mimeType};base64,${buffer.toString('base64')}`;
+
+    } catch (e) {
+        console.error('Error reading image file:', e);
+        return null;
+    }
+}
+
+/**
+ * Parse user message text and convert embedded images to multimodal content
+ */
+export async function parseUserMessageWithImages(text: string): Promise<MessageContent> {
+    const matches = [...text.matchAll(IMG_REGEX)];
+    
+    if (matches.length === 0) {
+        return text;
+    }
+
+    const content: (ContentPartText | ContentPartImage)[] = [];
+    let lastIndex = 0;
+
+    for (const match of matches) {
+        const [fullMatch, altText, uriStr] = match;
+        const index = match.index!;
+
+        if (index > lastIndex) {
+            content.push({
+                type: 'text',
+                text: text.substring(lastIndex, index)
+            });
+        }
+
+        try {
+            const imageBase64 = await readImageAsBase64(uriStr);
+            if (imageBase64) {
+                content.push({
+                    type: 'image_url',
+                    image_url: {
+                        url: imageBase64,
+                        detail: 'auto'
+                    }
+                });
+            } else {
+                content.push({ type: 'text', text: fullMatch });
+            }
+        } catch (e) {
+            console.error(`Failed to read image ${uriStr}:`, e);
+            content.push({ type: 'text', text: fullMatch });
+        }
+
+        lastIndex = index + fullMatch.length;
+    }
+
+    if (lastIndex < text.length) {
+        content.push({
+            type: 'text',
+            text: text.substring(lastIndex)
+        });
+    }
+
+    return content;
+}
+
+/**
+ * Strip ghost block from content before storing in history
+ * Ensures the ghost block doesn't get persisted to notebook file
+ */
+export function stripGhostBlock(content: MessageContent): MessageContent {
+    if (typeof content === 'string') {
+        const index = content.indexOf(GHOST_BLOCK_MARKER);
+        if (index !== -1) {
+            return content.substring(0, index).trimEnd();
+        }
+        return content;
+    }
+    
+    // For array content, filter out text parts containing ghost block
+    if (Array.isArray(content)) {
+        return content.filter(part => {
+            if (part.type === 'text') {
+                return !part.text.includes(GHOST_BLOCK_MARKER);
+            }
+            return true;
+        });
+    }
+    
+    return content;
+}
+
+/**
+ * Extract content from square brackets, handling nested brackets
+ */
+export function extractBracketContent(text: string, start: number): { content: string, endIdx: number } {
+    let depth = 0;
+    for (let i = start; i < text.length; i++) {
+        if (text[i] === '[') depth++;
+        else if (text[i] === ']') {
+            if (depth === 0) {
+                return { content: text.substring(start, i), endIdx: i };
+            }
+            depth--;
+        }
+    }
+    return { content: '', endIdx: -1 };
+}
+
+/**
+ * Parse a file reference string into URI and line range
+ */
+export function parseReference(ref: string, root: string): { uri: vscode.Uri, startLine?: number, endLine?: number } {
+    const parts = ref.split(':');
+    const filePath = parts[0];
+    let startLine: number | undefined;
+    let endLine: number | undefined;
+
+    if (parts.length > 1) startLine = parseInt(parts[1], 10);
+    if (parts.length > 2) endLine = parseInt(parts[2], 10);
+
+    let uri: vscode.Uri;
+    if (filePath.includes('://')) {
+        uri = vscode.Uri.parse(filePath);
+    } else {
+        if (path.isAbsolute(filePath)) {
+            uri = vscode.Uri.file(filePath);
+        } else {
+            uri = vscode.Uri.file(path.join(root, filePath));
+        }
+    }
+
+    return { uri, startLine, endLine };
+}
+
+/**
+ * Read resource content from URI, optionally with line range
+ */
+export async function readResource(uri: vscode.Uri, start?: number, end?: number): Promise<string> {
+    const stat = await vscode.workspace.fs.stat(uri);
+
+    if (stat.type === vscode.FileType.Directory) {
+        const entries = await vscode.workspace.fs.readDirectory(uri);
+        return entries.map(([name, type]) => {
+            const typeStr = type === vscode.FileType.Directory ? 'DIR' : 'FILE';
+            return `[${typeStr}] ${name}`;
+        }).join('\n');
+    } else {
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        const content = new TextDecoder().decode(bytes);
+
+        if (start !== undefined) {
+            const lines = content.split(/\r?\n/);
+            const s = Math.max(0, start - 1);
+            const e = end !== undefined ? end : s + 1;
+            return lines.slice(s, e).join('\n');
+        }
+        return content;
+    }
+}
+
+/**
+ * Check if URI points to a Markdown file
+ */
+export function isMarkdownFile(uri: vscode.Uri): boolean {
+    const ext = path.extname(uri.fsPath).toLowerCase();
+    return ext === '.md';
+}
+
+/**
+ * Check if file should be recursively parsed for references
+ */
+export function shouldRecurseFile(uri: vscode.Uri): boolean {
+    const ext = path.extname(uri.fsPath).toLowerCase();
+    return ext === '.md' || ext === '.txt';
+}
+
+/**
+ * Execute a tool call by name with arguments
+ */
+export async function executeToolCall(name: string, args: any, allowedUris: string[]): Promise<string> {
+    const tm = ToolManager.getInstance();
+    const context: ToolContext = {
+        allowedUris: allowedUris,
+    };
+    return await tm.executeTool(name, args, context, false);
+}
