@@ -53,6 +53,49 @@ Mutsumi 的**核心创新**在于其强大的动态上下文系统，给予你�
 
 <!-- TODO: 添加上下文组装截图 -->
 
+### 👻 幽灵上下文块（Ghost Context Block）
+
+通过创新的**幽灵上下文块**机制，引用的文件和 Rules 不再直接塞进 System Prompt，而是在运行时动态注入：
+
+- **运行时注入**: 引用的文件和工具输出以 `<content_reference>` 标记块形式附加，在请求 LLM 前实时组装
+- **零冗余**: 幽灵块内容不存储在对话历史中，避免 Token 浪费
+- **即时更新**: 修改被引用的文件后，下次请求自动使用最新内容，无需重启对话
+- **可视化审查**: 通过 Notebook 工具栏的 **"View Context Items"** 按钮查看当前会话的所有上下文项
+
+这让大型项目的规则文档可以被多个 Agent 共享，同时保持对话历史的精简。
+
+### 🎯 Skill 系统 - 参数化可复用能力
+
+**Skills** 是可复用的能力模块，使用 Markdown 文件定义，支持预处理器宏：
+
+```markdown
+---
+Description: "生成 API 端点文档"
+Params:
+  - language
+  - endpoint
+---
+
+@{if language IS "zh"}
+请用中文编写文档。
+@{else}
+Please write documentation in English.
+@{endif}
+
+为端点 `@{endpoint}` 生成包含以下内容的文档：
+- 请求方法
+- 参数说明
+- 响应示例
+```
+
+**特点：**
+- **参数化**: 通过 Front Matter 定义参数，Skill 被调用时自动展开为宏
+- **条件编译**: 使用预处理器根据参数生成不同的提示词内容
+- **自动发现**: 放在 `.mutsumi/skills/` 目录下的 `.skill.md` 文件自动注册为工具
+- **缓存机制**: 编译后的 Skill 缓存到 `.mutsumi/skills/cache/`，避免重复解析
+
+在对话中使用：`skill_name{"language": "zh", "endpoint": "/api/users"}`
+
 ### 🔄 子母 Agent 架构
 
 基于动态上下文系统，Mutsumi 实现**子 Agent 系统**来处理复杂任务，同时降低 Token 成本：
@@ -70,6 +113,13 @@ Mutsumi 的**核心创新**在于其强大的动态上下文系统，给予你�
 - **并行观察**: 分割编辑器窗格，并排监控多个 Agent 输出
 - **持久化会话**: Agent 状态、历史和元数据跨会话保持
 - **流式响应**: 实时逐 Token 显示，支持推理内容
+
+**Notebook 工具栏:**
+- 🔄 **切换模型**: 快速切换当前 Agent 使用的 LLM
+- 📝 **重新生成标题**: 基于对话内容自动生成描述性标题
+- 🐛 **Debug Context**: 查看完整的 LLM 上下文（包含 System、User、Assistant 消息）
+- 📋 **View Context Items**: 查看当前注入的所有文件和 Rules
+- 🔄 **Recompile Skills**: 重新编译所有 Skills（开发时使用）
 
 <!-- TODO: 添加 Notebook UI 截图/GIF -->
 
@@ -126,7 +176,7 @@ Mutsumi 的**核心创新**在于其强大的动态上下文系统，给予你�
 - **@ 补全**: 输入 `@` 触发文件路径、目录、工具名和参数列表的 IntelliSense
 - **自动生成标题**: 基于对话上下文由 LLM 生成描述性标题
 - **快速切换模型**: 工具栏按钮随时切换 LLM 模型
-- **系统提示调试**: 一键输出生成的系统提示词用于故障排查
+- **系统提示调试**: 一键输出生成的完整 LLM 上下文用于故障排查
 
 ---
 
@@ -201,6 +251,14 @@ Please answer in English
 @{endif}
 ```
 
+**在 User Prompt 中定义宏：**
+```
+@{define TASK, "refactoring"}
+@{define TARGET, "src/core/*.ts"}
+
+请完成 @{TASK} 任务，目标文件：@{TARGET}
+```
+
 <!-- TODO: 添加快速开始 GIF -->
 
 ---
@@ -228,7 +286,7 @@ Please answer in English
 
 创建 `.mutsumi/rules/my_rule.md`：
 
-```
+```markdown
 # 我的项目规则
 
 在进行更改前始终引用这些文件：
@@ -238,6 +296,29 @@ Please answer in English
 处理数据库时：
 @[shell_exec{"uri": "path/to/db", "cmd": "sqlite3 example.db 'SELECT * FROM attrs;'", "shell_path": "/usr/bin/bash"}]
 ```
+
+### 创建自定义 Skills
+
+创建 `.mutsumi/skills/my_skill.skill.md`：
+
+```markdown
+---
+Description: "根据参数生成不同类型的代码注释"
+Params:
+  - lang
+  - style
+---
+
+@{if lang IS "zh"}
+用中文生成
+@{else}
+Generate in English
+@{endif}
+
+风格要求：@{style}
+```
+
+在对话中调用：`my_skill{"lang": "zh", "style": "JSDoc"}`
 
 ### 预处理器命令详解
 
@@ -283,6 +364,15 @@ Please answer in English
 以及 Git 状态：
 @[git_cmd{"args": "status --short"}]
 ```
+
+### 调试上下文
+
+点击 Notebook 工具栏的 **"Debug Context"** 按钮，可查看：
+- 完整的 LLM 消息列表（System / User / Assistant）
+- 幽灵块中注入的文件内容
+- 实际发送给模型的完整上下文
+
+这对于排查为什么 Agent "看不到" 某个文件特别有用。
 
 ---
 

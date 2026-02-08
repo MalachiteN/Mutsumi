@@ -509,31 +509,62 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
             const metadata = editor.notebook.metadata as any;
             const items: any[] = metadata.contextItems || [];
+            const macroContext: Record<string, string> = metadata.macroContext || {};
+            const macroEntries = Object.entries(macroContext);
 
-            if (items.length === 0) {
+            if (items.length === 0 && macroEntries.length === 0) {
                 vscode.window.showInformationMessage('No context items found in this session.');
                 return;
             }
 
-            const qpItems = items.map(item => {
-                let icon = '$(file)';
-                if (item.type === 'rule') icon = '$(book)';
-                if (item.type === 'tool') icon = '$(tools)';
+            const qpItems: any[] = [];
+
+            // Add Macros section header if there are macros
+            if (macroEntries.length > 0) {
+                qpItems.push({
+                    label: 'Macros',
+                    kind: vscode.QuickPickItemKind.Separator
+                });
                 
-                return {
-                    label: `${icon} ${item.key}`,
-                    description: item.type,
-                    detail: item.content ? `${item.content.substring(0, 50).replace(/\n/g, ' ')}...` : '(empty)',
-                    item: item
-                };
-            });
+                for (const [name, value] of macroEntries) {
+                    qpItems.push({
+                        label: `    $(symbol-field) ${name}`,
+                        description: 'macro',
+                        detail: `"${value}"`,
+                        item: { type: 'macro', key: name, content: `@{define ${name}, "${value}"}` }
+                    });
+                }
+            }
+
+            // Add Context Items section header if there are items
+            if (items.length > 0) {
+                if (macroEntries.length > 0) {
+                    qpItems.push({
+                        label: 'Context Items',
+                        kind: vscode.QuickPickItemKind.Separator
+                    });
+                }
+
+                for (const item of items) {
+                    let icon = '$(file)';
+                    if (item.type === 'rule') icon = '$(book)';
+                    if (item.type === 'tool') icon = '$(tools)';
+                    
+                    qpItems.push({
+                        label: `${icon} ${item.key}`,
+                        description: item.type,
+                        detail: item.content ? `${item.content.substring(0, 50).replace(/\n/g, ' ')}...` : '(empty)',
+                        item: item
+                    });
+                }
+            }
 
             const selected = await vscode.window.showQuickPick(qpItems, {
-                placeHolder: 'Current Context Items (Files & Rules)',
+                placeHolder: 'Current Context Items (Files, Rules & Macros)',
                 matchOnDetail: true
             });
 
-            if (selected) {
+            if (selected && selected.item) {
                 const doc = await vscode.workspace.openTextDocument({
                     content: selected.item.content,
                     language: selected.item.type === 'rule' ? 'markdown' : undefined

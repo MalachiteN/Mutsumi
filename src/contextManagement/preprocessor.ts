@@ -30,6 +30,12 @@ const ELSE_REGEX = /^else\s*$/;
 const IF_REGEX = /^if\s+([A-Za-z_][A-Za-z0-9_]*)\s+(IS|CONTAINS|MATCHES|ISNT|DOESNT_CONTAIN|DOESNT_MATCH)\s+([A-Za-z_][A-Za-z0-9_]*|"[^"]*")\s*$/;
 
 /**
+ * @description Regex pattern for extracting define commands from text blocks.
+ * Format: @{define MACRO_NAME, "value"}
+ */
+const DEFINE_BLOCK_REGEX = /@\{define\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*"([^"]*)"\s*\}/g;
+
+/**
  * @description Represents a frame in the conditional processing stack.
  * Tracks the state of conditional blocks like ifdef, ifndef, and if.
  */
@@ -42,6 +48,29 @@ interface ConditionFrame {
     currentlyActive: boolean;
     /** @description Whether an else directive has been encountered for this frame */
     hasElse: boolean;
+}
+
+/**
+ * @description Extract all macro definitions from text.
+ * Searches for all occurrences of @{define MACRO_NAME, "value"} in the text
+ * and returns them as a Map of macro names to their values.
+ * @param {string} text - The input text to search for define commands
+ * @returns {Map<string, string>} Map of macro names to their values
+ */
+export function extractMacroDefinitions(text: string): Map<string, string> {
+    const macros = new Map<string, string>();
+    let match: RegExpExecArray | null;
+
+    // Reset lastIndex to ensure the regex starts from the beginning
+    DEFINE_BLOCK_REGEX.lastIndex = 0;
+
+    while ((match = DEFINE_BLOCK_REGEX.exec(text)) !== null) {
+        const name = match[1];
+        const value = match[2];
+        macros.set(name, value);
+    }
+
+    return macros;
 }
 
 /**
@@ -84,6 +113,35 @@ export class MacroContext {
     getValue(name: string): string | undefined {
         return this.macros.get(name);
     }
+
+    /**
+     * @description Set multiple macros from a plain object (for deserialization)
+     * @param {Record<string, string>} macros - Record of macro names to values
+     */
+    setMacros(macros: Record<string, string>): void {
+        for (const [name, value] of Object.entries(macros)) {
+            this.macros.set(name, value);
+        }
+    }
+
+    /**
+     * @description Get all macros as a plain object (for serialization)
+     * @returns {Record<string, string>} Record of macro names to values
+     */
+    getMacrosObject(): Record<string, string> {
+        const result: Record<string, string> = {};
+        for (const [name, value] of this.macros.entries()) {
+            result[name] = value;
+        }
+        return result;
+    }
+
+    /**
+     * @description Clear all macro definitions
+     */
+    clear(): void {
+        this.macros.clear();
+    }
 }
 
 /**
@@ -105,10 +163,20 @@ export class Preprocessor {
     private context: MacroContext;
 
     /**
-     * @description Creates a new Preprocessor instance with a fresh MacroContext.
+     * @description Creates a new Preprocessor instance.
+     * @param {MacroContext} [externalContext] - Optional external MacroContext to use instead of creating a new one.
+     * If not provided, a new MacroContext will be created.
      */
-    constructor() {
-        this.context = new MacroContext();
+    constructor(externalContext?: MacroContext) {
+        this.context = externalContext || new MacroContext();
+    }
+
+    /**
+     * @description Get the internal MacroContext (useful for sharing context)
+     * @returns {MacroContext} The MacroContext used by this preprocessor
+     */
+    getContext(): MacroContext {
+        return this.context;
     }
 
     /**
@@ -247,7 +315,7 @@ export class Preprocessor {
             return true;
         }
 
-        warnings.push(`Invalid command syntax: @{${content}}`);
+        warnings.push(`Invalid command syntax: @\{${content}}`);
         return false;
     }
 
@@ -297,7 +365,7 @@ export class Preprocessor {
     private getMacroValue(name: string, warnings: string[]): string {
         const value = this.context.getValue(name);
         if (value === undefined) {
-            warnings.push(`Macro ${name} is not defined.`);
+            warnings.push(`Macro \${name} is not defined.`);
             return '';
         }
         return value;
@@ -355,7 +423,7 @@ export class Preprocessor {
             const regex = new RegExp(pattern);
             return regex.test(value);
         } catch (error) {
-            warnings.push(`Regex error: ${(error as Error).message}`);
+            warnings.push(`Regex error: \${(error as Error).message}`);
             return false;
         }
     }

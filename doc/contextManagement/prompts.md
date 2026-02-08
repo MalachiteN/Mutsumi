@@ -60,14 +60,21 @@ You are a Sub-Agent...
 ```typescript
 export async function getRulesContext(
     workspaceUri: vscode.Uri, 
-    allowedUris: string[]
+    allowedUris: string[],
+    macroContext?: MacroContext
 ): Promise<ContextItem[]>
 ```
 
 **功能:**
 1. 读取 `.mutsumi/rules` 目录下所有 `.md` 文件
 2. 对每个文件内容进行 `INLINE` 模式的完全展开（解析嵌套引用）
-3. 返回 `ContextItem[]` 列表
+3. 如果提供了 `macroContext`，则应用宏处理进行条件内容筛选
+4. 返回 `ContextItem[]` 列表
+
+**新增参数:**
+- **macroContext** (可选): `MacroContext` - 用于处理 rules 的共享宏上下文
+  - 允许在 rules 文件中使用用户定义的宏进行条件编译
+  - 通过 `@{ifdef}`, `@{ifndef}`, `@{if}` 等指令实现条件内容
 
 **ContextItem 结构:**
 ```typescript
@@ -78,5 +85,24 @@ export async function getRulesContext(
 }
 ```
 
+**使用示例:**
+```typescript
+// 创建共享宏上下文
+const sharedMacroContext = new MacroContext();
+sharedMacroContext.define('USE_TYPESCRIPT', 'true');
+
+// 获取 rules，应用宏上下文
+const rulesItems = await getRulesContext(wsUri, allowedUris, sharedMacroContext);
+```
+
+**在 rule 文件中使用宏:**
+```markdown
+@{ifdef USE_TYPESCRIPT}
+- 使用 TypeScript 严格模式
+@{else}
+- 使用 JavaScript
+@{endif}
+```
+
 **设计意图:**
-将规则视为一种特殊的上下文资源，与用户引用的文件和工具结果一起，在构建消息历史时统一注入。这确保了规则内容始终"跟随"最新的用户消息，避免在长对话中被注意力机制忽略。
+将规则视为一种特殊的上下文资源，与用户引用的文件和工具结果一起，在构建消息历史时统一注入。这确保了规则内容始终"跟随"最新的用户消息，避免在长对话中被注意力机制忽略。宏支持允许根据不同的项目配置动态调整规则内容。

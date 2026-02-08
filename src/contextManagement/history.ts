@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { AgentMessage, AgentMetadata, MessageContent, ContextItem } from '../types';
 import { getSystemPrompt, getRulesContext } from './prompts';
 import { ContextAssembler } from './contextAssembler';
+import { MacroContext, extractMacroDefinitions } from './preprocessor';
 import {
     getLanguageIdentifier,
     readImageAsBase64,
@@ -25,6 +26,22 @@ export async function buildInteractionHistory(
     const allowedUris = metadata.allowed_uris || ['/'];
     const isSubAgent = !!metadata.parent_agent_id;
     const wsUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : notebook.uri;
+
+    // Extract macro definitions from current user prompt
+    const userDefinedMacros = extractMacroDefinitions(currentPrompt);
+
+    // Create shared MacroContext and populate with persisted macros
+    const sharedMacroContext = new MacroContext();
+
+    // Load persisted macros from notebook metadata (if any)
+    if (metadata.macroContext) {
+        sharedMacroContext.setMacros(metadata.macroContext);
+    }
+
+    // Override/add with user-defined macros from current prompt
+    userDefinedMacros.forEach((value, key) => {
+        sharedMacroContext.define(key, value);
+    });
 
     // 1. Static System Prompt
     const systemPromptContent = await getSystemPrompt(wsUri, allowedUris, isSubAgent);
@@ -50,7 +67,7 @@ export async function buildInteractionHistory(
     };
 
     // 2a. Load Global Rules (Dynamic from workspace)
-    const rulesItems = await getRulesContext(wsUri, allowedUris);
+    const rulesItems = await getRulesContext(wsUri, allowedUris, sharedMacroContext);
     mergeItems(rulesItems);
 
     // 2b. Load Persisted Context (Files & Rules from Notebook Metadata)
@@ -63,7 +80,12 @@ export async function buildInteractionHistory(
         if (item.type === 'file') {
             try {
                 // Re-resolve to get fresh content
-                const freshItems = await ContextAssembler.resolveContext(`@[${item.key}]`, wsUri.fsPath, allowedUris);
+                const freshItems = await ContextAssembler.resolveContextWithMacros(
+                    `@[${item.key}]`,
+                    wsUri.fsPath,
+                    allowedUris,
+                    sharedMacroContext
+                );
                 if (freshItems.length > 0) {
                     // Update content in map
                     mergeItems(freshItems);
@@ -87,7 +109,12 @@ export async function buildInteractionHistory(
 
     // 2c. Parse Current Prompt for NEW Context
     // This adds any new file references or tool calls from the current user message
-    const currentContext = await ContextAssembler.resolveContext(currentPrompt, wsUri.fsPath, allowedUris);
+    const currentContext = await ContextAssembler.resolveContextWithMacros(
+        currentPrompt,
+        wsUri.fsPath,
+        allowedUris,
+        sharedMacroContext
+    );
     mergeItems(currentContext);
 
     // 2d. Update Notebook Metadata (Persist File/Rule Contexts for future turns)
@@ -99,7 +126,11 @@ export async function buildInteractionHistory(
     // Since file content changes often, we assume update is needed if there are any items.
     // We use WorkspaceEdit to be safe.
     const edit = new vscode.WorkspaceEdit();
-    const newMetadata = { ...metadata, contextItems: newContextItems };
+    const newMetadata = {
+        ...metadata,
+        contextItems: newContextItems,
+        macroContext: sharedMacroContext.getMacrosObject()
+    };
     const notebookEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
     edit.set(notebook.uri, [notebookEdit]);
     await vscode.workspace.applyEdit(edit);
@@ -138,28 +169,31 @@ export async function buildInteractionHistory(
         // Build Markdown formatted context block
         let contextMarkdown = '\n<content_reference>\n';
 
-        contextMarkdown += '\n以下是你必须遵守的规则：\n';
-
         // Add Rules
         const rules = contextList.filter(i => i.type === 'rule');
+        if(rules.length > 0){
+            contextMarkdown += '\n以下是你必须遵守的规则：\n';
+        }
         for (const rule of rules) {
             contextMarkdown += `\n# Rule: ${rule.key}\n\n${rule.content}\n`;
         }
 
-        contextMarkdown += '\n以下是用户使用@引用的文件，预插入到此处：\n';
-
         // Add Files (as Markdown code blocks)
         const files = contextList.filter(i => i.type === 'file');
+        if(files.length > 0){
+            contextMarkdown += '\n以下是用户使用@引用的文件，预插入到此处：\n';
+        }
         for (const file of files) {
             const ext = file.key.split('.').pop() || '';
             const lang = getLanguageIdentifier(ext);
             contextMarkdown += `\n# Source: ${file.key}\n\n\`\`\`${lang}\n${file.content}\n\`\`\`\n`;
         }
 
-        contextMarkdown += '\n下面是用户使用@指定的工具调用，预执行结果如下：\n';
-
         // Add Tools
         const tools = contextList.filter(i => i.type === 'tool');
+        if(tools.length > 0){
+            contextMarkdown += '\n下面是用户使用@指定的工具调用，预执行结果如下：\n';
+        }
         for (const tool of tools) {
             contextMarkdown += `\n# Tool Call: ${tool.key}\n> Args: ${JSON.stringify(tool.metadata)}\n\n${tool.content}\n`;
         }

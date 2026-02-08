@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
 import { ContextItem } from '../types';
 import { ContextAssembler, ParseMode } from './contextAssembler';
+import { MacroContext } from './preprocessor';
 
 /**
  * @description Initialize rules directory and default rules file
@@ -43,8 +44,16 @@ Current Allowed URIs: ${JSON.stringify(allowedUris)}`;
 
 /**
  * @description Get rules content as structured context items
+ * @param workspaceUri - Workspace root URI
+ * @param allowedUris - List of allowed URIs for security
+ * @param macroContext - Optional shared MacroContext for processing rules with user-defined macros
+ * @returns Array of context items representing rules
  */
-export async function getRulesContext(workspaceUri: vscode.Uri, allowedUris: string[]): Promise<ContextItem[]> {
+export async function getRulesContext(
+    workspaceUri: vscode.Uri, 
+    allowedUris: string[],
+    macroContext?: MacroContext
+): Promise<ContextItem[]> {
     const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
     const items: ContextItem[] = [];
 
@@ -65,7 +74,9 @@ export async function getRulesContext(workspaceUri: vscode.Uri, allowedUris: str
                     decodedContent,
                     workspaceUri.fsPath,
                     allowedUris,
-                    ParseMode.INLINE
+                    ParseMode.INLINE,
+                    undefined,  // collector (not used here)
+                    macroContext  // Pass macro context for preprocessing
                 );
 
                 items.push({
