@@ -22,6 +22,39 @@ Agent 会话的元数据，存储在 notebook metadata 中。
 | `is_task_finished?` | `boolean` | 任务是否已完成（可选） |
 | `model?` | `string` | 此 agent 使用的模型标识符（可选） |
 | `contextItems?` | `ContextItem[]` | 持久化的上下文项（文件、规则）（可选） |
+| `macroContext?` | `Record<string, string>` | 持久化的宏定义（宏名称到宏值的映射）（可选） |
+
+#### `macroContext` 字段说明
+
+- **macroContext** (可选): `Record<string, string>`
+  - 持久化的宏定义（宏名称到宏值的映射）
+  - 存储在 notebook 的 metadata 中
+  - 跨会话保持用户定义的宏
+  - 用于在 rules 和引用文件中实现条件编译
+
+#### 使用场景
+
+1. 用户在 prompt 中定义宏：`@{define USE_TYPESCRIPT, "true"}`
+2. 宏被提取并应用到 rules 和引用文件
+3. 宏被保存到 `metadata.macroContext`
+4. 下次会话时从 metadata 恢复宏定义
+
+#### 示例 Notebook Metadata
+
+```json
+{
+  "metadata": {
+    "uuid": "...",
+    "name": "Agent Name",
+    "macroContext": {
+      "USE_TYPESCRIPT": "true",
+      "API_VERSION": "v2"
+    },
+    "contextItems": [...]
+  },
+  "context": [...]
+}
+```
 
 ---
 

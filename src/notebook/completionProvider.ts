@@ -120,7 +120,7 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
                     });
 
                     item.insertText = new vscode.SnippetString(
-                        `[${name},{${snippets.join(', ')}}]`
+                        `[${name}{${snippets.join(', ')}}]`
                     );
                 }
 

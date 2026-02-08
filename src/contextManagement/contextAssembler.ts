@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 const matter = require('gray-matter');
-import { Preprocessor } from './preprocessor';
+import { Preprocessor, MacroContext } from './preprocessor';
 import {
     extractBracketContent,
     parseReference,
@@ -57,12 +57,14 @@ export class ContextAssembler {
 
     /**
      * @description Run preprocessor to process @{...} syntax
+     * @param text - Text to preprocess
+     * @param macroContext - Optional external MacroContext to use (for sharing macros across files)
      */
-    static preprocess(text: string): string {
+    static preprocess(text: string, macroContext?: MacroContext): string {
         if (!text.includes('@{')) {
             return text;
         }
-        const preprocessor = new Preprocessor();
+        const preprocessor = new Preprocessor(macroContext);
         const { result: preprocessedText } = preprocessor.process(text);
         return preprocessedText;
     }
@@ -133,16 +135,23 @@ export class ContextAssembler {
 
     /**
      * @description Assemble document with full pipeline
+     * @param text - Document text to process
+     * @param workspaceRoot - Workspace root path
+     * @param allowedUris - Allowed URIs for security
+     * @param mode - Parse mode (INLINE or APPEND)
+     * @param collector - Optional context item collector
+     * @param macroContext - Optional shared MacroContext for cross-file macro definitions
      */
     static async assembleDocument(
         text: string,
         workspaceRoot: string,
         allowedUris: string[],
         mode: ParseMode = ParseMode.INLINE,
-        collector?: ContextItem[]
+        collector?: ContextItem[],
+        macroContext?: MacroContext
     ): Promise<string> {
         // Step 1: Run preprocessor
-        text = this.preprocess(text);
+        text = this.preprocess(text, macroContext);
 
         // Step 2: Run prepareSkill
         const result = await this.prepareSkill(text, workspaceRoot, allowedUris, mode, collector);
@@ -161,6 +170,32 @@ export class ContextAssembler {
     ): Promise<ContextItem[]> {
         const collector: ContextItem[] = [];
         await this.assembleDocument(text, workspaceRoot, allowedUris, ParseMode.APPEND, collector);
+        return collector;
+    }
+
+    /**
+     * @description Parse references in user prompt, collect context items with macro support
+     * @param text - User prompt text
+     * @param workspaceRoot - Workspace root path
+     * @param allowedUris - Allowed URIs for security
+     * @param macroContext - Optional shared MacroContext
+     * @returns Collected context items
+     */
+    static async resolveContextWithMacros(
+        text: string,
+        workspaceRoot: string,
+        allowedUris: string[],
+        macroContext?: MacroContext
+    ): Promise<ContextItem[]> {
+        const collector: ContextItem[] = [];
+        await this.assembleDocument(
+            text,
+            workspaceRoot,
+            allowedUris,
+            ParseMode.APPEND,
+            collector,
+            macroContext
+        );
         return collector;
     }
 

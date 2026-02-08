@@ -29,7 +29,44 @@
 | `ELSE_REGEX` | `else` |
 | `IF_REGEX` | `if MACRO_NAME TEST value` |
 
-## 导出的类和接口
+## 导出的函数和类
+
+### extractMacroDefinitions
+
+从文本中提取所有 `@{define MACRO_NAME, "value"}` 定义。
+
+```typescript
+export function extractMacroDefinitions(text: string): Map<string, string>
+```
+
+**参数：**
+- `text` - 要搜索的输入文本
+
+**返回值：**
+- 宏名称到宏值的 Map
+
+**说明：**
+- 扫描文本中所有的 `@{define ...}` 命令块
+- 提取宏名称和值，返回为 Map 对象
+- 重复的宏定义会被后面的覆盖
+
+**示例：**
+```typescript
+import { extractMacroDefinitions } from './preprocessor';
+
+const text = `
+@{define DEBUG, "true"}
+@{define VERSION, "1.0.0"}
+@{define PLATFORM, "web"}
+`;
+
+const macros = extractMacroDefinitions(text);
+// macros.get('DEBUG') === 'true'
+// macros.get('VERSION') === '1.0.0'
+// macros.get('PLATFORM') === 'web'
+```
+
+---
 
 ### MacroContext
 
@@ -43,6 +80,9 @@ export class MacroContext {
     define(name: string, value: string): void;
     isDefined(name: string): boolean;
     getValue(name: string): string | undefined;
+    setMacros(macros: Record<string, string>): void;
+    getMacrosObject(): Record<string, string>;
+    clear(): void;
 }
 ```
 
@@ -54,6 +94,64 @@ export class MacroContext {
 | `define(name, value)` | 定义或覆盖宏 |
 | `isDefined(name)` | 检查宏是否已定义 |
 | `getValue(name)` | 获取宏的值（未定义返回 undefined） |
+| `setMacros(macros)` | 从普通对象批量设置宏（用于反序列化） |
+| `getMacrosObject()` | 将所有宏作为普通对象返回（用于序列化） |
+| `clear()` | 清除所有宏定义 |
+
+#### setMacros 方法
+
+从普通对象批量设置宏（用于反序列化）。
+
+```typescript
+setMacros(macros: Record<string, string>): void
+```
+
+**参数：**
+- `macros` - 宏名称到值的记录对象
+
+**示例：**
+```typescript
+const context = new MacroContext();
+context.setMacros({
+    DEBUG: 'true',
+    VERSION: '2.0.0'
+});
+// 等同于多次调用 define
+```
+
+#### getMacrosObject 方法
+
+将所有宏作为普通对象返回（用于序列化）。
+
+```typescript
+getMacrosObject(): Record<string, string>
+```
+
+**返回值：**
+- 宏名称到值的记录对象
+
+**示例：**
+```typescript
+const context = new MacroContext();
+context.define('DEBUG', 'true');
+context.define('VERSION', '1.0.0');
+
+const obj = context.getMacrosObject();
+// obj = { DEBUG: 'true', VERSION: '1.0.0' }
+// 可用于 JSON.stringify 保存到文件
+```
+
+#### clear 方法
+
+清除所有宏定义。
+
+```typescript
+clear(): void
+```
+
+**说明：**
+- 清空内部宏映射表
+- 可用于重置上下文状态
 
 ---
 
@@ -93,9 +191,40 @@ export interface PreprocessorResult {
 export class Preprocessor {
     private context: MacroContext;
     
-    constructor();
+    constructor(externalContext?: MacroContext);
     process(text: string): PreprocessorResult;
+    getContext(): MacroContext;
 }
+```
+
+#### constructor
+
+创建 Preprocessor 实例。
+
+```typescript
+constructor(externalContext?: MacroContext)
+```
+
+**参数：**
+- `externalContext` - 可选的外部 MacroContext，如果不提供则创建新的
+
+**说明：**
+- 如果不提供外部上下文，预处理器会创建一个新的 MacroContext
+- 如果提供外部上下文，预处理器将使用该上下文存储宏定义
+- 使用外部上下文可以实现多个预处理器实例之间的宏共享
+
+**示例：**
+```typescript
+// 创建独立的预处理器
+const preprocessor1 = new Preprocessor();
+
+// 使用共享上下文
+const sharedContext = new MacroContext();
+sharedContext.define('VERSION', '1.0.0');
+
+const preprocessor2 = new Preprocessor(sharedContext);
+const preprocessor3 = new Preprocessor(sharedContext);
+// preprocessor2 和 preprocessor3 共享相同的宏定义
 ```
 
 #### process 方法
@@ -118,6 +247,38 @@ process(text: string): PreprocessorResult
 2. 根据当前条件栈状态决定是否保留命令块之间的文本
 3. 执行命令（define、ifdef、if 等）
 4. 返回处理结果和警告
+
+#### getContext 方法
+
+获取内部 MacroContext（用于共享上下文）。
+
+```typescript
+getContext(): MacroContext
+```
+
+**返回值：**
+- 此预处理器使用的 MacroContext
+
+**说明：**
+- 可用于在多个预处理器之间共享宏定义
+- 也可用于序列化/反序列化宏状态
+
+**示例：**
+```typescript
+const preprocessor = new Preprocessor();
+preprocessor.process(`@{define DEBUG, "true"}`);
+
+// 获取上下文并序列化
+const context = preprocessor.getContext();
+const macros = context.getMacrosObject();
+const saved = JSON.stringify(macros);
+// saved = '{"DEBUG":"true"}'
+
+// 反序列化并应用到另一个预处理器
+const newPreprocessor = new Preprocessor();
+const parsedMacros = JSON.parse(saved);
+newPreprocessor.getContext().setMacros(parsedMacros);
+```
 
 ## 支持的预处理器命令
 
@@ -413,3 +574,80 @@ static async assembleDocument(
 ```
 
 预处理器在文件引用和工具调用之前执行，确保条件编译在内容解析前完成。
+
+## 高级用法示例
+
+### 共享宏上下文
+
+在多个预处理操作之间共享宏定义：
+
+```typescript
+import { Preprocessor, MacroContext } from './preprocessor';
+
+// 创建共享上下文
+const sharedContext = new MacroContext();
+sharedContext.define('PROJECT_NAME', 'MyApp');
+sharedContext.define('VERSION', '2.0.0');
+
+// 多个预处理器共享相同的上下文
+const preprocessor1 = new Preprocessor(sharedContext);
+const preprocessor2 = new Preprocessor(sharedContext);
+
+// preprocessor1 处理并添加新宏
+preprocessor1.process(`@{define FEATURE_X, "enabled"}`);
+
+// preprocessor2 可以看到 preprocessor1 定义的宏
+const result = preprocessor2.process(`@{ifdef FEATURE_X}Feature X is enabled@{endif}`);
+// result.result = "Feature X is enabled"
+```
+
+### 宏状态的序列化与恢复
+
+保存和恢复宏定义状态：
+
+```typescript
+import { Preprocessor, MacroContext, extractMacroDefinitions } from './preprocessor';
+import * as fs from 'fs';
+
+// 处理文本并提取宏
+const text = fs.readFileSync('config.md', 'utf8');
+const preprocessor = new Preprocessor();
+preprocessor.process(text);
+
+// 保存宏状态到文件
+const macros = preprocessor.getContext().getMacrosObject();
+fs.writeFileSync('macros.json', JSON.stringify(macros, null, 2));
+
+// 稍后恢复宏状态
+const savedMacros = JSON.parse(fs.readFileSync('macros.json', 'utf8'));
+const newContext = new MacroContext();
+newContext.setMacros(savedMacros);
+const newPreprocessor = new Preprocessor(newContext);
+```
+
+### 批量提取宏定义
+
+从多个文件中提取所有宏定义：
+
+```typescript
+import { extractMacroDefinitions } from './preprocessor';
+import * as fs from 'fs';
+import * as glob from 'glob';
+
+const allMacros = new Map<string, string>();
+
+// 从多个文件中提取宏
+const files = glob.sync('docs/**/*.md');
+for (const file of files) {
+    const content = fs.readFileSync(file, 'utf8');
+    const macros = extractMacroDefinitions(content);
+    
+    // 合并到总集合
+    for (const [name, value] of macros) {
+        allMacros.set(name, value);
+    }
+}
+
+console.log(`Extracted ${allMacros.size} macro definitions`);
+// 使用提取的宏创建预处理器上下文
+```
