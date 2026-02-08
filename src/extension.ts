@@ -8,7 +8,7 @@ import * as path from 'path';
 import { MutsumiSerializer } from './notebook/serializer';
 import { AgentController } from './controller';
 import { AgentSidebarProvider } from './sidebar/agentSidebar';
-import { AgentOrchestrator } from './agentOrchestrator';
+import { AgentOrchestrator } from './agent/agentOrchestrator';
 import { activateEditSupport } from './tools.d/edit_file';
 import { AgentTreeItem } from './sidebar/agentTreeItem';
 import { ReferenceCompletionProvider } from './notebook/completionProvider';
@@ -16,8 +16,9 @@ import { CodebaseService } from './codebase/service';
 import { initializeRules } from './contextManagement/prompts';
 import { ImagePasteProvider } from './contextManagement/imagePasteProvider';
 import { buildInteractionHistory } from './contextManagement/history';
-import { generateTitle, sanitizeFileName } from './utils';
+import { sanitizeFileName } from './utils';
 import { AgentMessage } from './types';
+import { regenerateTitleForNotebook } from './agent/titleGenerator';
 import { ToolManager } from './toolManager';
 
 /**
@@ -81,27 +82,36 @@ export function activate(context: vscode.ExtensionContext): void {
     AgentOrchestrator.getInstance().registerController(agentController, controller);
 
     // 4. Event Listeners for Agent Lifecycle
+    // Track window state using editor-level events (NOT document-level)
+    // VS Code caches NotebookDocument, so onDidCloseNotebookDocument doesn't fire when closing editor
+    context.subscriptions.push(
+        vscode.window.onDidChangeVisibleNotebookEditors(editors => {
+            // Get all visible mutsumi notebook URIs
+            const visibleUris = new Set<string>();
+            for (const editor of editors) {
+                if (editor.notebook.notebookType === 'mutsumi-notebook') {
+                    const uri = editor.notebook.uri.toString();
+                    visibleUris.add(uri);
+                    const uuid = editor.notebook.metadata?.uuid;
+                    if (uuid) {
+                        AgentOrchestrator.getInstance().notifyNotebookWindowOpened(uuid, editor.notebook.uri, editor.notebook.metadata);
+                    }
+                }
+            }
+            // Notify closed for any notebooks that are no longer visible
+            AgentOrchestrator.getInstance().notifyVisibleNotebooksChanged(visibleUris);
+        })
+    );
+    
+    // Also track when documents are opened (for initial load)
     context.subscriptions.push(
         vscode.workspace.onDidOpenNotebookDocument(async doc => {
             if (doc.notebookType === 'mutsumi-notebook') {
                 const uuid = doc.metadata.uuid;
-                const model = doc.metadata.model;
                 if (uuid) {
-                    await AgentOrchestrator.getInstance().notifyNotebookOpened(uuid, doc.uri, {
-                        ...doc.metadata,
-                        model: model
+                    await AgentOrchestrator.getInstance().notifyNotebookDocumentOpened(uuid, doc.uri, {
+                        ...doc.metadata
                     });
-                }
-            }
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.workspace.onDidCloseNotebookDocument(doc => {
-            if (doc.notebookType === 'mutsumi-notebook') {
-                const uuid = doc.metadata.uuid;
-                if (uuid) {
-                    AgentOrchestrator.getInstance().notifyNotebookClosed(uuid);
                 }
             }
         })
@@ -110,7 +120,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Auto-rename on save based on metadata name
     let isAutoRenaming = false;
     context.subscriptions.push(
-        vscode.workspace.onDidSaveNotebookDocument(async doc => {
+        vscode.workspace.onDidSaveNotebookDocument(doc => {
             if (isAutoRenaming) {
                 return;
             }
@@ -140,25 +150,38 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            try {
-                const dir = path.dirname(doc.uri.fsPath);
-                let suffix = 0;
-                let candidate = sanitizedName;
-                let targetUri = vscode.Uri.file(path.join(dir, `${candidate}.mtm`));
+            // Defer the rename operation to avoid conflicts with the ongoing save
+            // VS Code will automatically update the editor to reflect the new file path
+            setTimeout(async () => {
+                try {
+                    const dir = path.dirname(doc.uri.fsPath);
+                    let suffix = 0;
+                    let candidate = sanitizedName;
+                    let targetUri = vscode.Uri.file(path.join(dir, `${candidate}.mtm`));
 
-                while (await fileExists(targetUri)) {
-                    suffix += 1;
-                    candidate = `${sanitizedName}-${suffix}`;
-                    targetUri = vscode.Uri.file(path.join(dir, `${candidate}.mtm`));
+                    while (await fileExists(targetUri)) {
+                        suffix += 1;
+                        candidate = `${sanitizedName}-${suffix}`;
+                        targetUri = vscode.Uri.file(path.join(dir, `${candidate}.mtm`));
+                    }
+
+                    isAutoRenaming = true;
+
+                    const uuid = doc.metadata?.uuid;
+
+                    // Perform the rename - VS Code will automatically update the editor
+                    await vscode.workspace.fs.rename(doc.uri, targetUri, { overwrite: false });
+
+                    // Update the agent registry with the new file URI
+                    if (uuid) {
+                        AgentOrchestrator.getInstance().updateAgentFileUri(uuid, targetUri);
+                    }
+                } catch (error) {
+                    console.error('Failed to auto-rename notebook:', error);
+                } finally {
+                    isAutoRenaming = false;
                 }
-
-                isAutoRenaming = true;
-                await vscode.workspace.fs.rename(doc.uri, targetUri, { overwrite: false });
-            } catch (error) {
-                console.error('Failed to auto-rename notebook:', error);
-            } finally {
-                isAutoRenaming = false;
-            }
+            }, 0);
         })
     );
 
@@ -304,53 +327,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            const config = vscode.workspace.getConfiguration('mutsumi');
-            const apiKey = config.get<string>('apiKey');
-            const baseUrl = config.get<string>('baseUrl');
-            const titleModel = config.get<string>('titleGeneratorModel') || config.get<string>('defaultModel');
-
-            if (!apiKey) {
-                vscode.window.showErrorMessage('Please set mutsumi.apiKey in VSCode Settings.');
-                return;
-            }
-
-            if (!titleModel) {
-                vscode.window.showErrorMessage('Please set mutsumi.titleGeneratorModel or mutsumi.defaultModel in VSCode Settings.');
-                return;
-            }
-
-            const messages: AgentMessage[] = [];
-            for (const cell of editor.notebook.getCells()) {
-                if (cell.kind === vscode.NotebookCellKind.Code) {
-                    messages.push({ role: 'user', content: cell.document.getText() });
-                    if (cell.metadata?.mutsumi_interaction) {
-                        messages.push(...(cell.metadata.mutsumi_interaction as AgentMessage[]));
-                    }
-                }
-            }
-
-            if (messages.length === 0) {
-                vscode.window.showWarningMessage('No conversation context found.');
-                return;
-            }
-
             try {
-                const title = await generateTitle(messages, apiKey, baseUrl, titleModel);
-
-                // Read file to get complete metadata (editor.notebook.metadata may not contain custom fields)
-                const content = await vscode.workspace.fs.readFile(editor.notebook.uri);
-                const raw = JSON.parse(new TextDecoder().decode(content));
-
-                const edit = new vscode.WorkspaceEdit();
-                const newMetadata = { ...raw.metadata, name: title };
-                const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
-                edit.set(editor.notebook.uri, [nbEdit]);
-                await vscode.workspace.applyEdit(edit);
-
+                const title = await regenerateTitleForNotebook(editor.notebook);
                 vscode.window.showInformationMessage(`Title regenerated: ${title}`);
-            } catch (error) {
+            } catch (error: any) {
                 console.error('Failed to regenerate title:', error);
-                vscode.window.showErrorMessage(`Failed to regenerate title: ${error}`);
+                vscode.window.showErrorMessage(`Failed to regenerate title: ${error.message}`);
             }
         })
     );

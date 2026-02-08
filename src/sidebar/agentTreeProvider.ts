@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { AgentTreeItem, AgentNodeData } from './agentTreeItem';
-import { AgentOrchestrator } from '../agentOrchestrator';
+import { AgentOrchestrator } from '../agent/agentOrchestrator';
 
 /**
  * @description Agent tree data provider, implements VSCode TreeDataProvider interface

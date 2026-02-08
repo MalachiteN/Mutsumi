@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TextDecoder, TextEncoder } from 'util';
 import { AgentContext, AgentMessage, AgentMetadata, MessageContent } from '../types';
+import { AgentOrchestrator } from '../agent/agentOrchestrator';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -132,6 +133,14 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
         const notebookData = new vscode.NotebookData(cells);
         notebookData.metadata = raw.metadata;
 
+        // Sync sub_agents_list to agentRegistry childIds on load
+        if (raw.metadata.uuid) {
+            const agent = AgentOrchestrator.getInstance().getAgentById(raw.metadata.uuid);
+            if (agent && raw.metadata.sub_agents_list) {
+                agent.childIds = new Set(raw.metadata.sub_agents_list);
+            }
+        }
+
         return notebookData;
     }
 
@@ -212,9 +221,20 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
             }
         }
 
+        // Build metadata with sub_agents_list from agentRegistry
+        // This ensures the relationship is only persisted when this agent is saved,
+        // not when child agents are created
+        const metadata = { ...data.metadata } as AgentMetadata;
+        if (metadata.uuid) {
+            const agent = AgentOrchestrator.getInstance().getAgentById(metadata.uuid);
+            if (agent?.childIds) {
+                metadata.sub_agents_list = Array.from(agent.childIds);
+            }
+        }
+
         const output: AgentContext = {
-            metadata: data.metadata as AgentMetadata,
-            context: context
+            metadata,
+            context
         };
 
         return new TextEncoder().encode(JSON.stringify(output, null, 2));
