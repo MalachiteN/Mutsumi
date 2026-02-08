@@ -3,5 +3,4 @@ out/
 assets/tree-sitter/*.wasm
 .continue/
 .mutsumi/
-.vscode/
 *.vsix

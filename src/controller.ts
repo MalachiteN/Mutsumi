@@ -5,9 +5,9 @@
 
 import * as vscode from 'vscode';
 import { ToolManager } from './toolManager';
-import { AgentRunner } from './agentRunner';
+import { AgentRunner } from './agent/agentRunner';
 import { buildInteractionHistory } from './contextManagement/history';
-import { AgentOrchestrator } from './agentOrchestrator';
+import { AgentOrchestrator } from './agent/agentOrchestrator';
 
 /**
  * Controls the execution of agent notebooks.
