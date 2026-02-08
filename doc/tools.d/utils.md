@@ -2,7 +2,7 @@
 
 ## 功能概述
 
-`utils.ts` 是 `tools.d` 模块的通用工具函数集合，提供 URI 解析、访问控制、用户批准系统等核心功能。这些功能被多个工具模块共享使用。
+`utils.ts` 是 `tools.d` 模块的通用工具函数集合，提供 URI 解析、访问控制、用户批准系统、编辑文件会话管理等核心功能。这些功能被多个工具模块共享使用。
 
 ---
 
@@ -35,17 +35,49 @@ export interface ApprovalRequest {
 | 方法 | 签名 | 描述 |
 |------|------|------|
 | `getInstance` | `static getInstance(): ApprovalRequestManager` | 获取单例实例 |
-| `addRequest` | `addRequest(action, targetUri, details?): Promise<boolean>` | 添加新请求，返回 Promise 等待用户响应 |
+| `createRequest` | `createRequest(actionDescription, targetUri, details?): { id: string; promise: Promise<boolean> }` | 创建请求，返回 ID 和 Promise，允许在 await 前设置额外处理 |
+| `addRequest` | `addRequest(action, targetUri, details?): Promise<boolean>` | 添加新请求，返回 Promise 等待用户响应（内部使用 createRequest） |
 | `approveRequest` | `approveRequest(id: string): void` | 批准指定请求 |
 | `rejectRequest` | `rejectRequest(id: string): void` | 拒绝指定请求 |
 | `getPendingRequests` | `getPendingRequests(): ApprovalRequest[]` | 获取待处理请求 |
 | `getAllRequests` | `getAllRequests(): ApprovalRequest[]` | 获取所有请求 |
 | `getRequest` | `getRequest(id: string): ApprovalRequest \| undefined` | 获取指定请求 |
 
+**`createRequest` 方法：**
+
+```typescript
+createRequest(
+    actionDescription: string,
+    targetUri: string,
+    details?: string
+): { id: string; promise: Promise<boolean> }
+```
+
+与 `addRequest` 不同，`createRequest` 返回包含 `id` 和 `promise` 的对象，允许在 await 之前执行额外设置：
+
+```typescript
+// 创建请求
+const { id, promise } = approvalManager.createRequest(
+    'Edit File',
+    '/workspace/project/file.ts',
+    'Will modify 5 lines'
+);
+
+// 在 await 前设置额外处理（如注册会话）
+editFileSessionManager.addSession({
+    id,
+    filePath: '/workspace/project/file.ts',
+    // ...
+});
+
+// 等待用户响应
+const approved = await promise;
+```
+
 **使用示例：**
 
 ```typescript
-// 创建请求并等待响应
+// 简单场景：直接等待响应
 const approved = await approvalManager.addRequest(
     'Create Directory',
     '/workspace/project/new-folder',
@@ -57,6 +89,14 @@ if (approved) {
 } else {
     // 用户拒绝
 }
+
+// 复杂场景：先获取 ID 再 await
+const { id, promise } = approvalManager.createRequest(
+    'Edit File',
+    '/workspace/project/file.ts'
+);
+// 设置额外处理...
+const approved = await promise;
 
 // 在 UI 中批准/拒绝
 approvalManager.approveRequest(requestId);
@@ -79,17 +119,114 @@ export async function requestApproval(
 **执行流程：**
 
 ```
-1. 在 Notebook 输出中显示等待信息
-2. 显示 VS Code 通知（非模态）
-3. 添加到批准管理器
-4. 等待用户响应
+1. 使用 createRequest 创建请求，获取 ID 和 Promise
+2. 在 Notebook 输出中显示等待信息
+3. 显示 VS Code 通知（非模态），带有操作按钮
+4. 等待用户响应（通过通知按钮或侧边栏）
 5. 更新 Notebook 输出状态
 6. 返回批准结果
 ```
 
+**通知按钮：**
+
+通知显示两个操作按钮：
+- **✅ Approve**：批准请求
+- **❌ Reject**：拒绝请求
+
+用户可以通过点击通知按钮直接响应，或通过侧边栏的批准管理界面操作。
+
 ---
 
-### 2. URI 解析
+### 2. 编辑文件会话管理
+
+管理文件编辑操作的会话状态，跟踪编辑生命周期（待处理 → 部分接受 → 已解决）。
+
+#### `EditFileSession` 接口
+
+```typescript
+export interface EditFileSession {
+    id: string;                    // 会话唯一标识符
+    filePath: string;              // 目标文件路径
+    originalUri: vscode.Uri;       // 原始文件 URI
+    tempUri: vscode.Uri;           // 临时文件 URI
+    toolName: string;              // 发起编辑的工具名称
+    timestamp: number;             // 创建时间戳
+    status: 'pending' | 'partially_accepted' | 'resolved';  // 会话状态
+}
+```
+
+**状态说明：**
+
+| 状态 | 值 | 描述 |
+|------|-----|------|
+| `pending` | `'pending'` | 会话待处理，等待用户审查 |
+| `partially_accepted` | `'partially_accepted'` | 部分编辑已被用户接受 |
+| `resolved` | `'resolved'` | 会话已完全解决（全部接受或拒绝） |
+
+#### `EditFileSessionManager` 类
+
+单例模式实现的编辑文件会话管理器。
+
+**方法：**
+
+| 方法 | 签名 | 描述 |
+|------|------|------|
+| `getInstance` | `static getInstance(): EditFileSessionManager` | 获取单例实例 |
+| `addSession` | `addSession(session: Omit<EditFileSession, 'id'>): string` | 添加会话，生成并返回 ID |
+| `markPartiallyAccepted` | `markPartiallyAccepted(id: string): void` | 标记会话为部分接受状态 |
+| `resolveSession` | `resolveSession(id: string): void` | 标记会话为已解决状态 |
+| `getSession` | `getSession(id: string): EditFileSession \| undefined` | 获取指定会话 |
+| `getActiveSessions` | `getActiveSessions(): EditFileSession[]` | 获取所有活动会话（pending 或 partially_accepted） |
+| `getAllSessions` | `getAllSessions(): EditFileSession[]` | 获取所有会话 |
+| `removeSession` | `removeSession(id: string): void` | 移除指定会话 |
+
+**事件：**
+
+```typescript
+onDidChangeSessions: vscode.Event<EditFileSession[]>
+```
+
+会话列表发生变化时触发。
+
+**使用示例：**
+
+```typescript
+// 获取管理器实例
+const sessionManager = EditFileSessionManager.getInstance();
+
+// 创建新会话
+const sessionId = sessionManager.addSession({
+    filePath: '/workspace/project/file.ts',
+    originalUri: vscode.Uri.file('/workspace/project/file.ts'),
+    tempUri: vscode.Uri.file('/workspace/project/.mutsumi-temp/file.ts'),
+    toolName: 'edit_file_search_replace',
+    timestamp: Date.now(),
+    status: 'pending'
+});
+
+// 用户部分接受编辑
+sessionManager.markPartiallyAccepted(sessionId);
+
+// 用户完全解决（接受或拒绝全部）
+sessionManager.resolveSession(sessionId);
+
+// 监听会话变化
+sessionManager.onDidChangeSessions((sessions) => {
+    console.log(`Active sessions: ${sessions.length}`);
+});
+```
+
+#### `editFileSessionManager` 导出
+
+```typescript
+export const editFileSessionManager: EditFileSessionManager
+```
+
+预实例化的编辑文件会话管理器单例，可直接导入使用。
+
+---
+
+### 3. URI 解析
 
 #### `resolveUri` 函数
 
@@ -130,7 +267,7 @@ if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.lengt
 
 ---
 
-### 3. 访问控制
+### 4. 访问控制
 
 #### `checkAccess` 函数
 
@@ -173,7 +310,7 @@ const normalizedAllowed = path.normalize(allowedPath).toLowerCase();
 
 ---
 
-### 4. 其他工具函数
+### 5. 其他工具函数
 
 #### `getUriKey` 函数
 
@@ -256,6 +393,48 @@ async function dangerousOperation(args: any, context: ToolContext) {
 }
 ```
 
+### 编辑文件会话完整流程
+
+```typescript
+import { 
+    approvalManager, 
+    editFileSessionManager 
+} from './utils';
+
+async function editFileWithSession(args: any, context: ToolContext) {
+    // 1. 创建批准请求
+    const { id, promise } = approvalManager.createRequest(
+        'Edit File',
+        args.uri,
+        'Will apply search/replace edits'
+    );
+    
+    // 2. 注册编辑会话
+    editFileSessionManager.addSession({
+        filePath: args.uri,
+        originalUri: resolveUri(args.uri),
+        tempUri: resolveUri(args.tempUri),
+        toolName: 'edit_file_search_replace',
+        timestamp: Date.now(),
+        status: 'pending'
+    });
+    
+    // 3. 等待用户批准
+    const approved = await promise;
+    
+    if (approved) {
+        // 4a. 用户批准，应用编辑
+        await applyEdits(args);
+        editFileSessionManager.resolveSession(id);
+    } else {
+        // 4b. 用户拒绝，清理
+        editFileSessionManager.removeSession(id);
+    }
+    
+    return approved ? 'Edits applied' : 'Edits rejected';
+}
+```
+
 ### 过滤目录遍历
 
 ```typescript
@@ -275,7 +454,9 @@ async function listDirectory(uri: vscode.Uri) {
 
 ---
 
-## 批准系统架构
+## 系统架构
+
+### 批准系统架构
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -286,9 +467,9 @@ async function listDirectory(uri: vscode.Uri) {
 ┌─────────────────────────────────────────────────────────┐
 │              requestApproval() 函数                      │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │ 1. 在 Notebook 输出中显示等待信息                   │  │
-│  │ 2. 显示 VS Code 通知                                │  │
-│  │ 3. 调用 approvalManager.addRequest()               │  │
+│  │ 1. 使用 createRequest() 获取 ID 和 Promise         │  │
+│  │ 2. 在 Notebook 输出中显示等待信息                   │  │
+│  │ 3. 显示 VS Code 通知（带 ✅/❌ 按钮）               │  │
 │  │ 4. 等待 Promise 解析                                │  │
 │  │ 5. 更新 Notebook 输出状态                           │  │
 │  └───────────────────────────────────────────────────┘  │
@@ -298,6 +479,7 @@ async function listDirectory(uri: vscode.Uri) {
 ┌─────────────────────────────────────────────────────────┐
 │           ApprovalRequestManager (单例)                  │
 │  ┌───────────────────────────────────────────────────┐  │
+│  │ - createRequest(): 返回 {id, promise}             │  │
 │  │ - 维护 requests Map                               │  │
 │  │ - 生成 UUID                                       │  │
 │  │ - 触发 onDidChangeRequests 事件                    │  │
@@ -309,6 +491,47 @@ async function listDirectory(uri: vscode.Uri) {
 ┌─────────────────────────────────────────────────────────┐
 │                   Mutsumi 侧边栏 UI                      │
 │         (显示待处理请求，提供批准/拒绝按钮)               │
+│         或 VS Code 通知按钮（✅ Approve / ❌ Reject）    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 编辑会话管理架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  edit_file 工具                          │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│         approvalManager.createRequest()                  │
+│                   ↓ 返回 {id, promise}                   │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│       editFileSessionManager.addSession()                │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │ 注册会话：id, filePath, originalUri, tempUri       │  │
+│  │ status: 'pending'                                 │  │
+│  └───────────────────────────────────────────────────┘  │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│       EditFileSessionManager (单例)                      │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │ - sessions: Map<string, EditFileSession>          │  │
+│  │ - addSession(), markPartiallyAccepted()           │  │
+│  │ - resolveSession(), removeSession()               │  │
+│  │ - onDidChangeSessions 事件                        │  │
+│  └───────────────────────────────────────────────────┘  │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│                   CodeLens 提供器                        │
+│              (显示会话状态，提供操作按钮)                 │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -316,8 +539,9 @@ async function listDirectory(uri: vscode.Uri) {
 
 ## 注意事项
 
-1. **单例模式**：`ApprovalRequestManager` 是单例，全局只有一个实例
+1. **单例模式**：`ApprovalRequestManager` 和 `EditFileSessionManager` 都是单例，全局只有一个实例
 2. **状态清理**：批准/拒绝后请求会在 1 秒后自动从管理器中移除
 3. **路径大小写**：Windows 系统不区分大小写，匹配时会统一转换为小写
 4. **相对路径**：`resolveUri` 需要工作区根目录才能解析相对路径
 5. **并发处理**：批准系统支持并发请求，每个请求有独立的状态和 Promise
+6. **会话生命周期**：编辑文件会话从 `pending` → `partially_accepted`（可选）→ `resolved`，完成后应及时清理

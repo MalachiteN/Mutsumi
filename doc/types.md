@@ -23,6 +23,7 @@ Agent 会话的元数据，存储在 notebook metadata 中。
 | `model?` | `string` | 此 agent 使用的模型标识符（可选） |
 | `contextItems?` | `ContextItem[]` | 持久化的上下文项（文件、规则）（可选） |
 | `macroContext?` | `Record<string, string>` | 持久化的宏定义（宏名称到宏值的映射）（可选） |
+| `sub_agents_list?` | `string[]` | 此 Agent 创建的子 Agent UUID 列表（可选） |
 
 #### `macroContext` 字段说明
 
@@ -185,6 +186,7 @@ Agent 的运行时状态信息。
 | `isRunning` | `boolean` | agent 是否正在运行 |
 | `isTaskFinished` | `boolean` | agent 任务是否已完成 |
 | `prompt?` | `string` | 缓存的提示文本（可选） |
+| `childIds?` | `Set<string>` | 子 Agent UUID 集合，用于构建树结构（可选） |
 
 ### `ContextItem`
 

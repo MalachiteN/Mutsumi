@@ -69,22 +69,37 @@ export class AgentTreeDataProvider implements vscode.TreeDataProvider<AgentTreeI
                     parentId: info.parentId,
                     fileUri: info.fileUri
                 },
-                vscode.TreeItemCollapsibleState.None 
+                vscode.TreeItemCollapsibleState.Collapsed
             );
             nodeMap.set(info.uuid, item);
         });
 
-        // Build Agent hierarchical relationships
+        // Build Agent hierarchical relationships using childIds
         allAgents.forEach(info => {
             const item = nodeMap.get(info.uuid)!;
-            if (info.parentId && nodeMap.has(info.parentId)) {
-                const parent = nodeMap.get(info.parentId)!;
-                parent.children.push(item);
-                // When the parent node has children, set it to expandable state
-                parent.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
-            } else {
-                // No parent or parent not in current display list, treated as root node
+            
+            // Check if this is a root node (no parent or parent not in display list)
+            const isRoot = !info.parentId || !nodeMap.has(info.parentId);
+            
+            if (isRoot) {
                 this.rootItems.push(item);
+            }
+            
+            // Add children using childIds (bidirectional reference)
+            if (info.childIds) {
+                for (const childId of info.childIds) {
+                    const childItem = nodeMap.get(childId);
+                    if (childItem) {
+                        item.children.push(childItem);
+                    }
+                }
+            }
+            
+            // Set collapsible state based on whether there are children
+            if (item.children.length > 0) {
+                item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+            } else {
+                item.collapsibleState = vscode.TreeItemCollapsibleState.None;
             }
         });
 
@@ -95,9 +110,20 @@ export class AgentTreeDataProvider implements vscode.TreeDataProvider<AgentTreeI
      * @description Gets the corresponding Agent tree node by UUID
      * @param {string} uuid - Unique identifier of the Agent
      * @returns {AgentTreeItem | undefined} Found tree node, returns undefined if not found
-     * @note Currently a placeholder implementation, can maintain UUID to node mapping internally when needed
      */
     public getAgentItem(uuid: string): AgentTreeItem | undefined {
-        return undefined; 
+        // Search in root items and their children recursively
+        const searchInItems = (items: AgentTreeItem[]): AgentTreeItem | undefined => {
+            for (const item of items) {
+                if (item.agentData.uuid === uuid) {
+                    return item;
+                }
+                const found = searchInItems(item.children);
+                if (found) return found;
+            }
+            return undefined;
+        };
+        
+        return searchInItems(this.rootItems);
     }
 }

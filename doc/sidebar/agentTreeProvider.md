@@ -33,6 +33,11 @@ getTreeItem(element: AgentTreeItem): vscode.TreeItem
 
 **返回:** 对应的VSCode树项
 
+**实现细节:**
+- 节点的 `collapsibleState` 根据是否有子节点动态设置：
+  - 有子节点时设为 `CollapsibleState.Collapsed`
+  - 无子节点时设为 `CollapsibleState.None`
+
 ##### getChildren
 
 ```typescript
@@ -64,8 +69,15 @@ public async refresh(): Promise<void>
 1. 清空根节点列表
 2. 从 `AgentOrchestrator` 获取所有Agent节点
 3. 创建所有Agent树节点项
-4. 构建Agent层级关系（根据parentId关联父子节点）
+4. **构建Agent层级关系：**
+   - 使用 `childIds` 集合构建层级关系（而非仅依赖 `parentId`）
+   - 根节点判断：节点没有 `parentId`，或 `parentId` 不在当前显示列表中
+   - 添加子节点时遍历 `childIds` 集合并查找对应的节点进行关联
 5. 触发视图刷新事件
+
+**树构建机制:**
+- 通过 `childIds` 明确指定子节点关系，支持更灵活的树结构
+- 双向关联：子节点通过 `parentId` 指向父节点，父节点通过 `childIds` 维护子节点列表
 
 **示例:**
 ```typescript
@@ -85,7 +97,9 @@ public getAgentItem(uuid: string): AgentTreeItem | undefined
 
 **返回:** 找到的树节点，未找到时返回 `undefined`
 
-**注意:** 当前为占位实现，需要时可内部维护UUID到节点的映射。
+**实现细节:**
+- 递归搜索根节点及其所有子节点
+- 遍历整个树结构直到找到匹配的UUID
 
 ---
 

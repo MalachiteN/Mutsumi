@@ -102,30 +102,228 @@ export class AgentOrchestrator {
     }
 
     /**
+     * Gets the root agent ID of a tree by traversing parent pointers.
+     * @private
+     * @param {string} uuid - Agent UUID to find root for
+     * @returns {string} The root agent UUID
+     */
+    private getRootId(uuid: string): string {
+        const visited = new Set<string>();
+        let current = uuid;
+        
+        while (true) {
+            if (visited.has(current)) {
+                // Circular reference detected, break the loop
+                return current;
+            }
+            visited.add(current);
+            
+            const agent = this.agentRegistry.get(current);
+            if (!agent || !agent.parentId) {
+                return current;
+            }
+            current = agent.parentId;
+        }
+    }
+
+    /**
+     * Checks if any agent in the tree has an open window.
+     * @private
+     * @param {string} rootId - Root agent UUID of the tree
+     * @returns {boolean} True if any window in the tree is open
+     */
+    private hasAnyWindowOpenInTree(rootId: string): boolean {
+        const visited = new Set<string>();
+        
+        const checkNode = (uuid: string): boolean => {
+            if (visited.has(uuid)) return false;
+            visited.add(uuid);
+            
+            const agent = this.agentRegistry.get(uuid);
+            if (!agent) return false;
+            
+            if (agent.isWindowOpen) return true;
+            
+            // Check children
+            if (agent.childIds) {
+                for (const childId of agent.childIds) {
+                    if (checkNode(childId)) return true;
+                }
+            }
+            
+            return false;
+        };
+        
+        return checkNode(rootId);
+    }
+
+    /**
+     * Loads an agent from file if it exists.
+     * @private
+     * @param {string} uuid - Agent UUID to load
+     * @returns {Promise<AgentStateInfo | undefined>} The loaded agent info or undefined
+     */
+    private async loadAgentFromFile(uuid: string): Promise<AgentStateInfo | undefined> {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri;
+        if (!workspaceRoot) return undefined;
+
+        const fileUri = workspaceRoot.with({
+            path: path.posix.join(workspaceRoot.path, '.mutsumi', `${uuid}.mtm`),
+        });
+
+        try {
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const data = JSON.parse(new TextDecoder().decode(content));
+            
+            const agent: AgentStateInfo = {
+                uuid,
+                parentId: data.metadata?.parent_agent_id || null,
+                name: data.metadata?.name || 'Unknown Agent',
+                fileUri: fileUri.toString(),
+                isWindowOpen: false,
+                isRunning: false,
+                isTaskFinished: !!data.metadata?.is_task_finished,
+                childIds: new Set(data.metadata?.sub_agents_list || [])
+            };
+            
+            this.agentRegistry.set(uuid, agent);
+            return agent;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * Recursively loads all agents in a tree starting from a root.
+     * @private
+     * @param {string} uuid - Root agent UUID to start loading from
+     * @param {Set<string>} visited - Set of already visited UUIDs to prevent cycles
+     * @returns {Promise<void>}
+     */
+    private async loadAgentTree(uuid: string, visited: Set<string> = new Set()): Promise<void> {
+        if (visited.has(uuid)) return;
+        visited.add(uuid);
+        
+        // Get or load the agent
+        let agent = this.agentRegistry.get(uuid);
+        if (!agent) {
+            agent = await this.loadAgentFromFile(uuid);
+        }
+        
+        if (!agent) return;
+        
+        // Clean up invalid parent reference
+        if (agent.parentId) {
+            const parent = this.agentRegistry.get(agent.parentId);
+            if (!parent) {
+                // Parent doesn't exist in registry, check if file exists
+                const parentFromFile = await this.loadAgentFromFile(agent.parentId);
+                if (!parentFromFile) {
+                    // Parent truly doesn't exist, make this agent independent
+                    agent.parentId = null;
+                    // Update file to reflect this change
+                    await this.updateAgentParentInFile(uuid, null);
+                }
+            }
+        }
+        
+        // Clean up invalid child references and recursively load children
+        if (agent.childIds) {
+            const validChildren = new Set<string>();
+            for (const childId of agent.childIds) {
+                let child = this.agentRegistry.get(childId);
+                if (!child) {
+                    child = await this.loadAgentFromFile(childId);
+                }
+                
+                if (child) {
+                    validChildren.add(childId);
+                    // Recursively load this child's subtree
+                    await this.loadAgentTree(childId, visited);
+                }
+            }
+            agent.childIds = validChildren;
+        }
+    }
+
+    /**
+     * Updates the parent reference of an agent in its file.
+     * @private
+     * @param {string} uuid - Agent UUID to update
+     * @param {string | null} newParentId - New parent ID or null
+     * @returns {Promise<void>}
+     */
+    private async updateAgentParentInFile(uuid: string, newParentId: string | null): Promise<void> {
+        const agent = this.agentRegistry.get(uuid);
+        if (!agent) return;
+        
+        try {
+            const fileUri = vscode.Uri.parse(agent.fileUri);
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const data = JSON.parse(new TextDecoder().decode(content));
+            
+            data.metadata.parent_agent_id = newParentId;
+            
+            const encoded = new TextEncoder().encode(JSON.stringify(data, null, 2));
+            await vscode.workspace.fs.writeFile(fileUri, encoded);
+        } catch (e) {
+            console.error('Failed to update agent parent in file:', e);
+        }
+    }
+
+    /**
+     * Updates the sub_agents_list of a parent agent in its file.
+     * @private
+     * @param {string} parentUuid - Parent agent UUID
+     * @returns {Promise<void>}
+     */
+    private async updateParentSubAgentsList(parentUuid: string): Promise<void> {
+        const parent = this.agentRegistry.get(parentUuid);
+        if (!parent) return;
+        
+        try {
+            const fileUri = vscode.Uri.parse(parent.fileUri);
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const data = JSON.parse(new TextDecoder().decode(content));
+            
+            data.metadata.sub_agents_list = Array.from(parent.childIds || []);
+            
+            const encoded = new TextEncoder().encode(JSON.stringify(data, null, 2));
+            await vscode.workspace.fs.writeFile(fileUri, encoded);
+        } catch (e) {
+            console.error('Failed to update parent sub_agents_list:', e);
+        }
+    }
+
+    /**
      * Computes and returns nodes for TreeView display.
-     * @description Filters agents based on UI rules:
-     * - Finished sub-agents with closed windows are hidden
-     * - Hidden parents (window closed, not running) are hidden
-     * - Standby parents (window open, not running) are shown
+     * @description Shows the entire tree if any node in the tree has an open window.
+     * Only hides the tree when all nodes' windows are closed.
      * @returns {AgentStateInfo[]} Array of agent nodes to display
      * @example
      * const nodes = orchestrator.getAgentTreeNodes();
-     * // Returns filtered list for sidebar display
+     * // Returns all agents in trees where at least one window is open
      */
     public getAgentTreeNodes(): AgentStateInfo[] {
         const nodes: AgentStateInfo[] = [];
-
+        const rootIdsWithOpenWindow = new Set<string>();
+        
+        // First pass: find all root IDs that have at least one window open in their tree
         for (const agent of this.agentRegistry.values()) {
-            if (agent.isTaskFinished && !agent.isWindowOpen) {
-                continue;
+            if (agent.isWindowOpen) {
+                const rootId = this.getRootId(agent.uuid);
+                rootIdsWithOpenWindow.add(rootId);
             }
-
-            if (!agent.parentId && !agent.isRunning && !agent.isWindowOpen) {
-                continue;
-            }
-
-            nodes.push(agent);
         }
+        
+        // Second pass: include all agents whose root has an open window
+        for (const agent of this.agentRegistry.values()) {
+            const rootId = this.getRootId(agent.uuid);
+            if (rootIdsWithOpenWindow.has(rootId)) {
+                nodes.push(agent);
+            }
+        }
+        
         return nodes;
     }
 
@@ -260,6 +458,11 @@ export class AgentOrchestrator {
 
         const selectedModel = (model && availableModelNames.includes(model)) ? model : defaultModel;
 
+        // Get parent's sub_agents_list and add this child
+        const parent = this.agentRegistry.get(parentId);
+        const parentSubAgents = parent?.childIds ? Array.from(parent.childIds) : [];
+        parentSubAgents.push(uuid);
+
         const content: any = {
             metadata: {
                 uuid: uuid,
@@ -268,7 +471,8 @@ export class AgentOrchestrator {
                 parent_agent_id: parentId,
                 allowed_uris: allowedUris,
                 is_task_finished: false,
-                model: selectedModel
+                model: selectedModel,
+                sub_agents_list: []  // New agent starts with empty sub-agent list
             },
             context: [
                 { role: 'user', content: prompt }
@@ -278,6 +482,15 @@ export class AgentOrchestrator {
         const encoded = new TextEncoder().encode(JSON.stringify(content, null, 2));
         await vscode.workspace.fs.writeFile(fileUri, encoded);
 
+        // Update parent's sub_agents_list in file
+        if (parent) {
+            if (!parent.childIds) {
+                parent.childIds = new Set();
+            }
+            parent.childIds.add(uuid);
+            await this.updateParentSubAgentsList(parentId);
+        }
+
         this.agentRegistry.set(uuid, {
             uuid,
             parentId,
@@ -286,7 +499,8 @@ export class AgentOrchestrator {
             isWindowOpen: true,
             isRunning: false,
             isTaskFinished: false,
-            prompt
+            prompt,
+            childIds: new Set()
         });
 
         try {
@@ -321,16 +535,17 @@ export class AgentOrchestrator {
     /**
      * Notifies that a notebook has been opened.
      * @description Called when a notebook document is opened. Registers or updates
-     * the agent state in the registry.
+     * the agent state in the registry and loads the entire agent tree.
      * @param {string} uuid - Agent UUID
      * @param {vscode.Uri} uri - Document URI
      * @param {any} metadata - Notebook metadata
      * @example
      * orchestrator.notifyNotebookOpened(uuid, uri, metadata);
      */
-    public notifyNotebookOpened(uuid: string, uri: vscode.Uri, metadata: any): void {
+    public async notifyNotebookOpened(uuid: string, uri: vscode.Uri, metadata: any): Promise<void> {
         let agent = this.agentRegistry.get(uuid);
         const isFinished = !!metadata?.is_task_finished;
+        const childIds = new Set<string>(metadata?.sub_agents_list || []);
 
         if (!agent) {
             agent = {
@@ -340,22 +555,34 @@ export class AgentOrchestrator {
                 fileUri: uri.toString(),
                 isWindowOpen: true,
                 isRunning: false,
-                isTaskFinished: isFinished
+                isTaskFinished: isFinished,
+                childIds
             };
             this.agentRegistry.set(uuid, agent);
         } else {
             agent.isWindowOpen = true;
             agent.fileUri = uri.toString();
+            agent.childIds = childIds;
             if (isFinished) {
                 agent.isTaskFinished = true;
             }
         }
+        
+        // Load the entire tree including all descendants
+        await this.loadAgentTree(uuid);
+        
+        // Also load ancestors to ensure complete tree context
+        if (agent.parentId) {
+            await this.loadAgentTree(agent.parentId);
+        }
+        
         this.refreshUI();
     }
 
     /**
      * Notifies that a notebook has been closed.
-     * @description Updates the agent's window state. Finished sub-agents will be hidden.
+     * @description Updates the agent's window state. Only hides the tree when 
+     * all agents in the tree have their windows closed.
      * @param {string} uuid - Agent UUID
      * @example
      * orchestrator.notifyNotebookClosed(uuid);
@@ -427,7 +654,8 @@ export class AgentOrchestrator {
 
     /**
      * Notifies that an agent file has been deleted.
-     * @description Removes the agent from the registry and updates any active fork sessions.
+     * @description Removes the agent from the registry, cleans up bidirectional references,
+     * and updates any active fork sessions. If parent doesn't exist, the agent becomes independent.
      * @param {vscode.Uri} uri - URI of the deleted file
      * @returns {Promise<void>}
      * @example
@@ -443,20 +671,46 @@ export class AgentOrchestrator {
             }
         }
 
-        if (deletedUuid) {
-            const agent = this.agentRegistry.get(deletedUuid)!;
-            this.agentRegistry.delete(deletedUuid);
-
-            if (agent.parentId) {
-                const session = this.activeForks.get(agent.parentId);
-                if (session && session.childUuids.has(deletedUuid)) {
-                    session.deletedChildren.add(deletedUuid);
-                    this.checkSessionCompletion(agent.parentId);
+        if (!deletedUuid) return;
+        
+        const agent = this.agentRegistry.get(deletedUuid)!;
+        const parentId = agent.parentId;
+        
+        // Clean up parent's reference to this child
+        if (parentId) {
+            const parent = this.agentRegistry.get(parentId);
+            if (parent && parent.childIds) {
+                parent.childIds.delete(deletedUuid);
+                // Update parent's file
+                await this.updateParentSubAgentsList(parentId);
+            }
+        }
+        
+        // Clean up children's references to this parent
+        if (agent.childIds) {
+            for (const childId of agent.childIds) {
+                const child = this.agentRegistry.get(childId);
+                if (child && child.parentId === deletedUuid) {
+                    // Parent is being deleted, child becomes independent
+                    child.parentId = null;
+                    await this.updateAgentParentInFile(childId, null);
                 }
             }
-            
-            this.refreshUI();
         }
+        
+        // Remove from registry
+        this.agentRegistry.delete(deletedUuid);
+
+        // Update fork session if applicable
+        if (parentId) {
+            const session = this.activeForks.get(parentId);
+            if (session && session.childUuids.has(deletedUuid)) {
+                session.deletedChildren.add(deletedUuid);
+                this.checkSessionCompletion(parentId);
+            }
+        }
+        
+        this.refreshUI();
     }
 
     /**

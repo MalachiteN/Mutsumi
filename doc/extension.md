@@ -38,6 +38,8 @@ VSCode Mutsumi 插件的主入口文件。负责插件的激活、注册所有�
 3. 设置侧边栏并注册到 orchestrator
 4. 创建 notebook 控制器并设置执行处理器
 5. 注册各种事件监听器（打开/关闭 notebook、自动重命名、文件删除）
+   - `onDidOpenNotebookDocument` - **async** 处理 notebook 打开事件
+   - `onDidDelete`（文件系统监视器）- **async** 处理文件删除事件
 6. 注册代码补全提供器（@ 触发）
 7. 注册图片粘贴支持
 8. 注册所有命令
@@ -61,6 +63,7 @@ VSCode Mutsumi 插件的主入口文件。负责插件的激活、注册所有�
 | 重新编译技能 | `mutsumi.recompileSkills` | 重新编译所有已注册的技能 |
 | 打开Agent文件 | `mutsumi.openAgentFile` | 从侧边栏打开 agent 文件 |
 | 复制引用 | `mutsumi.copyReference` | 复制文件引用到剪贴板（支持行号范围） |
+| 重新打开 Diff 编辑器 | `mutsumi.reopenEditDiff` | 重新打开 Diff 编辑器（用于从侧边栏恢复编辑会话） |
 
 ---
 

@@ -10,14 +10,14 @@
 | 文件 | 职责 | 说明 |
 |------|------|------|
 | `interface.ts` | 核心接口定义 | `ToolContext`、`ITool`、`TerminationError` |
-| `utils.ts` | 工具基座设施 | 审批请求管理、路径安全检查、访问控制 |
+| `utils.ts` | 工具基座设施 | 审批请求管理、路径安全检查、访问控制、**EditFileSessionManager 会话管理** |
 
 ### 1.2 文件操作工具
 | 文件 | 职责 | 说明 |
 |------|------|------|
 | `read_file.ts` | 读取完整文件 | 全文读取文件内容 |
 | `read_partial.ts` | 部分读取文件 | 按行范围或关键词上下文读取 |
-| `edit_file_search_replace.ts` | 精准编辑 | 使用SEARCH/REPLACE块进行精确替换 |
+| `edit_file_search_replace.ts` | 精准编辑 | 使用SEARCH/REPLACE块进行精确替换，**支持多替换块，格式标记为`<<<<<<<SEARCH`** |
 | `edit_file_full_replace.ts` | 全文替换 | 完整替换文件内容 |
 | `fs_write_ops.ts` | 文件写入操作 | 创建文件、目录等写入操作 |
 | `ls.ts` | 目录浏览 | 列出目录内容 |
@@ -44,7 +44,7 @@
 ### 1.6 编辑辅助工具
 | 文件 | 职责 | 说明 |
 |------|------|------|
-| `edit_file.ts` | 编辑工具入口 | 文件编辑功能的统一入口 |
+| `edit_file.ts` | 编辑工具入口 | 文件编辑功能的统一入口，**支持从侧边栏重新打开Diff编辑器（`mutsumi.reopenEditDiff`命令），使用EditFileSessionManager管理会话** |
 | `edit_codelens_provider.ts` | CodeLens提供器 | 在Diff视图中提供审查用的CodeLens |
 | `edit_codelens_types.ts` | CodeLens类型定义 | 编辑相关的CodeLens类型声明 |
 
@@ -97,9 +97,19 @@ interface ITool {
 
 **核心组件**：
 - `ApprovalRequestManager` - 管理待审批请求队列
+- **`createRequest` 方法** - 创建审批请求并返回 ID 和 Promise，用于异步处理审批结果
 - `requestApproval()` - 发起审批流程并等待用户响应
 
-### 2.3 错误处理
+### 2.3 编辑会话管理
+
+**EditFileSessionManager** 提供活动编辑文件会话的管理：
+
+- 跟踪当前所有活动的文件编辑会话
+- 支持从侧边栏重新打开已关闭的 Diff 编辑器
+- 通过 `mutsumi.reopenEditDiff` 命令触发
+- 每个会话维护完整的编辑状态和元数据
+
+### 2.4 错误处理
 
 工具使用专用错误类型进行流程控制：
 
@@ -173,6 +183,7 @@ export function registerTools(toolManager: ToolManager): void {
 │  - 实现具体工具逻辑                          │
 │  - 定义ITool接口标准                         │
 │  - 提供审批和路径安全设施                     │
+│  - EditFileSessionManager 管理编辑会话       │
 └─────────────────────┬───────────────────────┘
                       │ 调用VSCode API / Node API
                       ▼
@@ -200,15 +211,30 @@ export function activate(context: vscode.ExtensionContext) {
 
 ---
 
-## 5. 文档索引
+## 5. 新功能摘要
+
+本模块近期新增以下重要功能：
+
+| 功能 | 所在文件 | 说明 |
+|------|----------|------|
+| **多SEARCH/REPLACE块支持** | `edit_file_search_replace.ts` | 单次调用可执行多个替换操作，格式标记更新为`<<<<<<<SEARCH`（无空格） |
+| **侧边栏重新打开Diff** | `edit_file.ts` | 通过 `mutsumi.reopenEditDiff` 命令从历史会话恢复Diff编辑器 |
+| **EditFileSessionManager** | `utils.ts`, `edit_file.ts` | 统一管理活动编辑会话，支持会话持久化和恢复 |
+| **createRequest方法** | `utils.ts` | 创建带ID的审批请求，返回Promise用于异步处理 |
+
+> 详细内容请参阅各工具的详细文档。
+
+---
+
+## 6. 文档索引
 
 | 文档 | 内容 |
 |------|------|
 | [interface.md](./interface.md) | ToolContext、ITool、TerminationError接口定义 |
-| [utils.md](./utils.md) | ApprovalRequestManager、路径安全函数 |
+| [utils.md](./utils.md) | ApprovalRequestManager、EditFileSessionManager、路径安全函数 |
 | [read_file.md](./read_file.md) | 文件读取工具 |
 | [read_partial.md](./read_partial.md) | 部分文件读取工具 |
-| [edit_file_search_replace.md](./edit_file_search_replace.md) | 精准文本替换工具 |
+| [edit_file_search_replace.md](./edit_file_search_replace.md) | 精准文本替换工具（含多替换块支持） |
 | [edit_file_full_replace.md](./edit_file_full_replace.md) | 全文替换工具 |
 | [fs_write_ops.md](./fs_write_ops.md) | 文件写入操作工具 |
 | [ls.md](./ls.md) | 目录浏览工具 |
@@ -219,6 +245,6 @@ export function activate(context: vscode.ExtensionContext) {
 | [system_info.md](./system_info.md) | 系统信息获取工具 |
 | [git_cmd.md](./git_cmd.md) | Git操作工具 |
 | [agent_control.md](./agent_control.md) | Agent生命周期控制工具 |
-| [edit_file.md](./edit_file.md) | 编辑工具入口 |
+| [edit_file.md](./edit_file.md) | 编辑工具入口（含Diff重新打开功能） |
 | [edit_codelens_provider.md](./edit_codelens_provider.md) | 编辑CodeLens提供器 |
 | [edit_codelens_types.md](./edit_codelens_types.md) | 编辑CodeLens类型 |

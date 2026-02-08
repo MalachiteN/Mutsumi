@@ -2,13 +2,14 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as Diff from 'diff'; // Assuming 'diff' package is available
 import { ToolContext, TerminationError } from './interface';
-import { resolveUri, checkAccess } from './utils';
+import { resolveUri, checkAccess, editFileSessionManager } from './utils';
 import { DiffReviewAgent } from './edit_codelens_provider';
 import { DiffCodeLensAction } from './edit_codelens_types';
 
 // --- State Management ---
 
 interface EditSession {
+    id: string;
     resolve: (value: string) => void;
     reject: (reason: any) => void;
     originalUri: vscode.Uri;
@@ -48,11 +49,11 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
                 const newContentBytes = await vscode.workspace.fs.readFile(session.tempUri);
                 // Overwrite Original file
                 await vscode.workspace.fs.writeFile(session.originalUri, newContentBytes);
-                
+
                 // Cleanup and Resolve
-                cleanupSession(filePath);
+                cleanupSession(filePath, true);
                 session.resolve('User accepted the edit.');
-                
+
                 vscode.window.showInformationMessage('Changes applied successfully.');
             } catch (e: any) {
                 vscode.window.showErrorMessage(`Failed to apply edits: ${e.message}`);
@@ -67,7 +68,7 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
             const toolName = session.toolName;
             // Signal that the session should be terminated after this tool call
             session.signalTermination?.();
-            cleanupSession(filePath);
+            cleanupSession(filePath, true);
             // Resolve with a rejection message that includes tool name, so the conversation can continue
             session.resolve(`[Tool Call Rejected] The ${toolName} operation was rejected by user.`);
             vscode.window.showInformationMessage('Changes rejected.');
@@ -83,7 +84,10 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
                 const newContentBytes = await vscode.workspace.fs.readFile(session.tempUri);
                 await vscode.workspace.fs.writeFile(session.originalUri, newContentBytes);
 
-                // 2. Define the "Continue" action
+                // 2. Mark session as partially accepted in the manager
+                editFileSessionManager.markPartiallyAccepted(session.id);
+
+                // 3. Define the "Continue" action
                 const continueAction: DiffCodeLensAction = {
                     id: 'continueGenerate',
                     label: '$(sparkle) Continue Mutsumi Generate',
@@ -91,10 +95,10 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
                     handler: async () => {}
                 };
 
-                // 3. Switch View (Diff -> Standard Editor) and Update CodeLens
+                // 4. Switch View (Diff -> Standard Editor) and Update CodeLens
                 // DO NOT resolve the session yet. The tool call remains pending.
                 await globalDiffAgent.switchToStandardEditMode(filePath, [continueAction]);
-                
+
                 vscode.window.showInformationMessage('Changes applied. You can now edit the file. Click "Continue Mutsumi Generate" when done.');
             } catch (e: any) {
                 vscode.window.showErrorMessage(`Failed to proceed: ${e.message}`);
@@ -142,7 +146,7 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
                 }
 
                 // 5. Cleanup and Resolve
-                cleanupSession(filePath);
+                cleanupSession(filePath, true);
                 session.resolve(feedbackMsg);
 
             } catch (e: any) {
@@ -150,18 +154,89 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
             }
         }
     }));
+
+    // Command: Reopen Diff Editor from sidebar
+    context.subscriptions.push(vscode.commands.registerCommand('mutsumi.reopenEditDiff', async (sessionId: string) => {
+        // Find active session by sessionId
+        let session: EditSession | undefined;
+        let filePath: string | undefined;
+
+        for (const [fp, s] of activeSessions.entries()) {
+            if (s.id === sessionId) {
+                session = s;
+                filePath = fp;
+                break;
+            }
+        }
+
+        if (!session || !globalDiffAgent || !filePath) {
+            vscode.window.showWarningMessage('Edit session not found or has already been resolved.');
+            return;
+        }
+
+        try {
+            const managerSession = editFileSessionManager.getSession(sessionId);
+
+            if (managerSession?.status === 'partially_accepted') {
+                // Partially accepted: open standard editor with Continue button
+                const continueAction: DiffCodeLensAction = {
+                    id: 'continueGenerate',
+                    label: '$(sparkle) Continue Mutsumi Generate',
+                    tooltip: 'Submit your manual adjustments and let AI continue',
+                    handler: async () => {}
+                };
+                await globalDiffAgent.switchToStandardEditMode(filePath, [continueAction]);
+                vscode.window.showInformationMessage('Reopened file editor. Click "Continue Mutsumi Generate" when done.');
+            } else {
+                // Pending: reopen diff view
+                const tempContentBytes = await vscode.workspace.fs.readFile(session.tempUri);
+                const tempContent = new TextDecoder().decode(tempContentBytes);
+
+                const actions: DiffCodeLensAction[] = [
+                    {
+                        id: 'accept',
+                        label: '$(check) Accept',
+                        tooltip: 'Overwrite original file with changes',
+                        handler: async () => {}
+                    },
+                    {
+                        id: 'partiallyAccept',
+                        label: '$(edit) Partially Accept',
+                        tooltip: 'Apply changes, edit manually, then continue',
+                        handler: async () => {}
+                    },
+                    {
+                        id: 'reject',
+                        label: '$(x) Reject',
+                        tooltip: 'Discard changes',
+                        handler: async () => {}
+                    }
+                ];
+
+                await globalDiffAgent.compareWithTemp(filePath, tempContent, actions);
+                vscode.window.showInformationMessage('Reopened diff editor for review.');
+            }
+        } catch (e: any) {
+            vscode.window.showErrorMessage(`Failed to reopen editor: ${e.message}`);
+        }
+    }));
 }
 
 // --- Helper Functions ---
 
-function cleanupSession(filePath: string) {
+function cleanupSession(filePath: string, resolveManagerSession: boolean = true) {
     if (activeSessions.has(filePath) && globalDiffAgent) {
         // Clear CodeLens
         globalDiffAgent.codeLensProvider.clearActions(filePath);
-        
+
         // Remove session
         const session = activeSessions.get(filePath);
         activeSessions.delete(filePath);
+
+        // Mark session as resolved in the manager
+        if (session && resolveManagerSession) {
+            editFileSessionManager.resolveSession(session.id);
+        }
 
         // Clean up temp file
         if (session) {
@@ -187,12 +262,15 @@ export async function handleEdit(uriInput: string, newContent: string, context: 
     }
 
     const filePath = uri.fsPath;
-    
+
     // Cancel existing session for this file if any
     if (activeSessions.has(filePath)) {
         const oldSession = activeSessions.get(filePath);
-        oldSession?.reject(new Error("New edit session started for this file, overriding previous request."));
-        cleanupSession(filePath);
+        if (oldSession) {
+            editFileSessionManager.resolveSession(oldSession.id);
+            oldSession.reject(new Error("New edit session started for this file, overriding previous request."));
+        }
+        cleanupSession(filePath, false); // Don't resolve again, we already did it above
     }
 
     return new Promise<string>(async (resolve, reject) => {
@@ -202,7 +280,16 @@ export async function handleEdit(uriInput: string, newContent: string, context: 
         const tempPath = path.join(globalTempDir!, `${basename}.new${ext}`);
         const tempUri = vscode.Uri.file(tempPath);
 
+        // Register session with the manager first to get an ID
+        const sessionId = editFileSessionManager.addSession({
+            filePath,
+            originalUri: uri,
+            tempUri: tempUri,
+            toolName: toolName
+        });
+
         const session: EditSession = {
+            id: sessionId,
             resolve,
             reject,
             originalUri: uri,
@@ -241,7 +328,7 @@ export async function handleEdit(uriInput: string, newContent: string, context: 
             if (context.abortSignal) {
                 context.abortSignal.addEventListener('abort', () => {
                     if (activeSessions.has(filePath)) {
-                        cleanupSession(filePath);
+                        cleanupSession(filePath, true);
                         // Resolve with a cancellation message so the conversation can continue
                         resolve(`[Tool Call Cancelled] The ${toolName} operation was cancelled by user or system.`);
                     }
@@ -252,6 +339,8 @@ export async function handleEdit(uriInput: string, newContent: string, context: 
             await globalDiffAgent!.compareWithTemp(filePath, newContent, actions);
             
         } catch (e) {
+            // Mark session as resolved in case of error
+            editFileSessionManager.resolveSession(sessionId);
             activeSessions.delete(filePath);
             reject(e);
         }

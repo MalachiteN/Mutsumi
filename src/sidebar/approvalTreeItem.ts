@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ApprovalRequest } from '../tools.d/utils';
+import { ApprovalRequest, EditFileSession } from '../tools.d/utils';
 
 /**
  * @description Approval request tree node item for displaying tool call approval requests in the sidebar
@@ -89,6 +89,94 @@ export class ApprovalTreeItem extends vscode.TreeItem {
             case 'pending': return new vscode.ThemeIcon('question', new vscode.ThemeColor('charts.yellow'));
             case 'approved': return new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'));
             case 'rejected': return new vscode.ThemeIcon('x', new vscode.ThemeColor('charts.red'));
+        }
+    }
+}
+
+/**
+ * @description Edit file session tree node item for displaying active edit sessions in the sidebar
+ * Allows users to reopen the diff editor if it was accidentally closed
+ * @class EditFileTreeItem
+ * @extends {vscode.TreeItem}
+ * @example
+ * const session: EditFileSession = { id: '123', filePath: '/path/to/file.ts', ... };
+ * const item = new EditFileTreeItem(session);
+ */
+export class EditFileTreeItem extends vscode.TreeItem {
+    /**
+     * @description Creates a new edit file session tree node item
+     * @param {EditFileSession} session - Edit file session data object
+     */
+    constructor(
+        public readonly session: EditFileSession
+    ) {
+        super(session.filePath, vscode.TreeItemCollapsibleState.None);
+
+        this.description = this.formatTime(session.timestamp);
+        this.tooltip = this.buildTooltip();
+        this.iconPath = this.getIcon();
+        this.contextValue = session.status === 'partially_accepted' ? 'editFilePartiallyAccepted' : 'editFilePending';
+
+        // 点击命令：重新打开 Diff Editor
+        this.command = {
+            command: 'mutsumi.reopenEditDiff',
+            title: 'Reopen Diff Editor',
+            arguments: [session.id]
+        };
+    }
+
+    /**
+     * @description Formats date to localized time string
+     * @private
+     * @param {Date} date - Date to format
+     * @returns {string} Localized time string
+     */
+    private formatTime(date: Date): string {
+        return date.toLocaleTimeString();
+    }
+
+    /**
+     * @description Builds Markdown tooltip displayed on mouse hover
+     * @private
+     * @returns {vscode.MarkdownString} Markdown string containing session details
+     */
+    private buildTooltip(): vscode.MarkdownString {
+        const md = new vscode.MarkdownString();
+        md.appendMarkdown(`**Edit File Session**\n\n`);
+        md.appendMarkdown(`📁 File: \`${this.session.filePath}\`\n\n`);
+        md.appendMarkdown(`🔧 Tool: ${this.session.toolName}\n\n`);
+        md.appendMarkdown(`🕐 Started: ${this.session.timestamp.toLocaleString()}\n\n`);
+        md.appendMarkdown(`Status: ${this.getStatusText()}\n\n`);
+        md.appendMarkdown(`---\n\n`);
+        md.appendMarkdown(`💡 **Click to reopen the diff editor**`);
+        return md;
+    }
+
+    /**
+     * @description Gets corresponding status text based on session status
+     * @private
+     * @returns {string} Status description with emoji
+     */
+    private getStatusText(): string {
+        switch (this.session.status) {
+            case 'pending': return '⏳ Waiting for review (Diff view available)';
+            case 'partially_accepted': return '✏️ Partially accepted - editing in progress';
+            case 'resolved': return '✅ Resolved';
+            default: return '⏳ Unknown';
+        }
+    }
+
+    /**
+     * @description Gets corresponding icon based on session status
+     * @private
+     * @returns {vscode.ThemeIcon} Status icon with theme color
+     */
+    private getIcon(): vscode.ThemeIcon {
+        switch (this.session.status) {
+            case 'pending': return new vscode.ThemeIcon('git-compare', new vscode.ThemeColor('charts.yellow'));
+            case 'partially_accepted': return new vscode.ThemeIcon('edit', new vscode.ThemeColor('charts.blue'));
+            case 'resolved': return new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'));
+            default: return new vscode.ThemeIcon('question', new vscode.ThemeColor('charts.yellow'));
         }
     }
 }
