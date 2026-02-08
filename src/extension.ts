@@ -347,9 +347,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         })
     );
 
-    // Debug System Prompt command
+    // Debug Context command
     context.subscriptions.push(
-        vscode.commands.registerCommand('mutsumi.debugSystemPrompt', async () => {
+        vscode.commands.registerCommand('mutsumi.debugContext', async () => {
             const editor = vscode.window.activeNotebookEditor;
             if (!editor) {
                 vscode.window.showWarningMessage('No active notebook editor.');
@@ -385,29 +385,47 @@ function registerCommands(context: vscode.ExtensionContext): void {
                     currentPrompt
                 );
 
-                const systemMessage = messages.find(m => m.role === 'system');
-                if (!systemMessage) {
-                    vscode.window.showWarningMessage('No system prompt found.');
-                    return;
+                // Build content for temporary document
+                let content = '=== Complete LLM Context Debug Output ===\n\n';
+                content += `Total Messages: ${messages.length}\n`;
+                content += `Notebook: ${editor.notebook.uri.path}\n`;
+                content += `Last Executed Cell: ${lastCodeCellIndex}\n\n`;
+
+                // Display all messages with their roles
+                for (let i = 0; i < messages.length; i++) {
+                    const msg = messages[i];
+                    content += `--- Message ${i + 1} [${msg.role.toUpperCase()}] ---\n\n`;
+                    
+                    if (typeof msg.content === 'string') {
+                        content += msg.content;
+                    } else if (Array.isArray(msg.content)) {
+                        // Handle multi-modal content (text + images)
+                        for (const part of msg.content) {
+                            if (part.type === 'text') {
+                                content += part.text;
+                            } else if (part.type === 'image_url') {
+                                content += '[Image: ' + (part.image_url?.url?.substring(0, 50) || 'unknown') + '...]';
+                            }
+                            content += '\n';
+                        }
+                    }
+                    
+                    content += '\n\n';
                 }
 
-                const outputChannel = vscode.window.createOutputChannel('Mutsumi System Prompt');
-                outputChannel.clear();
-                outputChannel.appendLine('=== System Prompt Debug Output ===');
-                outputChannel.appendLine('');
-                outputChannel.appendLine(
-                    typeof systemMessage.content === 'string' 
-                        ? systemMessage.content 
-                        : JSON.stringify(systemMessage.content, null, 2)
-                );
-                outputChannel.appendLine('');
-                outputChannel.appendLine('=== End of System Prompt ===');
-                outputChannel.show();
+                content += '=== End of Context ===\n';
 
-                vscode.window.showInformationMessage('System prompt output to "Mutsumi System Prompt" channel.');
+                // Create and show temporary document
+                const doc = await vscode.workspace.openTextDocument({
+                    content: content,
+                    language: 'markdown'
+                });
+                await vscode.window.showTextDocument(doc, { preview: true });
+
+                vscode.window.showInformationMessage(`Debug context displayed. Total messages: ${messages.length}`);
             } catch (error) {
-                console.error('Failed to debug system prompt:', error);
-                vscode.window.showErrorMessage(`Failed to debug system prompt: ${error}`);
+                console.error('Failed to debug context:', error);
+                vscode.window.showErrorMessage(`Failed to debug context: ${error}`);
             }
         })
     );
@@ -477,6 +495,51 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
             await vscode.env.clipboard.writeText(refString);
             vscode.window.setStatusBarMessage(`Copied reference: ${refString}`, 3000);
+        })
+    );
+
+    // View Context command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.viewContext', async () => {
+            const editor = vscode.window.activeNotebookEditor;
+            if (!editor || editor.notebook.notebookType !== 'mutsumi-notebook') {
+                vscode.window.showWarningMessage('Please open a Mutsumi notebook first.');
+                return;
+            }
+
+            const metadata = editor.notebook.metadata as any;
+            const items: any[] = metadata.contextItems || [];
+
+            if (items.length === 0) {
+                vscode.window.showInformationMessage('No context items found in this session.');
+                return;
+            }
+
+            const qpItems = items.map(item => {
+                let icon = '$(file)';
+                if (item.type === 'rule') icon = '$(book)';
+                if (item.type === 'tool') icon = '$(tools)';
+                
+                return {
+                    label: `${icon} ${item.key}`,
+                    description: item.type,
+                    detail: item.content ? `${item.content.substring(0, 50).replace(/\n/g, ' ')}...` : '(empty)',
+                    item: item
+                };
+            });
+
+            const selected = await vscode.window.showQuickPick(qpItems, {
+                placeHolder: 'Current Context Items (Files & Rules)',
+                matchOnDetail: true
+            });
+
+            if (selected) {
+                const doc = await vscode.workspace.openTextDocument({
+                    content: selected.item.content,
+                    language: selected.item.type === 'rule' ? 'markdown' : undefined
+                });
+                await vscode.window.showTextDocument(doc, { preview: true });
+            }
         })
     );
 

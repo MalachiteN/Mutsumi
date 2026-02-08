@@ -21,6 +21,7 @@ Mutsumi Notebook 序列化器。负责将 Agent 对话数据与 VS Code Notebook
     parent_agent_id: string | null;  // 父 Agent ID
     allowed_uris: string[];    // 允许访问的 URI 列表
     model?: string;            // 使用的模型（可选）
+    contextItems?: ContextItem[];  // 当前会话的上下文项（文件和规则）
   },
   context: AgentMessage[]      // 对话消息列表
 }
@@ -72,7 +73,18 @@ Mutsumi Notebook 序列化器。负责将 Agent 对话数据与 VS Code Notebook
 1. 遍历所有单元格
 2. 根据 `metadata.role` 恢复消息角色
 3. 从 `metadata.mutsumi_interaction` 提取关联消息
-4. 输出格式化的 JSON
+4. **使用 `stripGhostBlockFromCell` 方法剥离 ghost block**
+5. **确保 ghost block 只存在于 metadata 中，不持久化到文件**
+6. 输出格式化的 JSON
+
+### Ghost Block 剥离
+
+在序列化过程中，系统会自动处理 ghost block（幽灵块）：
+
+- **剥离时机**: 在 `serializeNotebook` 方法中，对每个单元格调用 `stripGhostBlockFromCell`
+- **剥离目的**: 确保 ghost block 内容不会保存到磁盘文件中
+- **数据保留**: ghost block 的信息保留在单元格的 metadata 中，供运行时恢复使用
+- **运行时行为**: ghost block 仅在内存中显示，不会出现在保存的文件内容中
 
 #### createDefaultContent (静态方法)
 

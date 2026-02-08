@@ -21,6 +21,7 @@ Agent 会话的元数据，存储在 notebook metadata 中。
 | `allowed_uris` | `string[]` | Agent 允许访问的 URI 列表 |
 | `is_task_finished?` | `boolean` | 任务是否已完成（可选） |
 | `model?` | `string` | 此 agent 使用的模型标识符（可选） |
+| `contextItems?` | `ContextItem[]` | 持久化的上下文项（文件、规则）（可选） |
 
 ---
 
@@ -152,11 +153,44 @@ Agent 的运行时状态信息。
 | `isTaskFinished` | `boolean` | agent 任务是否已完成 |
 | `prompt?` | `string` | 缓存的提示文本（可选） |
 
+### `ContextItem`
+
+持久化的上下文项，用于存储文件、工具结果或规则等内容。
+
+```typescript
+interface ContextItem {
+    type: 'file' | 'tool' | 'rule';
+    key: string;
+    content: string;
+    metadata?: any;
+}
+```
+
+**属性：**
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `type` | `'file' \| 'tool' \| 'rule'` | 上下文项的类型 |
+| `key` | `string` | 上下文项的唯一标识键 |
+| `content` | `string` | 上下文项的内容 |
+| `metadata?` | `any` | 额外的元数据信息（可选） |
+
+**类型说明：**
+
+| 类型值 | 说明 |
+|--------|------|
+| `file` | 文件内容，key 通常为文件路径 |
+| `tool` | 工具执行结果，key 为工具调用标识 |
+| `rule` | 规则文档内容，key 为规则名称或路径 |
+
+---
+
 ## 类型关系
 
 ```
 AgentContext
 ├── metadata: AgentMetadata
+│   └── contextItems?: ContextItem[]
 └── context: AgentMessage[]
     ├── role
     ├── content: MessageContent (string | ContentPart[])

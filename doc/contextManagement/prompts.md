@@ -2,11 +2,11 @@
 
 ## 功能概述
 
-本文件负责系统提示词的初始化和管理，包括：
-- 初始化规则目录和默认规则文件
-- 读取 `.mutsumi/rules` 目录下的所有 Markdown 文件
-- 组装完整的系统提示词，支持动态上下文引用解析
-- 为子Agent追加身份标识
+本文件负责管理系统提示词 (System Prompt) 和规则上下文 (Rules Context)。
+
+`prompts.ts` 的职责：
+- **System Prompt**: 仅包含最基本的静态信息（运行时上下文、子 Agent 身份标识），不包含具体的规则内容。
+- **Rules Context**: 负责读取规则文件，并将其解析为结构化的 `ContextItem` 列表，供 `history.ts` 注入到 User Message 中。
 
 ## 导出的函数
 
@@ -21,34 +21,13 @@ export async function initializeRules(
 ): Promise<void>
 ```
 
-**参数:**
-- `extensionUri` - 扩展的根URI
-- `workspaceUri` - 工作区URI
-
-**功能:**
-1. 在工作区 `.mutsumi/rules` 目录创建默认规则文件
-2. 如果 `default.md` 不存在，从扩展的 `assets` 目录复制
-
-**创建的目录结构:**
-```
-workspace/
-└── .mutsumi/
-    └── rules/
-        └── default.md
-```
-
-**示例:**
-```typescript
-const extUri = context.extensionUri;
-const wsUri = vscode.workspace.workspaceFolders[0].uri;
-await initializeRules(extUri, wsUri);
-```
+负责在 `.mutsumi/rules` 创建 `default.md`。
 
 ---
 
 ### getSystemPrompt
 
-获取组装后的系统提示词。
+获取**静态**系统提示词。
 
 ```typescript
 export async function getSystemPrompt(
@@ -58,28 +37,11 @@ export async function getSystemPrompt(
 ): Promise<string>
 ```
 
-**参数:**
-- `workspaceUri` - 工作区URI
-- `allowedUris` - 允许的URI列表
-- `isSubAgent` - 是否为子Agent（可选）
+**返回值:** 
+仅包含运行时上下文和身份标识的字符串。
 
-**返回值:** 组装后的系统提示词字符串
-
-**组装流程:**
-1. 读取 `.mutsumi/rules` 目录下所有 `.md` 文件
-2. 合并所有规则文件内容，格式为 `### Rule (文件名)\n内容`
-3. 追加运行时上下文（允许的URI列表）
-4. 使用 `ContextAssembler` 递归解析 `@[path]` 引用
-5. 如果是子Agent，追加子Agent身份描述
-
-**输出格式:**
+**示例输出:**
 ```markdown
-### Rule (default.md)
-默认规则内容...
-
-### Rule (custom.md)
-自定义规则内容...
-
 ### Runtime Context
 Current Allowed URIs: ["/workspace"]
 
@@ -87,19 +49,34 @@ Current Allowed URIs: ["/workspace"]
 You are a Sub-Agent...
 ```
 
-**示例:**
+**注意:** 不包含规则文件的内容。
+
+---
+
+### getRulesContext
+
+获取规则文件内容作为上下文项。
+
 ```typescript
-const prompt = await getSystemPrompt(wsUri, ['/workspace'], false);
-// 返回包含规则文件内容和运行时上下文的系统提示词
+export async function getRulesContext(
+    workspaceUri: vscode.Uri, 
+    allowedUris: string[]
+): Promise<ContextItem[]>
 ```
 
-## 相关文件
+**功能:**
+1. 读取 `.mutsumi/rules` 目录下所有 `.md` 文件
+2. 对每个文件内容进行 `INLINE` 模式的完全展开（解析嵌套引用）
+3. 返回 `ContextItem[]` 列表
 
-- **源规则文件:** 扩展的 `assets/default.md`
-- **目标规则目录:** 工作区的 `.mutsumi/rules/`
+**ContextItem 结构:**
+```typescript
+{
+    type: 'rule',
+    key: 'default.md', // 文件名
+    content: '...解析后的规则内容...'
+}
+```
 
-## 注意事项
-
-- 规则文件按字母顺序读取和合并
-- 支持在规则文件中使用 `@[path]` 语法引用其他文件
-- 子Agent会自动追加使用 `task_finish` 工具的说明
+**设计意图:**
+将规则视为一种特殊的上下文资源，与用户引用的文件和工具结果一起，在构建消息历史时统一注入。这确保了规则内容始终"跟随"最新的用户消息，避免在长对话中被注意力机制忽略。
