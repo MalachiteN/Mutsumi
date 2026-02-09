@@ -147,14 +147,15 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
     /**
      * @description Create default notebook content
      * @param {string[]} allowedUris - List of allowed URIs
+     * @param {string[]} activeRules - Optional list of active rules to start with
      * @returns {Uint8Array} Encoded default content
      * @static
      * 
      * @example
-     * const content = MutsumiSerializer.createDefaultContent(['/workspace/project']);
+     * const content = MutsumiSerializer.createDefaultContent(['/workspace/project'], ['default.md']);
      * await vscode.workspace.fs.writeFile(uri, content);
      */
-    static createDefaultContent(allowedUris: string[]): Uint8Array {
+    static createDefaultContent(allowedUris: string[], activeRules?: string[]): Uint8Array {
         // Read VS Code configuration to get default model
         const config = vscode.workspace.getConfiguration('mutsumi');
         const defaultModel = config.get<string>('defaultModel');
@@ -167,7 +168,8 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 parent_agent_id: null,
                 allowed_uris: allowedUris,
                 model: defaultModel || undefined,
-                contextItems: []
+                contextItems: [],
+                activeRules: activeRules
             },
             context: []
         };

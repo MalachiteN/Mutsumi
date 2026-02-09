@@ -67,7 +67,9 @@ export async function buildInteractionHistory(
     };
 
     // 2a. Load Global Rules (Dynamic from workspace)
-    const rulesItems = await getRulesContext(wsUri, allowedUris, sharedMacroContext);
+    // Filter by activeRules if present in metadata, otherwise load all (legacy behavior or default)
+    const activeRules = metadata.activeRules;
+    const rulesItems = await getRulesContext(wsUri, allowedUris, sharedMacroContext, activeRules);
     mergeItems(rulesItems);
 
     // 2b. Load Persisted Context (Files & Rules from Notebook Metadata)
@@ -96,11 +98,6 @@ export async function buildInteractionHistory(
             } catch (e) {
                 console.warn(`Failed to refresh file context ${item.key}:`, e);
                 // Keep old content if refresh fails
-                contextMap.set(item.key, item);
-            }
-        } else if (item.type === 'rule') {
-            // Merge existing rules (unless they were already added by getRulesContext)
-            if (!contextMap.has(item.key)) {
                 contextMap.set(item.key, item);
             }
         }

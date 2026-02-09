@@ -241,9 +241,21 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
             await initializeRules(context.extensionUri, root);
 
+            // Get all existing rules to initialize the agent with all rules enabled
+            let allRules: string[] = [];
+            try {
+                const rulesDir = vscode.Uri.joinPath(root, '.mutsumi', 'rules');
+                const entries = await vscode.workspace.fs.readDirectory(rulesDir);
+                allRules = entries
+                    .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.md'))
+                    .map(([name]) => name);
+            } catch {
+                // Ignore if rules dir doesn't exist yet
+            }
+
             const name = `agent-${Date.now()}.mtm`;
             const newFileUri = vscode.Uri.joinPath(agentDir, name);
-            const initialContent = MutsumiSerializer.createDefaultContent([root.fsPath]);
+            const initialContent = MutsumiSerializer.createDefaultContent([root.fsPath], allRules);
             
             await vscode.workspace.fs.writeFile(newFileUri, initialContent);
             await vscode.window.showNotebookDocument(
@@ -494,69 +506,173 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            const metadata = editor.notebook.metadata as any;
-            const items: any[] = metadata.contextItems || [];
-            const macroContext: Record<string, string> = metadata.macroContext || {};
-            const macroEntries = Object.entries(macroContext);
+            const quickPick = vscode.window.createQuickPick();
+            quickPick.placeholder = 'Current Context Items (Files, Rules & Macros)';
+            quickPick.matchOnDetail = true;
 
-            if (items.length === 0 && macroEntries.length === 0) {
-                vscode.window.showInformationMessage('No context items found in this session.');
+            const updateItems = () => {
+                const metadata = editor.notebook.metadata as any;
+                const items: any[] = metadata.contextItems || [];
+                const macroContext: Record<string, string> = metadata.macroContext || {};
+                const macroEntries = Object.entries(macroContext);
+
+                const qpItems: any[] = [];
+
+                // Add Macros section header if there are macros
+                if (macroEntries.length > 0) {
+                    qpItems.push({
+                        label: 'Macros',
+                        kind: vscode.QuickPickItemKind.Separator
+                    });
+                    
+                    for (const [name, value] of macroEntries) {
+                        qpItems.push({
+                            label: `    $(symbol-field) ${name}`,
+                            description: 'macro',
+                            detail: `"${value}"`,
+                            // Macros are not removable via this UI currently
+                            item: { type: 'macro', key: name, content: `@{define ${name}, "${value}"}` }
+                        } as any);
+                    }
+                }
+
+                // Add Context Items section header if there are items
+                if (items.length > 0) {
+                    if (macroEntries.length > 0) {
+                        qpItems.push({
+                            label: 'Context Items',
+                            kind: vscode.QuickPickItemKind.Separator
+                        });
+                    }
+
+                    for (const item of items) {
+                        let icon = '$(file)';
+                        if (item.type === 'rule') icon = '$(book)';
+                        if (item.type === 'tool') icon = '$(tools)';
+                        
+                        const qpItem: any = {
+                            label: `${icon} ${item.key}`,
+                            description: item.type,
+                            detail: item.content ? `${item.content.substring(0, 50).replace(/\n/g, ' ')}...` : '(empty)',
+                            item: item
+                        };
+
+                        // Add remove button for files (and maybe tools), but NOT rules
+                        if (item.type !== 'rule') {
+                            qpItem.buttons = [
+                                {
+                                    iconPath: new vscode.ThemeIcon('close'),
+                                    tooltip: 'Remove from context'
+                                }
+                            ];
+                        }
+
+                        qpItems.push(qpItem);
+                    }
+                }
+                
+                quickPick.items = qpItems;
+            };
+
+            updateItems();
+
+            quickPick.onDidTriggerItemButton(async (e) => {
+                const itemToRemove = (e.item as any).item;
+                if (!itemToRemove) return;
+
+                const metadata = editor.notebook.metadata as any;
+                const currentItems: any[] = metadata.contextItems || [];
+                
+                // Filter out the item
+                const newItems = currentItems.filter(i => 
+                    !(i.type === itemToRemove.type && i.key === itemToRemove.key)
+                );
+
+                const edit = new vscode.WorkspaceEdit();
+                const newMetadata = { ...metadata, contextItems: newItems };
+                const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
+                edit.set(editor.notebook.uri, [nbEdit]);
+                
+                await vscode.workspace.applyEdit(edit);
+                
+                // Refresh list
+                updateItems();
+            });
+
+            quickPick.onDidChangeSelection(async (selection) => {
+                if (selection[0] && (selection[0] as any).item) {
+                    const item = (selection[0] as any).item;
+                    const doc = await vscode.workspace.openTextDocument({
+                        content: item.content,
+                        language: item.type === 'rule' ? 'markdown' : undefined
+                    });
+                    await vscode.window.showTextDocument(doc, { preview: true });
+                    quickPick.hide();
+                }
+            });
+
+            quickPick.onDidHide(() => quickPick.dispose());
+            quickPick.show();
+        })
+    );
+
+    // Select Rules command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.selectRules', async () => {
+            const editor = vscode.window.activeNotebookEditor;
+            if (!editor || editor.notebook.notebookType !== 'mutsumi-notebook') {
+                vscode.window.showWarningMessage('Please open a Mutsumi notebook first.');
                 return;
             }
 
-            const qpItems: any[] = [];
+            const wsFolders = vscode.workspace.workspaceFolders;
+            if (!wsFolders) {
+                vscode.window.showErrorMessage('No workspace folder open.');
+                return;
+            }
+            const root = wsFolders[0].uri;
+            const rulesDir = vscode.Uri.joinPath(root, '.mutsumi', 'rules');
 
-            // Add Macros section header if there are macros
-            if (macroEntries.length > 0) {
-                qpItems.push({
-                    label: 'Macros',
-                    kind: vscode.QuickPickItemKind.Separator
-                });
-                
-                for (const [name, value] of macroEntries) {
-                    qpItems.push({
-                        label: `    $(symbol-field) ${name}`,
-                        description: 'macro',
-                        detail: `"${value}"`,
-                        item: { type: 'macro', key: name, content: `@{define ${name}, "${value}"}` }
-                    });
-                }
+            let allRules: string[] = [];
+            try {
+                const entries = await vscode.workspace.fs.readDirectory(rulesDir);
+                allRules = entries
+                    .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.md'))
+                    .map(([name]) => name);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to read rules directory: ${error}`);
+                return;
             }
 
-            // Add Context Items section header if there are items
-            if (items.length > 0) {
-                if (macroEntries.length > 0) {
-                    qpItems.push({
-                        label: 'Context Items',
-                        kind: vscode.QuickPickItemKind.Separator
-                    });
-                }
-
-                for (const item of items) {
-                    let icon = '$(file)';
-                    if (item.type === 'rule') icon = '$(book)';
-                    if (item.type === 'tool') icon = '$(tools)';
-                    
-                    qpItems.push({
-                        label: `${icon} ${item.key}`,
-                        description: item.type,
-                        detail: item.content ? `${item.content.substring(0, 50).replace(/\n/g, ' ')}...` : '(empty)',
-                        item: item
-                    });
-                }
+            if (allRules.length === 0) {
+                vscode.window.showInformationMessage('No rules found in .mutsumi/rules.');
+                return;
             }
 
-            const selected = await vscode.window.showQuickPick(qpItems, {
-                placeHolder: 'Current Context Items (Files, Rules & Macros)',
-                matchOnDetail: true
+            const currentActiveRules = (editor.notebook.metadata as any).activeRules;
+            
+            // If activeRules is undefined, it means ALL are active (legacy/default behavior)
+            // So we mark all as picked.
+            const items = allRules.map(rule => ({
+                label: rule,
+                picked: currentActiveRules ? currentActiveRules.includes(rule) : true
+            }));
+
+            const selected = await vscode.window.showQuickPick(items, {
+                placeHolder: 'Select active rules for this agent',
+                canPickMany: true
             });
 
-            if (selected && selected.item) {
-                const doc = await vscode.workspace.openTextDocument({
-                    content: selected.item.content,
-                    language: selected.item.type === 'rule' ? 'markdown' : undefined
-                });
-                await vscode.window.showTextDocument(doc, { preview: true });
+            if (selected) {
+                const newActiveRules = selected.map(i => i.label);
+                
+                const edit = new vscode.WorkspaceEdit();
+                const newMetadata = { ...editor.notebook.metadata, activeRules: newActiveRules };
+                const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
+                edit.set(editor.notebook.uri, [nbEdit]);
+                
+                await vscode.workspace.applyEdit(edit);
+                vscode.window.showInformationMessage(`Active rules updated (${newActiveRules.length} active).`);
             }
         })
     );

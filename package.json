@@ -113,6 +113,12 @@
                 "icon": "$(list-unordered)"
             },
             {
+                "command": "mutsumi.selectRules",
+                "title": "Select Active Rules",
+                "category": "Mutsumi",
+                "icon": "$(checklist)"
+            },
+            {
                 "command": "mutsumi.reopenEditDiff",
                 "title": "Reopen Diff Editor",
                 "category": "Mutsumi",
@@ -162,23 +168,28 @@
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.regenerateTitle",
+                    "command": "mutsumi.selectRules",
                     "group": "navigation@2",
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.debugContext",
+                    "command": "mutsumi.regenerateTitle",
                     "group": "navigation@3",
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.recompileSkills",
+                    "command": "mutsumi.viewContext",
                     "group": "navigation@4",
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.viewContext",
+                    "command": "mutsumi.recompileSkills",
                     "group": "navigation@5",
+                    "when": "notebookType == mutsumi-notebook"
+                },
+                {
+                    "command": "mutsumi.debugContext",
+                    "group": "navigation@6",
                     "when": "notebookType == mutsumi-notebook"
                 }
             ]
