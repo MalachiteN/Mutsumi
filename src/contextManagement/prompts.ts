@@ -47,12 +47,14 @@ Current Allowed URIs: ${JSON.stringify(allowedUris)}`;
  * @param workspaceUri - Workspace root URI
  * @param allowedUris - List of allowed URIs for security
  * @param macroContext - Optional shared MacroContext for processing rules with user-defined macros
+ * @param activeRules - Optional list of rule filenames to include. If undefined, all rules are included.
  * @returns Array of context items representing rules
  */
 export async function getRulesContext(
     workspaceUri: vscode.Uri, 
     allowedUris: string[],
-    macroContext?: MacroContext
+    macroContext?: MacroContext,
+    activeRules?: string[]
 ): Promise<ContextItem[]> {
     const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
     const items: ContextItem[] = [];
@@ -63,6 +65,9 @@ export async function getRulesContext(
         files.sort((a, b) => a[0].localeCompare(b[0]));
 
         for (const [name, type] of files) {
+            if (activeRules && !activeRules.includes(name)) {
+                continue;
+            }
             if (type === vscode.FileType.File && name.endsWith('.md')) {
                 const fileUri = vscode.Uri.joinPath(rulesDir, name);
                 const content = await vscode.workspace.fs.readFile(fileUri);

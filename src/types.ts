@@ -24,6 +24,8 @@ export interface AgentMetadata {
     model?: string;
     /** Persisted context items (Files, Rules) valid for the whole session */
     contextItems?: ContextItem[];
+    /** List of active rule filenames for this agent */
+    activeRules?: string[];
     /** Persisted macro definitions (macro name to macro value mapping) */
     macroContext?: Record<string, string>;
     /** List of sub-agent UUIDs created by this agent */
