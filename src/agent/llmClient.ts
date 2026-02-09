@@ -140,7 +140,7 @@ export class LLMClient {
             messages: options.messages as any,
             tools: options.tools,
             tool_choice: options.tool_choice,
-            temperature: options.temperature ?? 0.7,
+            temperature: options.temperature ?? 1,
             max_tokens: options.max_tokens
         }, { signal: options.signal });
 

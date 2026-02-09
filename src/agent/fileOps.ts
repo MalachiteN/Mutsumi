@@ -33,6 +33,57 @@ export class AgentFileOperations {
     }
 
     /**
+     * Scans the .mutsumi directory and loads all agent files.
+     * @static
+     * @returns {Promise<AgentStateInfo[]>} Array of loaded agent states
+     */
+    public static async scanAllAgents(): Promise<AgentStateInfo[]> {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri;
+        if (!workspaceRoot) {
+            return [];
+        }
+
+        const agentDir = workspaceRoot.with({
+            path: path.posix.join(workspaceRoot.path, '.mutsumi'),
+        });
+
+        try {
+            const files = await vscode.workspace.fs.readDirectory(agentDir);
+            const agents: AgentStateInfo[] = [];
+
+            for (const [name, type] of files) {
+                if (type === vscode.FileType.File && name.endsWith('.mtm')) {
+                    const fileUri = agentDir.with({ path: path.posix.join(agentDir.path, name) });
+                    try {
+                        const content = await vscode.workspace.fs.readFile(fileUri);
+                        const data = JSON.parse(new TextDecoder().decode(content));
+                        
+                        if (data.metadata && data.metadata.uuid) {
+                            agents.push({
+                                uuid: data.metadata.uuid,
+                                parentId: data.metadata.parent_agent_id || null,
+                                name: data.metadata.name || 'Unknown Agent',
+                                fileUri: fileUri.toString(),
+                                isWindowOpen: false,
+                                isRunning: false,
+                                isTaskFinished: !!data.metadata.is_task_finished,
+                                childIds: new Set(data.metadata.sub_agents_list || [])
+                            });
+                        }
+                    } catch (e) {
+                        console.error(`Failed to load agent file ${name}:`, e);
+                    }
+                }
+            }
+            return agents;
+        } catch (e) {
+            // Directory might not exist or other error
+            console.log('No .mutsumi directory found or error reading it:', e);
+            return [];
+        }
+    }
+
+    /**
      * Loads an agent from file if it exists.
      * @static
      * @param {string} uuid - Agent UUID to load
