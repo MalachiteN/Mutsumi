@@ -48,88 +48,84 @@ export class AgentTreeUtils {
     }
 
     /**
-     * Checks if any agent in the tree has an open window.
-     * @static
-     * @param {string} rootId - Root agent UUID of the tree
-     * @param {Map<string, AgentStateInfo>} registry - Agent registry map
-     * @returns {boolean} True if any window in the tree is open
-     * @description Recursively traverses the tree starting from rootId and checks
-     * if any agent has isWindowOpen set to true.
-     * @example
-     * const hasOpenWindow = AgentTreeUtils.hasAnyWindowOpenInTree('root-uuid', registry);
-     */
-    public static hasAnyWindowOpenInTree(
-        rootId: string,
-        registry: Map<string, AgentStateInfo>
-    ): boolean {
-        const visited = new Set<string>();
-
-        const checkNode = (uuid: string): boolean => {
-            if (visited.has(uuid)) {
-                return false;
-            }
-            visited.add(uuid);
-
-            const agent = registry.get(uuid);
-            if (!agent) {
-                return false;
-            }
-
-            if (agent.isWindowOpen) {
-                return true;
-            }
-
-            // Check children
-            if (agent.childIds) {
-                for (const childId of agent.childIds) {
-                    if (checkNode(childId)) {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        };
-
-        return checkNode(rootId);
-    }
-
-    /**
-     * Computes and returns nodes for TreeView display.
+     * Computes and returns nodes for TreeView display based on visibility.
      * @static
      * @param {Map<string, AgentStateInfo>} registry - Agent registry map
      * @returns {AgentStateInfo[]} Array of agent nodes to display
-     * @description Shows the entire tree if any node in the tree has an open window.
-     * Only hides the tree when all nodes' windows are closed.
-     * First pass finds all root IDs with at least one open window in their tree.
-     * Second pass includes all agents whose root has an open window.
-     * @example
-     * const nodes = AgentTreeUtils.getAgentTreeNodes(registry);
-     * // Returns all agents in trees where at least one window is open
+     * @description 
+     * 1. Finds all agents that are currently "Window Open".
+     * 2. For each open agent, finds its root ancestor.
+     * 3. From these roots, traverses down to collect the full tree structure.
+     * 4. Returns all agents part of these trees.
+     * 5. Ensures any detached visible agents are also included.
      */
     public static getAgentTreeNodes(
         registry: Map<string, AgentStateInfo>
     ): AgentStateInfo[] {
-        const nodes: AgentStateInfo[] = [];
-        const rootIdsWithOpenWindow = new Set<string>();
+        const nodes = new Set<AgentStateInfo>();
+        const rootsToDisplay = new Set<string>();
+        const visibleAgents = new Set<AgentStateInfo>();
 
-        // First pass: find all root IDs that have at least one window open in their tree
+        // 1. Find roots of all visible agents
         for (const agent of registry.values()) {
             if (agent.isWindowOpen) {
+                visibleAgents.add(agent);
                 const rootId = this.getRootId(agent.uuid, registry);
-                rootIdsWithOpenWindow.add(rootId);
+                rootsToDisplay.add(rootId);
             }
         }
 
-        // Second pass: include all agents whose root has an open window
-        for (const agent of registry.values()) {
-            const rootId = this.getRootId(agent.uuid, registry);
-            if (rootIdsWithOpenWindow.has(rootId)) {
-                nodes.push(agent);
+        // 2. Helper to traverse down from a node
+        const collectTree = (uuid: string) => {
+            const agent = registry.get(uuid);
+            if (!agent) return;
+            
+            if (nodes.has(agent)) return; // Already collected
+            nodes.add(agent);
+
+            if (agent.childIds) {
+                for (const childId of agent.childIds) {
+                    collectTree(childId);
+                }
+            }
+        };
+
+        // 3. Collect all trees starting from identified roots
+        for (const rootId of rootsToDisplay) {
+            collectTree(rootId);
+        }
+
+        // 4. Fallback: Ensure all visible agents are included
+        // This handles cases where parent->child link is missing (data inconsistency)
+        // preventing traverse down, but child is visible and should be shown.
+        for (const agent of visibleAgents) {
+            if (!nodes.has(agent)) {
+                nodes.add(agent);
+                
+                // Also try to ensure its path to root is included to maintain structure
+                // even if the top-down traversal missed it.
+                let current = agent;
+                const pathVisited = new Set<string>();
+                pathVisited.add(current.uuid);
+                
+                while (current.parentId) {
+                    if (pathVisited.has(current.parentId)) break; // Cycle check
+                    pathVisited.add(current.parentId);
+
+                    const parent = registry.get(current.parentId);
+                    if (parent) {
+                        if (!nodes.has(parent)) {
+                            nodes.add(parent);
+                        }
+                        current = parent;
+                    } else {
+                        break;
+                    }
+                }
             }
         }
 
-        return nodes;
+        return Array.from(nodes);
     }
 
     /**

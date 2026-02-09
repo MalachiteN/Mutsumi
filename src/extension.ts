@@ -47,9 +47,13 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
  *   // Extension activation logic
  * }
  */
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
     // Initialize Codebase Service
     CodebaseService.getInstance().initialize(context).catch(console.error);
+
+    // 0. Initialize Agent Registry from disk
+    // This is the first step to ensure registry is populated before any UI logic runs
+    await AgentOrchestrator.getInstance().initialize();
 
     // 1. Notebook Serializer
     context.subscriptions.push(
@@ -82,28 +86,21 @@ export function activate(context: vscode.ExtensionContext): void {
     AgentOrchestrator.getInstance().registerController(agentController, controller);
 
     // 4. Event Listeners for Agent Lifecycle
-    // Track window state using editor-level events (NOT document-level)
-    // VS Code caches NotebookDocument, so onDidCloseNotebookDocument doesn't fire when closing editor
+    // Track window state using Tab events to support background tabs.
+    // Use onDidChangeTabs to detect when tabs are opened or closed.
+    const handleTabsChanged = () => {
+        AgentOrchestrator.getInstance().notifyTabsChanged();
+    };
+
     context.subscriptions.push(
-        vscode.window.onDidChangeVisibleNotebookEditors(editors => {
-            // Get all visible mutsumi notebook URIs
-            const visibleUris = new Set<string>();
-            for (const editor of editors) {
-                if (editor.notebook.notebookType === 'mutsumi-notebook') {
-                    const uri = editor.notebook.uri.toString();
-                    visibleUris.add(uri);
-                    const uuid = editor.notebook.metadata?.uuid;
-                    if (uuid) {
-                        AgentOrchestrator.getInstance().notifyNotebookWindowOpened(uuid, editor.notebook.uri, editor.notebook.metadata);
-                    }
-                }
-            }
-            // Notify closed for any notebooks that are no longer visible
-            AgentOrchestrator.getInstance().notifyVisibleNotebooksChanged(visibleUris);
-        })
+        vscode.window.tabGroups.onDidChangeTabs(handleTabsChanged),
+        vscode.window.tabGroups.onDidChangeTabGroups(handleTabsChanged)
     );
+
+    // Initial check for open tabs to handle startup state
+    handleTabsChanged();
     
-    // Also track when documents are opened (for initial load)
+    // Also track when documents are opened (for initial load / New Agent command)
     context.subscriptions.push(
         vscode.workspace.onDidOpenNotebookDocument(async doc => {
             if (doc.notebookType === 'mutsumi-notebook') {
@@ -475,7 +472,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
             if (selection && !selection.isEmpty && !selection.isSingleLine) {
                 const start = selection.start.line + 1;
                 const end = selection.end.line + 1;
-                refString = `@[${relativePath}:${start}:${end}]`;
+                refString = `@[${relativePath}:${start}-${end}]`;
             } else if (selection) {
                 const line = selection.active.line + 1;
                 refString = `@[${relativePath}:${line}]`;

@@ -55,6 +55,25 @@ export class AgentOrchestrator {
     }
 
     /**
+     * Initializes the Orchestrator.
+     * Loads all existing agent files from disk into the registry at startup.
+     */
+    public async initialize(): Promise<void> {
+        try {
+            const agents = await AgentFileOperations.scanAllAgents();
+            for (const agent of agents) {
+                // Ensure we don't overwrite if for some reason already present (though init runs first)
+                if (!this.registry.hasAgent(agent.uuid)) {
+                    this.registry.setAgent(agent.uuid, agent);
+                }
+            }
+            console.log(`[AgentOrchestrator] Initialized with ${agents.length} agents from disk.`);
+        } catch (e) {
+            console.error('[AgentOrchestrator] Failed to initialize agents from disk:', e);
+        }
+    }
+
+    /**
      * Sets the sidebar provider for UI updates.
      * @param {AgentSidebarProvider} sidebar - The sidebar provider instance
      */
@@ -77,8 +96,8 @@ export class AgentOrchestrator {
 
     /**
      * Computes and returns nodes for TreeView display.
-     * @description Shows the entire tree if any node in the tree has an open window.
-     * Only hides the tree when all nodes' windows are closed.
+     * @description Delegates to AgentTreeUtils.getAgentTreeNodes which builds
+     * the tree based on current Registry state (specifically isWindowOpen flags).
      * @returns {AgentStateInfo[]} Array of agent nodes to display
      */
     public getAgentTreeNodes(): AgentStateInfo[] {
@@ -148,15 +167,15 @@ export class AgentOrchestrator {
 
     /**
      * Notifies that a notebook document has been opened.
-     * @description Called when a notebook document is opened. Registers or updates
-     * the agent state in the registry and loads the entire agent tree.
-     * Note: This is for document lifecycle, NOT window state.
-     * Use notifyNotebookWindowOpened for window state.
+     * @description Called when a notebook document is opened (e.g. creating a new agent or opening file).
+     * Ensures the agent is in the registry.
      * @param {string} uuid - Agent UUID
      * @param {vscode.Uri} uri - Document URI
      * @param {any} metadata - Notebook metadata
      */
     public async notifyNotebookDocumentOpened(uuid: string, uri: vscode.Uri, metadata: any): Promise<void> {
+        // We only add to registry if it doesn't exist (e.g. New Agent command)
+        // or update URI if it exists (e.g. file move/rename handled elsewhere but good to be safe)
         let agent = this.registry.getAgent(uuid);
         const isFinished = !!metadata?.is_task_finished;
         const childIds = new Set<string>(metadata?.sub_agents_list || []);
@@ -167,82 +186,57 @@ export class AgentOrchestrator {
                 parentId: metadata.parent_agent_id || null,
                 name: metadata.name || 'Unknown Agent',
                 fileUri: uri.toString(),
-                isWindowOpen: false,
+                isWindowOpen: false, // Default to false, strictly controlled by tab check
                 isRunning: false,
                 isTaskFinished: isFinished,
                 childIds
             };
             this.registry.setAgent(uuid, agent);
         } else {
+            // Update properties that might have changed on disk or via metadata
             agent.fileUri = uri.toString();
-            agent.childIds = childIds;
+            // Merge childIds just in case, though mostly controlled by file
+            // Actually, we trust the file/metadata source of truth here
+            agent.childIds = childIds; 
             if (isFinished) {
                 agent.isTaskFinished = true;
             }
-        }
-
-        await this.loadAgentTree(uuid);
-
-        if (agent.parentId) {
-            await this.loadAgentTree(agent.parentId);
-        }
-
-        this.refreshUI();
-    }
-
-    /**
-     * Notifies that a notebook window has been opened/visible.
-     * @description Called when a notebook editor becomes visible. This is the correct
-     * way to track window state because VS Code caches NotebookDocument.
-     * @param {string} uuid - Agent UUID
-     * @param {vscode.Uri} uri - Document URI
-     * @param {any} metadata - Notebook metadata
-     */
-    public notifyNotebookWindowOpened(uuid: string, uri: vscode.Uri, metadata: any): void {
-        let agent = this.registry.getAgent(uuid);
-        if (!agent) {
-            const isFinished = !!metadata?.is_task_finished;
-            const childIds = new Set<string>(metadata?.sub_agents_list || []);
-            agent = {
-                uuid,
-                parentId: metadata?.parent_agent_id || null,
-                name: metadata?.name || 'Unknown Agent',
-                fileUri: uri.toString(),
-                isWindowOpen: true,
-                isRunning: false,
-                isTaskFinished: isFinished,
-                childIds
-            };
-            this.registry.setAgent(uuid, agent);
-        } else {
-            agent.isWindowOpen = true;
-            agent.fileUri = uri.toString();
-        }
-        this.refreshUI();
-    }
-
-    /**
-     * Notifies that the set of visible notebooks has changed.
-     * @description Called when onDidChangeVisibleNotebookEditors fires.
-     * Updates agent window state based on visibility. Handles both open and close cases
-     * to properly support file rename scenarios where the URI changes.
-     * @param {Set<string>} visibleUris - Set of currently visible notebook URIs
-     */
-    public notifyVisibleNotebooksChanged(visibleUris: Set<string>): void {
-        let hasChanges = false;
-
-        for (const agent of this.registry.getAllAgents()) {
-            const isVisible = visibleUris.has(agent.fileUri);
-            if (isVisible && !agent.isWindowOpen) {
-                agent.isWindowOpen = true;
-                hasChanges = true;
-            } else if (!isVisible && agent.isWindowOpen) {
-                agent.isWindowOpen = false;
-                hasChanges = true;
+            if (metadata.parent_agent_id !== undefined) {
+                agent.parentId = metadata.parent_agent_id;
             }
         }
 
-        if (hasChanges) {
+        // Trigger a tab sync to ensure state is consistent with actual tabs.
+        this.notifyTabsChanged();
+    }
+
+    /**
+     * Notifies that the set of open tabs has changed.
+     * @description Scans all tab groups to find open Mutsumi notebook tabs.
+     * Sets isWindowOpen based on presence in tabs, regardless of visibility (active/inactive).
+     */
+    public notifyTabsChanged(): void {
+        const openFileUris = new Set<string>();
+
+        for (const group of vscode.window.tabGroups.all) {
+            for (const tab of group.tabs) {
+                if (tab.input instanceof vscode.TabInputNotebook) {
+                     openFileUris.add(tab.input.uri.toString());
+                }
+            }
+        }
+        
+        // Update registry state
+        let changed = false;
+        for (const agent of this.registry.getAllAgents()) {
+            const isOpen = openFileUris.has(agent.fileUri);
+            if (agent.isWindowOpen !== isOpen) {
+                agent.isWindowOpen = isOpen;
+                changed = true;
+            }
+        }
+
+        if (changed) {
             this.refreshUI();
         }
     }
@@ -368,70 +362,6 @@ export class AgentOrchestrator {
     }
 
     /**
-     * Loads an agent from file if it exists.
-     * @private
-     * @param {string} uuid - Agent UUID to load
-     * @returns {Promise<AgentStateInfo | undefined>} The loaded agent info or undefined
-     */
-    private async loadAgentFromFile(uuid: string): Promise<AgentStateInfo | undefined> {
-        const agent = await AgentFileOperations.loadAgentFromFile(uuid);
-        if (agent) {
-            this.registry.setAgent(uuid, agent);
-        }
-        return agent;
-    }
-
-    /**
-     * Recursively loads all agents in a tree starting from a root.
-     * @private
-     * @param {string} uuid - Root agent UUID to start loading from
-     * @param {Set<string>} visited - Set of already visited UUIDs to prevent cycles
-     * @returns {Promise<void>}
-     */
-    private async loadAgentTree(uuid: string, visited: Set<string> = new Set()): Promise<void> {
-        if (visited.has(uuid)) {
-            return;
-        }
-        visited.add(uuid);
-
-        let agent = this.registry.getAgent(uuid);
-        if (!agent) {
-            agent = await this.loadAgentFromFile(uuid);
-        }
-
-        if (!agent) {
-            return;
-        }
-
-        if (agent.parentId) {
-            const parent = this.registry.getAgent(agent.parentId);
-            if (!parent) {
-                const parentFromFile = await this.loadAgentFromFile(agent.parentId);
-                if (!parentFromFile) {
-                    agent.parentId = null;
-                    await this.updateAgentParentInFile(uuid, null);
-                }
-            }
-        }
-
-        if (agent.childIds) {
-            const validChildren = new Set<string>();
-            for (const childId of agent.childIds) {
-                let child = this.registry.getAgent(childId);
-                if (!child) {
-                    child = await this.loadAgentFromFile(childId);
-                }
-
-                if (child) {
-                    validChildren.add(childId);
-                    await this.loadAgentTree(childId, visited);
-                }
-            }
-            agent.childIds = validChildren;
-        }
-    }
-
-    /**
      * Updates the parent reference of an agent in its file.
      * @private
      * @param {string} uuid - Agent UUID to update
@@ -506,7 +436,7 @@ export class AgentOrchestrator {
             parentId,
             name: prompt.slice(0, 20),
             fileUri: fileUri.toString(),
-            isWindowOpen: true,
+            isWindowOpen: false, // Will be set to true by notifyTabsChanged
             isRunning: false,
             isTaskFinished: false,
             prompt,

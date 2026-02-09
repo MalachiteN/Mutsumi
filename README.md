@@ -16,6 +16,8 @@
   <!-- <img src="assets/demo.gif" alt="Mutsumi Demo" width="800"> -->
 </div>
 
+Mutsumi 是一个~~多首的怪物~~ VS Code 中运行的，使用 Notebook UI 与多个并行的子母 Agent 交互的插件。
+
 ---
 
 ## ✨ 核心特性
@@ -93,8 +95,6 @@ Please write documentation in English.
 - **条件编译**: 使用预处理器根据参数生成不同的提示词内容
 - **自动发现**: 放在 `.mutsumi/skills/` 目录下的 `.skill.md` 文件自动注册为工具
 - **缓存机制**: 编译后的 Skill 缓存到 `.mutsumi/skills/cache/`，避免重复解析
-
-在对话中使用：`skill_name{"language": "zh", "endpoint": "/api/users"}`
 
 ### 🔄 子母 Agent 架构
 
@@ -303,7 +303,7 @@ Please answer in English
 
 ```markdown
 ---
-Description: "根据参数生成不同类型的代码注释"
+Description: "【Skill】需要为代码生成注释时，从此工具读取详细prompt"
 Params:
   - lang
   - style
@@ -318,7 +318,7 @@ Generate in English
 风格要求：@{style}
 ```
 
-在对话中调用：`my_skill{"lang": "zh", "style": "JSDoc"}`
+在对话中调用：`@[my_skill{"lang": "zh", "style": "JSDoc"}]`
 
 ### 预处理器命令详解
 
@@ -359,7 +359,7 @@ Generate in English
 
 ```
 开始前，这是当前项目结构：
-@[ls{"uri": "."}]
+@[project_outline{"uri": "."}]
 
 以及 Git 状态：
 @[git_cmd{"args": "status --short"}]
