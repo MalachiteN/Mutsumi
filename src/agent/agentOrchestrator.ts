@@ -362,6 +362,20 @@ export class AgentOrchestrator {
     }
 
     /**
+     * Updates the name of an agent in the registry.
+     * @description Called when the agent title is regenerated to keep registry in sync.
+     * @param {string} uuid - Agent UUID
+     * @param {string} newName - New name for the agent
+     */
+    public updateAgentName(uuid: string, newName: string): void {
+        const agent = this.registry.getAgent(uuid);
+        if (agent) {
+            agent.name = newName;
+            this.refreshUI();
+        }
+    }
+
+    /**
      * Updates the parent reference of an agent in its file.
      * @private
      * @param {string} uuid - Agent UUID to update
