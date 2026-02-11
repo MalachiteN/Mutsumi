@@ -66,19 +66,16 @@ export async function buildInteractionHistory(
         }
     };
 
-    // 2a. Load Global Rules (Dynamic from workspace)
-    // Filter by activeRules if present in metadata, otherwise load all (legacy behavior or default)
-    const activeRules = metadata.activeRules;
-    const rulesItems = await getRulesContext(wsUri, allowedUris, sharedMacroContext, activeRules);
-    mergeItems(rulesItems);
+    // Note: Rules are NOT stored in contextMap and NOT persisted.
+    // They will be fetched dynamically at runtime when assembling the ghost block.
 
-    // 2b. Load Persisted Context (Files & Rules from Notebook Metadata)
+    // 2a. Load Persisted Context (Files from Notebook Metadata)
     // This represents the "long-term memory" of file references across the session
     const persistedItems: ContextItem[] = metadata.contextItems || [];
     
     // Refresh persisted files to ensure we have latest content
     for (const item of persistedItems) {
-        // We only persist files and rules. Tools are not persisted.
+        // We only persist files. Rules and tools are not persisted.
         if (item.type === 'file') {
             try {
                 // Re-resolve to get fresh content
@@ -101,10 +98,10 @@ export async function buildInteractionHistory(
                 contextMap.set(item.key, item);
             }
         }
-        // Implicitly drop tools from persisted history if they somehow got there
+        // Implicitly drop rules and tools from persisted history if they somehow got there
     }
 
-    // 2c. Parse Current Prompt for NEW Context
+    // 2b. Parse Current Prompt for NEW Context
     // This adds any new file references or tool calls from the current user message
     const currentContext = await ContextAssembler.resolveContextWithMacros(
         currentPrompt,
@@ -114,10 +111,11 @@ export async function buildInteractionHistory(
     );
     mergeItems(currentContext);
 
-    // 2d. Update Notebook Metadata (Persist File/Rule Contexts for future turns)
-    // We take everything from the map, FILTER OUT TOOLS, and save to metadata.
-    // This ensures next time we have all files referenced so far.
-    const newContextItems = Array.from(contextMap.values()).filter(item => item.type !== 'tool');
+    // 2c. Update Notebook Metadata (Persist File Contexts for future turns)
+    // We take only files from the map and save to metadata.
+    // Rules are fetched dynamically at runtime, tools are current-turn only.
+    const newContextItems = Array.from(contextMap.values())
+        .filter(item => item.type === 'file');  // Only persist files
     
     // Check if we need to update metadata (shallow comparison to avoid dirtying if unchanged?)
     // Since file content changes often, we assume update is needed if there are any items.
@@ -158,26 +156,30 @@ export async function buildInteractionHistory(
     }
 
     // 4. Assemble Final User Message with Ghost Block (Runtime only)
-    // This includes ALL context: Rules, Files (refreshed), and Tools (current only)
+    // This includes ALL context: Rules (fetched dynamically), Files (refreshed), and Tools (current only)
     const currentMultiModalContent = await parseUserMessageWithImages(currentPrompt);
     
     const contextList = Array.from(contextMap.values());
-    if (contextList.length > 0) {
+    
+    // Fetch rules dynamically at runtime (not persisted, not in contextMap)
+    const activeRules = metadata.activeRules;
+    const rulesItems = await getRulesContext(wsUri, allowedUris, sharedMacroContext, activeRules);
+    
+    if (contextList.length > 0 || rulesItems.length > 0) {
         // Build Markdown formatted context block
         let contextMarkdown = '\n<content_reference>\n';
 
-        // Add Rules
-        const rules = contextList.filter(i => i.type === 'rule');
-        if(rules.length > 0){
+        // Add Rules (fetched dynamically at runtime)
+        if (rulesItems.length > 0) {
             contextMarkdown += '\n以下是你必须遵守的规则：\n';
         }
-        for (const rule of rules) {
+        for (const rule of rulesItems) {
             contextMarkdown += `\n# Rule: ${rule.key}\n\n${rule.content}\n`;
         }
 
         // Add Files (as Markdown code blocks)
         const files = contextList.filter(i => i.type === 'file');
-        if(files.length > 0){
+        if (files.length > 0) {
             contextMarkdown += '\n以下是用户使用@引用的文件，预插入到此处：\n';
         }
         for (const file of files) {
@@ -188,7 +190,7 @@ export async function buildInteractionHistory(
 
         // Add Tools
         const tools = contextList.filter(i => i.type === 'tool');
-        if(tools.length > 0){
+        if (tools.length > 0) {
             contextMarkdown += '\n下面是用户使用@指定的工具调用，预执行结果如下：\n';
         }
         for (const tool of tools) {

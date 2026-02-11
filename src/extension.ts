@@ -507,12 +507,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
             }
 
             const quickPick = vscode.window.createQuickPick();
-            quickPick.placeholder = 'Current Context Items (Files, Rules & Macros)';
+            quickPick.placeholder = 'Current Context Files & Macros';
             quickPick.matchOnDetail = true;
 
             const updateItems = () => {
                 const metadata = editor.notebook.metadata as any;
-                const items: any[] = metadata.contextItems || [];
+                // 只过滤出 files
+                const items: any[] = (metadata.contextItems || []).filter((item: any) => item.type === 'file');
                 const macroContext: Record<string, string> = metadata.macroContext || {};
                 const macroEntries = Object.entries(macroContext);
 
@@ -536,19 +537,18 @@ function registerCommands(context: vscode.ExtensionContext): void {
                     }
                 }
 
-                // Add Context Items section header if there are items
+                // 只显示 Files（不再显示 rules 和 tools）
                 if (items.length > 0) {
                     if (macroEntries.length > 0) {
                         qpItems.push({
-                            label: 'Context Items',
+                            label: 'Files',
                             kind: vscode.QuickPickItemKind.Separator
                         });
                     }
 
                     for (const item of items) {
-                        let icon = '$(file)';
-                        if (item.type === 'rule') icon = '$(book)';
-                        if (item.type === 'tool') icon = '$(tools)';
+                        // item.type 应该都是 'file'，使用文件图标
+                        const icon = '$(file)';
                         
                         const qpItem: any = {
                             label: `${icon} ${item.key}`,
@@ -557,15 +557,11 @@ function registerCommands(context: vscode.ExtensionContext): void {
                             item: item
                         };
 
-                        // Add remove button for files (and maybe tools), but NOT rules
-                        if (item.type !== 'rule') {
-                            qpItem.buttons = [
-                                {
-                                    iconPath: new vscode.ThemeIcon('close'),
-                                    tooltip: 'Remove from context'
-                                }
-                            ];
-                        }
+                        // 添加移除按钮
+                        qpItem.buttons = [{
+                            iconPath: new vscode.ThemeIcon('close'),
+                            tooltip: 'Remove from context'
+                        }];
 
                         qpItems.push(qpItem);
                     }
@@ -604,7 +600,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
                     const item = (selection[0] as any).item;
                     const doc = await vscode.workspace.openTextDocument({
                         content: item.content,
-                        language: item.type === 'rule' ? 'markdown' : undefined
+                        language: 'markdown'
                     });
                     await vscode.window.showTextDocument(doc, { preview: true });
                     quickPick.hide();
