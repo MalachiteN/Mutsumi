@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { AgentMessage } from '../types';
 import { LLMClient, LLMClientConfig } from './llmClient';
+import { AgentOrchestrator } from './agentOrchestrator';
 
 /**
  * Configuration interface for title generation.
@@ -127,6 +128,96 @@ export async function generateTitle(
 }
 
 /**
+ * Extracts conversation messages from notebook cells.
+ * @description Iterates through notebook cells to extract user prompts and
+ * assistant/tool responses from cell metadata.
+ * @param {vscode.NotebookDocument} notebook - The notebook document
+ * @returns {AgentMessage[]} Array of conversation messages
+ * @example
+ * const messages = extractMessagesFromNotebook(notebook);
+ * // Returns [{role: 'user', content: '...'}, {role: 'assistant', content: '...'}, ...]
+ */
+export function extractMessagesFromNotebook(notebook: vscode.NotebookDocument): AgentMessage[] {
+    const messages: AgentMessage[] = [];
+    for (const cell of notebook.getCells()) {
+        if (cell.kind === vscode.NotebookCellKind.Code) {
+            messages.push({ role: 'user', content: cell.document.getText() });
+            if (cell.metadata?.mutsumi_interaction) {
+                messages.push(...(cell.metadata.mutsumi_interaction as AgentMessage[]));
+            }
+        }
+    }
+    return messages;
+}
+
+/**
+ * Updates notebook metadata with the generated title and syncs registry.
+ * @description Applies the title to notebook metadata and updates the agent
+ * registry to keep the sidebar UI in sync.
+ * @param {vscode.NotebookDocument} notebook - The notebook document to update
+ * @param {string} title - The title to set
+ * @returns {Promise<void>}
+ * @example
+ * await updateNotebookMetadataWithSync(notebook, 'New Title');
+ */
+export async function updateNotebookMetadataWithSync(
+    notebook: vscode.NotebookDocument,
+    title: string
+): Promise<void> {
+    // Read file to get complete metadata (notebook.metadata may not contain custom fields)
+    const content = await vscode.workspace.fs.readFile(notebook.uri);
+    const raw = JSON.parse(new TextDecoder().decode(content));
+
+    const edit = new vscode.WorkspaceEdit();
+    const newMetadata = { ...raw.metadata, name: title };
+    const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
+    edit.set(notebook.uri, [nbEdit]);
+    await vscode.workspace.applyEdit(edit);
+
+    // Sync registry and refresh sidebar UI
+    const uuid = notebook.metadata?.uuid || raw.metadata?.uuid;
+    if (uuid) {
+        AgentOrchestrator.getInstance().updateAgentName(uuid, title);
+    }
+}
+
+/**
+ * Gets the title generator configuration from VSCode workspace settings.
+ * @description Reads the mutsumi configuration and extracts title generation related settings.
+ * @returns {TitleGeneratorConfig} Configuration object for title generation
+ * @example
+ * const config = getTitleGeneratorConfig();
+ * // Returns: { titleGeneratorModel: 'gpt-4', apiKey: 'sk-...', baseUrl: undefined }
+ */
+export function getTitleGeneratorConfig(): TitleGeneratorConfig {
+    const config = vscode.workspace.getConfiguration('mutsumi');
+    return {
+        titleGeneratorModel: config.get<string>('titleGeneratorModel'),
+        apiKey: config.get<string>('apiKey'),
+        baseUrl: config.get<string>('baseUrl')
+    };
+}
+
+/**
+ * Validates title generator configuration.
+ * @description Checks if required configuration is present and throws descriptive
+ * errors if configuration is missing.
+ * @param {TitleGeneratorConfig} config - Configuration to validate
+ * @throws {Error} If apiKey or titleGeneratorModel is missing
+ * @example
+ * validateConfig({ apiKey: 'sk-...', titleGeneratorModel: 'gpt-4' }); // Passes
+ * validateConfig({}); // Throws 'Please set mutsumi.apiKey...'
+ */
+export function validateTitleGeneratorConfig(config: TitleGeneratorConfig): void {
+    if (!config.apiKey) {
+        throw new Error('Please set mutsumi.apiKey in VSCode Settings.');
+    }
+    if (!config.titleGeneratorModel) {
+        throw new Error('Please set mutsumi.titleGeneratorModel or mutsumi.defaultModel in VSCode Settings.');
+    }
+}
+
+/**
  * Generates titles for notebooks based on conversation content.
  * @description Manages title generation logic, including configuration checks
  * and notebook metadata updates.
@@ -155,12 +246,12 @@ export class TitleGenerator {
     /**
      * Generates a title for the notebook and updates its metadata.
      * @description Uses the conversation messages to generate a descriptive title
-     * and updates the notebook's metadata name field.
+     * and updates the notebook's metadata name field. Also syncs the agent registry
+     * and refreshes the sidebar UI.
      * @param {vscode.NotebookDocument} notebook - The notebook document to update
      * @param {AgentMessage[]} messages - Conversation message history
      * @param {TitleGeneratorConfig} config - Configuration for title generation
-     * @returns {Promise<string | undefined>} The generated title or undefined if failed
-     * @throws {Error} If the API call fails or metadata update fails
+     * @returns {Promise<string | undefined>} The generated title or undefined if failed/not configured
      * @example
      * const title = await titleGenerator.generateTitleForNotebook(
      *     notebook,
@@ -177,6 +268,10 @@ export class TitleGenerator {
             return undefined;
         }
 
+        if (messages.length === 0) {
+            return undefined;
+        }
+
         try {
             const title = await generateTitle(messages, {
                 apiKey: config.apiKey!,
@@ -184,60 +279,23 @@ export class TitleGenerator {
                 model: config.titleGeneratorModel!
             });
 
-            await this.updateNotebookMetadata(notebook, title);
+            await updateNotebookMetadataWithSync(notebook, title);
+            
             return title;
         } catch (error) {
             console.error('Failed to generate notebook title:', error);
             return undefined;
         }
     }
-
-    /**
-     * Updates the notebook metadata with the generated title.
-     * @private
-     * @param {vscode.NotebookDocument} notebook - The notebook document to update
-     * @param {string} title - The title to set
-     * @returns {Promise<void>}
-     */
-    private async updateNotebookMetadata(
-        notebook: vscode.NotebookDocument,
-        title: string
-    ): Promise<void> {
-        const edit = new vscode.WorkspaceEdit();
-        const newMetadata = {
-            ...notebook.metadata,
-            name: title
-        };
-        const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
-        (edit as any).set(notebook.uri, [nbEdit]);
-        await vscode.workspace.applyEdit(edit);
-    }
 }
 
 /**
- * Gets the title generator configuration from VSCode workspace settings.
- * @description Reads the mutsumi configuration and extracts title generation related settings.
- * @returns {TitleGeneratorConfig} Configuration object for title generation
- * @example
- * const config = getTitleGeneratorConfig();
- * // Returns: { titleGeneratorModel: 'gpt-4', apiKey: 'sk-...', baseUrl: undefined }
- */
-export function getTitleGeneratorConfig(): TitleGeneratorConfig {
-    const config = vscode.workspace.getConfiguration('mutsumi');
-    return {
-        titleGeneratorModel: config.get<string>('titleGeneratorModel'),
-        apiKey: config.get<string>('apiKey'),
-        baseUrl: config.get<string>('baseUrl')
-    };
-}
-
-/**
- * Convenience function to generate a title if needed.
+ * Convenience function to generate a title if configured.
  * @description Combines configuration retrieval and title generation into a single call.
- * This is the extracted logic from the original generateTitleIfNeeded method.
+ * Returns undefined if not configured or if generation fails.
  * @param {vscode.NotebookDocument} notebook - The notebook document
  * @param {AgentMessage[]} messages - Conversation message history
- * @returns {Promise<string | undefined>} The generated title or undefined if not configured or failed
+ * @returns {Promise<string | undefined>} The generated title or undefined if not configured/failed
  * @example
  * const title = await generateTitleIfNeeded(notebook, messages);
  * if (title) {
@@ -257,59 +315,40 @@ export async function generateTitleIfNeeded(
  * Regenerates the title for a notebook manually.
  * @description This function is used by the command 'mutsumi.regenerateTitle' to
  * manually trigger title generation for the active notebook. It extracts messages
- * from the notebook cells and calls the title generation logic.
+ * from the notebook cells, validates configuration, generates a title, and updates
+ * the notebook metadata and agent registry.
  * @param {vscode.NotebookDocument} notebook - The notebook document to regenerate title for
- * @returns {Promise<string | undefined>} The generated title or undefined if failed/not configured
- * @throws {Error} If configuration is missing or API call fails
+ * @returns {Promise<string>} The generated title
+ * @throws {Error} If configuration is missing, no messages found, or API call fails
  * @example
  * // Used in extension.ts command handler
  * const title = await regenerateTitleForNotebook(editor.notebook);
- * if (title) {
- *     vscode.window.showInformationMessage(`Title regenerated: ${title}`);
- * }
+ * vscode.window.showInformationMessage(`Title regenerated: ${title}`);
  */
 export async function regenerateTitleForNotebook(
     notebook: vscode.NotebookDocument
-): Promise<string | undefined> {
+): Promise<string> {
     const config = getTitleGeneratorConfig();
     
-    if (!config.apiKey) {
-        throw new Error('Please set mutsumi.apiKey in VSCode Settings.');
-    }
+    // Validate configuration - throws if missing
+    validateTitleGeneratorConfig(config);
 
-    if (!config.titleGeneratorModel) {
-        throw new Error('Please set mutsumi.titleGeneratorModel or mutsumi.defaultModel in VSCode Settings.');
-    }
-
-    const messages: AgentMessage[] = [];
-    for (const cell of notebook.getCells()) {
-        if (cell.kind === vscode.NotebookCellKind.Code) {
-            messages.push({ role: 'user', content: cell.document.getText() });
-            if (cell.metadata?.mutsumi_interaction) {
-                messages.push(...(cell.metadata.mutsumi_interaction as AgentMessage[]));
-            }
-        }
-    }
+    // Extract messages from notebook cells
+    const messages = extractMessagesFromNotebook(notebook);
 
     if (messages.length === 0) {
         throw new Error('No conversation context found.');
     }
 
+    // Generate title
     const title = await generateTitle(messages, {
-        apiKey: config.apiKey,
+        apiKey: config.apiKey!,
         baseUrl: config.baseUrl,
-        model: config.titleGeneratorModel
+        model: config.titleGeneratorModel!
     });
 
-    // Read file to get complete metadata (editor.notebook.metadata may not contain custom fields)
-    const content = await vscode.workspace.fs.readFile(notebook.uri);
-    const raw = JSON.parse(new TextDecoder().decode(content));
-
-    const edit = new vscode.WorkspaceEdit();
-    const newMetadata = { ...raw.metadata, name: title };
-    const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
-    edit.set(notebook.uri, [nbEdit]);
-    await vscode.workspace.applyEdit(edit);
+    // Update metadata and sync registry
+    await updateNotebookMetadataWithSync(notebook, title);
 
     return title;
 }
