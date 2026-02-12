@@ -4,6 +4,7 @@
  */
 
 import * as vscode from 'vscode';
+import { wrapInThemedContainer } from '../utils';
 
 /**
  * Handles UI rendering and output management for agent execution.
@@ -37,7 +38,8 @@ export class UIRenderer {
      */
     commitRoundUI(content: string, reasoning: string): void {
         if (reasoning) {
-            this.committedUiHtml += `<details><summary>💭 Thinking Process</summary>\n\n${reasoning}\n\n</details>\n\n`;
+            const thinkingContent = `<details><summary>💭 Thinking Process</summary>\n\n${reasoning}\n\n</details>\n\n`;
+            this.committedUiHtml += wrapInThemedContainer(thinkingContent);
         }
         this.committedUiHtml += content;
     }
@@ -59,7 +61,8 @@ export class UIRenderer {
     ): Promise<void> {
         let display = this.committedUiHtml;
         if (currentReasoning) {
-            display += `<details open><summary>💭 Thinking Process</summary>\n\n${currentReasoning}\n\n</details>\n\n`;
+            const thinkingContent = `<details open><summary>💭 Thinking Process</summary>\n\n${currentReasoning}\n\n</details>\n\n`;
+            display += wrapInThemedContainer(thinkingContent);
         }
         display += currentContent;
 
@@ -116,7 +119,7 @@ export class UIRenderer {
         const truncated = toolResult.length > 500
             ? toolResult.substring(0, 500) + '... (truncated)'
             : toolResult;
-        return `
+        const toolContent = `
 
 <details>
 <summary>${prettyPrintSummary}</summary>
@@ -133,6 +136,7 @@ ${truncated}
 </details>
 
 `;
+        return wrapInThemedContainer(toolContent);
     }
 
     /**
