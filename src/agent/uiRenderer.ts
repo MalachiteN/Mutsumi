@@ -104,22 +104,22 @@ export class UIRenderer {
      * @description Creates a collapsible HTML details element containing the tool name,
      * arguments (as JSON), and result (truncated if over 500 characters).
      * Uses 4-backtick fences to safely handle tool results that contain code blocks.
-     * @param {string} toolName - Name of the tool
      * @param {any} toolArgs - Tool arguments
      * @param {string} toolResult - Tool execution result
+     * @param {string} [prettyPrintSummary] - Optional human-readable summary for the summary line
      * @returns {string} Formatted HTML string
      * @example
-     * const html = renderer.formatToolOutput('read_file', { uri: '/path/to/file' }, 'file content...');
-     * // Returns: <details><summary>🔧 Tool Call: read_file</summary>...</details>
+     * const html = renderer.formatToolOutput('read_file', { uri: '/path/to/file' }, 'file content...', '📖 Mutsumi read /path/to/file');
+     * // Returns: <details><summary>📖 Mutsumi read /path/to/file</summary>...</details>
      */
-    formatToolOutput(toolName: string, toolArgs: any, toolResult: string): string {
+    formatToolOutput(toolArgs: any, toolResult: string, prettyPrintSummary: string): string {
         const truncated = toolResult.length > 500
             ? toolResult.substring(0, 500) + '... (truncated)'
             : toolResult;
         return `
 
 <details>
-<summary>🔧 Tool Call: ${toolName}</summary>
+<summary>${prettyPrintSummary}</summary>
 
 **Arguments:**
 \`\`\`json

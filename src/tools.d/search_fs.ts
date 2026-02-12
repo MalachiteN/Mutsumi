@@ -74,6 +74,9 @@ export const searchFileContainsKeywordTool: ITool = {
         } catch (err: any) {
             return `Error performing search: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `🔍 Mutsumi grepped "${args.keyword || '(unknown)'}" in ${args.uri || '(unknown directory)'}`;
     }
 };
 
@@ -114,5 +117,8 @@ export const searchFileNameIncludesTool: ITool = {
         } catch (err: any) {
             return `Error searching filenames: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `🔍 Mutsumi searched files named "*${args.name_includes || '(unknown)*'}*" in ${args.uri || '(unknown directory)'}`;
     }
 };

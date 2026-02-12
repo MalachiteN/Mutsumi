@@ -31,5 +31,8 @@ export const readFileTool: ITool = {
         } catch (err: any) {
             return `Error reading file: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `📖 Mutsumi read ${args.uri || '(unknown file)'}`;
     }
 };

@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { ToolManager } from '../toolManager';
 import { ToolContext, TerminationError } from '../tools.d/interface';
 import { AgentMessage } from '../types';
+import { UIRenderer } from './uiRenderer';
 
 /**
  * Callbacks for UI updates and termination signaling.
@@ -41,7 +42,8 @@ export class ToolExecutor {
         private tools: ToolManager,
         private allowedUris: string[],
         private notebook: vscode.NotebookDocument,
-        private isSubAgent: boolean
+        private isSubAgent: boolean,
+        private uiRenderer: UIRenderer
     ) {}
 
     /**
@@ -100,7 +102,9 @@ export class ToolExecutor {
                 toolResult = `Error executing tool: ${err.message}`;
             }
 
-            await callbacks.appendOutput(this.formatToolOutput(toolName, toolArgs, toolResult));
+            // Get the pretty print summary for this tool call
+            const prettyPrintSummary = this.tools.getPrettyPrint(toolName, toolArgs, this.isSubAgent);
+            await callbacks.appendOutput(this.uiRenderer.formatToolOutput(toolArgs, toolResult, prettyPrintSummary));
 
             toolMessages.push({
                 role: 'tool',
@@ -110,36 +114,5 @@ export class ToolExecutor {
             });
         }
         return { messages: toolMessages, shouldTerminate };
-    }
-
-    /**
-     * Formats tool output as HTML details element.
-     * @private
-     * @param {string} toolName - Name of the tool
-     * @param {any} toolArgs - Tool arguments
-     * @param {string} toolResult - Tool execution result
-     * @returns {string} Formatted HTML string
-     */
-    private formatToolOutput(toolName: string, toolArgs: any, toolResult: string): string {
-        const truncated = toolResult.length > 500 
-            ? toolResult.substring(0, 500) + '... (truncated)' 
-            : toolResult;
-        return `
-
-<details>
-<summary>🔧 Tool Call: ${toolName}</summary>
-
-**Arguments:**
-\`\`\`json
-${JSON.stringify(toolArgs, null, 2)}
-\`\`\`
-
-**Result:**
-\`\`\`
-${truncated}
-\`\`\`
-</details>
-
-`;
     }
 }

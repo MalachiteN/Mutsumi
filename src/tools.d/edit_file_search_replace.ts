@@ -118,5 +118,8 @@ export const editFileSearchReplaceTool: ITool = {
 
         // Delegate to core edit handler
         return handleEdit(args.uri, newContent, context, 'edit_file_search_replace');
+    },
+    prettyPrint: (args: any) => {
+        return `✏️ Mutsumi edited ${args.uri || '(unknown file)'} (search/replace)`;
     }
 };

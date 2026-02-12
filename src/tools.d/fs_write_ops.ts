@@ -42,6 +42,9 @@ export const mkdirTool: ITool = {
         } catch (err: any) {
             return `Error creating directory: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `📂 Mutsumi created directory ${args.uri || '(unknown path)'}`;
     }
 };
 
@@ -90,5 +93,8 @@ export const createNewFileTool: ITool = {
         } catch (err: any) {
             return `Error creating file (Parent dir might not exist): ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `🆕 Mutsumi created file ${args.uri || '(unknown path)'}`;
     }
 };

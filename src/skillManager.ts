@@ -252,6 +252,9 @@ export class SkillManager {
                     this.log(msg);
                     return msg;
                 }
+            },
+            prettyPrint: (_args: any) => {
+                return `🔓 Mutsumi unlocked skill ${name}`;
             }
         };
 

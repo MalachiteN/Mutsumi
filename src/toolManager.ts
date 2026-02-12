@@ -187,6 +187,41 @@ export class ToolManager {
         context: ToolContext, 
         isSubAgent: boolean
     ): Promise<string> {
+        const tool = this.getTool(name, isSubAgent);
+        if (typeof tool === 'string') {
+            return tool; // Error message
+        }
+        return await tool.execute(args, context);
+    }
+
+    /**
+     * Gets the pretty print string for a tool call.
+     * @description Looks up the tool and generates a human-readable description
+     * of the tool call using the tool's prettyPrint method.
+     * @param {string} name - Name of the tool
+     * @param {any} args - Arguments for the tool
+     * @param {boolean} isSubAgent - Whether the caller is a sub-agent
+     * @returns {string} Human-readable description of the tool call
+     * @example
+     * const summary = toolManager.getPrettyPrint('read_file', { uri: 'file.txt' }, false);
+     * // Returns: '📖 Mutsumi read file.txt'
+     */
+    public getPrettyPrint(name: string, args: any, isSubAgent: boolean): string {
+        const tool = this.getTool(name, isSubAgent);
+        if (typeof tool === 'string') {
+            return `🔧 Tool Call: ${name}`; // Fallback for unknown tools
+        }
+        return tool.prettyPrint(args);
+    }
+
+    /**
+     * Helper method to look up a tool by name.
+     * @private
+     * @param {string} name - Name of the tool
+     * @param {boolean} isSubAgent - Whether the caller is a sub-agent
+     * @returns {ITool | string} The tool instance, or an error message string if not found
+     */
+    private getTool(name: string, isSubAgent: boolean): ITool | string {
         let tool = this.commonTools.get(name);
         if (!tool) {
             if (isSubAgent) {
@@ -211,6 +246,6 @@ export class ToolManager {
             }
             return `Error: Unknown tool '${name}'`;
         }
-        return await tool.execute(args, context);
+        return tool;
     }
 }

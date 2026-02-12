@@ -175,6 +175,9 @@ export const systemInfoTool: ITool = {
         } catch (err: any) {
             return `Error getting system info: ${err.message}`;
         }
+    },
+    prettyPrint: (_args: any) => {
+        return `💻 Mutsumi checked system info`;
     }
 };
 
@@ -203,6 +206,9 @@ export const getFileSizeTool: ITool = {
         } catch (err: any) {
             return `Error getting file size: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `📊 Mutsumi checked size of ${args.uri || '(unknown file)'}`;
     }
 };
 
@@ -231,5 +237,8 @@ export const getEnvVarTool: ITool = {
             return `Environment variable '${key}' is not set.`;
         }
         return value;
+    },
+    prettyPrint: (args: any) => {
+        return `🔧 Mutsumi read environment variable '${args.name || '(unknown)}'}`;
     }
 };
