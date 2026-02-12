@@ -64,5 +64,9 @@ export const shellExecTool: ITool = {
         } catch (err: any) {
             return `Error preparing shell execution: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        const cmdPreview = args.cmd ? (args.cmd.length > 40 ? args.cmd.substring(0, 40) + '...' : args.cmd) : '(unknown command)';
+        return `⚡ Mutsumi executed "${cmdPreview}" in ${args.uri || '(unknown directory)'}`;
     }
 };

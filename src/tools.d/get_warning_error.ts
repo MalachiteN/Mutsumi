@@ -112,5 +112,11 @@ export const getWarningErrorTool: ITool = {
         } catch (err: any) {
             return `Error retrieving diagnostics: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        if (args.uri) {
+            return `⚠️ Mutsumi checked diagnostics for ${args.uri}`;
+        }
+        return `⚠️ Mutsumi checked workspace diagnostics`;
     }
 };

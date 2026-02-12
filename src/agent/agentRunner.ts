@@ -76,7 +76,7 @@ export class AgentRunner {
         });
         this.uiRenderer = new UIRenderer();
         this.llmStreamHandler = new LLMStreamHandler(this.llmClient);
-        this.toolExecutor = new ToolExecutor(this.tools, this.allowedUris, this.notebook, this.isSubAgent);
+        this.toolExecutor = new ToolExecutor(this.tools, this.allowedUris, this.notebook, this.isSubAgent, this.uiRenderer);
         this.titleGenerator = new TitleGenerator();
     }
 

@@ -42,5 +42,8 @@ export const lsTool: ITool = {
         } catch (err: any) {
             return `Error listing directory: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `📁 Mutsumi listed files under ${args.uri || '(unknown directory)'}`;
     }
 };

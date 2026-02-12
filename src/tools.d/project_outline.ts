@@ -72,5 +72,8 @@ export const projectOutlineTool: ITool = {
         } catch (err: any) {
             return `Error generating outline: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `🏗️ Mutsumi generated project outline for ${args.uri || '(unknown directory)'}`;
     }
 };

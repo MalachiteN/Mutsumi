@@ -59,5 +59,9 @@ export const gitCmdTool: ITool = {
         } catch (err: any) {
             return `Error preparing git execution: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        const argsPreview = args.args ? (args.args.length > 30 ? args.args.substring(0, 30) + '...' : args.args) : '(unknown)';
+        return `🔀 Mutsumi ran git ${argsPreview} in ${args.uri || '(unknown directory)'}`;
     }
 };

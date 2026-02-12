@@ -47,6 +47,9 @@ export const partiallyReadByRangeTool: ITool = {
         } catch (err: any) {
             return `Error reading file range: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `📖 Mutsumi read lines ${args.start_line || '?'}-${args.end_line || '?'} of ${args.uri || '(unknown file)'}`;
     }
 };
 
@@ -111,5 +114,8 @@ export const partiallyReadAroundKeywordTool: ITool = {
         } catch (err: any) {
             return `Error searching file: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        return `🔍 Mutsumi searched "${args.keyword || '(unknown)'}" in ${args.uri || '(unknown file)'}`;
     }
 };

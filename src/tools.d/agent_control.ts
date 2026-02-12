@@ -68,6 +68,10 @@ export const selfForkTool: ITool = {
         } catch (err: any) {
             return `Error during fork: ${err.message}`;
         }
+    },
+    prettyPrint: (args: any) => {
+        const agentCount = args.sub_agents?.length || 0;
+        return `🍴 Mutsumi forked into ${agentCount} sub-agent${agentCount !== 1 ? 's' : ''}`;
     }
 };
 
@@ -96,6 +100,9 @@ export const taskFinishTool: ITool = {
         // Signal that the session should be terminated after this tool call
         context.signalTermination?.();
         return 'Task Finished. Report submitted.';
+    },
+    prettyPrint: (_args: any) => {
+        return `✅ Mutsumi finished task`;
     }
 };
 
@@ -136,5 +143,8 @@ export const getAvailableModelsTool: ITool = {
         } catch (err: any) {
             return `Error reading models configuration: ${err.message}`;
         }
+    },
+    prettyPrint: (_args: any) => {
+        return `🤓 Mutsumi listed available models`;
     }
 };

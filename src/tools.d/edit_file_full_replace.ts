@@ -1,5 +1,5 @@
 import { ITool, ToolContext } from './interface';
-import { handleEdit } from './edit_file'
+import { handleEdit } from './edit_file';
 
 export const editFileFullReplaceTool: ITool = {
     name: 'edit_file_full_replace',
@@ -23,5 +23,8 @@ export const editFileFullReplaceTool: ITool = {
             return 'Error: Missing arguments (uri, new_content).';
         }
         return handleEdit(args.uri, args.new_content, context, 'edit_file_full_replace');
+    },
+    prettyPrint: (args: any) => {
+        return `📝 Mutsumi edited ${args.uri || '(unknown file)'} (fully replace)`;
     }
 };

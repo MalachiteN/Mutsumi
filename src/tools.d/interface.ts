@@ -25,4 +25,10 @@ export interface ITool {
     name: string;
     definition: OpenAI.Chat.ChatCompletionTool;
     execute(args: any, context: ToolContext): Promise<string>;
+    /**
+     * Generate a human-readable description of the tool call.
+     * @param args - The arguments passed to the tool
+     * @returns A natural language string describing what the tool is doing
+     */
+    prettyPrint(args: any): string;
 }
