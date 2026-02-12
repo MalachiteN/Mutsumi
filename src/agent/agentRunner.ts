@@ -108,17 +108,59 @@ export class AgentRunner {
             }
             loopCount++;
 
-            const { roundContent, roundReasoning, toolCalls } = await this.llmStreamHandler.streamResponse(
-                messages,
-                this.tools.getToolsDefinitions(this.isSubAgent),
-                abortController.signal,
-                (content, reasoning) => {
-                    if (execution.token.isCancellationRequested) {
-                        return;
+            let roundContent = '';
+            let roundReasoning = '';
+            let toolCalls: any[] = [];
+
+            try {
+                const result = await this.llmStreamHandler.streamResponse(
+                    messages,
+                    this.tools.getToolsDefinitions(this.isSubAgent),
+                    abortController.signal,
+                    (content, reasoning) => {
+                        if (execution.token.isCancellationRequested) {
+                            return;
+                        }
+                        void this.uiRenderer.renderUI(execution, content, reasoning);
                     }
-                    void this.uiRenderer.renderUI(execution, content, reasoning);
+                );
+                roundContent = result.roundContent;
+                roundReasoning = result.roundReasoning;
+                toolCalls = result.toolCalls;
+            } catch (error: any) {
+                // Handle network/API errors gracefully
+                const isCancellation = 
+                    error.name === 'APIUserAbortError' ||
+                    error.name === 'AbortError' ||
+                    abortController.signal.aborted;
+
+                if (isCancellation) {
+                    // User-initiated cancellation, just end gracefully
+                    break;
                 }
-            );
+
+                // Network/API error - show notification and preserve history
+                const errorMessage = error.message || String(error);
+                console.error('LLM Stream Error:', error);
+                
+                // Show error as VSCode notification (non-modal)
+                vscode.window.showErrorMessage(
+                    `Mutsumi LLM Error: ${errorMessage}`,
+                    'Copy Details'
+                ).then(selection => {
+                    if (selection === 'Copy Details') {
+                        vscode.env.clipboard.writeText(error.stack || errorMessage);
+                    }
+                });
+
+                // Preserve committed UI history and add error indicator
+                await this.uiRenderer.appendErrorUI(
+                    execution,
+                    `\n\n> ⚠️ **Error**: ${errorMessage.replace(/\n/g, ' ')}\n\n*Execution stopped due to network error. Previous output is preserved above.*`
+                );
+
+                break;
+            }
 
             if (!toolCalls.length && !roundContent && !roundReasoning) {
                 await this.uiRenderer.appendErrorUI(

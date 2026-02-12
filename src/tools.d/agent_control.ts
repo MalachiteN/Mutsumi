@@ -145,6 +145,6 @@ export const getAvailableModelsTool: ITool = {
         }
     },
     prettyPrint: (_args: any) => {
-        return `🤓 Mutsumi listed available models`;
+        return `🐧 Mutsumi listed available models`;
     }
 };
