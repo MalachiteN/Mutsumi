@@ -4,6 +4,7 @@ import { AgentContext, AgentMessage, AgentMetadata, MessageContent } from '../ty
 import { AgentOrchestrator } from '../agent/agentOrchestrator';
 import { ToolManager } from '../toolManager';
 import { v4 as uuidv4 } from 'uuid';
+import { wrapInThemedContainer } from '../utils';
 
 /**
  * @description Mutsumi Notebook serializer class
@@ -256,7 +257,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
         for (const m of group) {
             if (m.role === 'assistant') {
                 if (m.reasoning_content) {
-                    displayText += `<details><summary>💭 Thinking Process</summary>\n\n${m.reasoning_content}\n\n</details>\n\n`;
+                    displayText += wrapInThemedContainer(`<details><summary>💭 Thinking Process</summary>\n\n${m.reasoning_content}\n\n</details>`)+'\n\n';
                 }
                 if (m.content) {
                     displayText += this.serializeContentToString(m.content) + '\n\n';
@@ -285,7 +286,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                     ? ToolManager.getInstance().getPrettyPrint(toolName, args, isSubAgent)
                     : `🔧 Tool Call: ${toolName}`;
 
-                displayText += `
+                displayText += wrapInThemedContainer(`
 
 <details>
 <summary>${prettyPrintSummary}</summary>
@@ -300,8 +301,7 @@ ${JSON.stringify(args, null, 2)}
 ${contentStr}
 \`\`\`
 </details>
-
-`;
+`+'\n');
             }
         }
         return displayText;
