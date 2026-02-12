@@ -95,12 +95,25 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
         const session = activeSessions.get(filePath);
         if (session) {
             const toolName = session.toolName;
-            // Signal that the session should be terminated after this tool call
-            session.signalTermination?.();
-            cleanupSession(filePath, true);
-            // Resolve with a rejection message that includes tool name, so the conversation can continue
-            session.resolve(`[Tool Call Rejected] The ${toolName} operation was rejected by user.`);
-            vscode.window.showInformationMessage('Changes rejected.');
+            
+            // Show input box for rejection reason
+            const reason = await vscode.window.showInputBox({
+                placeHolder: 'Enter rejection reason (optional, press ESC to reject without reason)',
+                prompt: 'Why are you rejecting these changes?'
+            });
+            
+            if (reason === undefined || reason.trim() === '') {
+                // User cancelled or entered empty reason - terminate the session
+                session.signalTermination?.();
+                cleanupSession(filePath, true);
+                session.resolve(`[Rejected] The ${toolName} operation was rejected by user.`);
+                vscode.window.showInformationMessage('Changes rejected.');
+            } else {
+                // User provided a reason - allow AI to continue with the feedback
+                cleanupSession(filePath, true);
+                session.resolve(`[Rejected with Reason] The ${toolName} operation was rejected by user. Reason: ${reason}`);
+                vscode.window.showInformationMessage('Changes rejected with reason. Agent will continue generating.');
+            }
         }
     }));
 
