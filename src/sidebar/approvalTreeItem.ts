@@ -115,7 +115,7 @@ export class EditFileTreeItem extends vscode.TreeItem {
         this.description = this.formatTime(session.timestamp);
         this.tooltip = this.buildTooltip();
         this.iconPath = this.getIcon();
-        this.contextValue = session.status === 'partially_accepted' ? 'editFilePartiallyAccepted' : 'editFilePending';
+        this.contextValue = 'editFilePending';
 
         // 点击命令：重新打开 Diff Editor
         this.command = {
@@ -160,7 +160,6 @@ export class EditFileTreeItem extends vscode.TreeItem {
     private getStatusText(): string {
         switch (this.session.status) {
             case 'pending': return '⏳ Waiting for review (Diff view available)';
-            case 'partially_accepted': return '✏️ Partially accepted - editing in progress';
             case 'resolved': return '✅ Resolved';
             default: return '⏳ Unknown';
         }
@@ -174,7 +173,6 @@ export class EditFileTreeItem extends vscode.TreeItem {
     private getIcon(): vscode.ThemeIcon {
         switch (this.session.status) {
             case 'pending': return new vscode.ThemeIcon('git-compare', new vscode.ThemeColor('charts.yellow'));
-            case 'partially_accepted': return new vscode.ThemeIcon('edit', new vscode.ThemeColor('charts.blue'));
             case 'resolved': return new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'));
             default: return new vscode.ThemeIcon('question', new vscode.ThemeColor('charts.yellow'));
         }

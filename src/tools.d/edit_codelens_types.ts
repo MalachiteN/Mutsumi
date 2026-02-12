@@ -19,7 +19,6 @@ export interface DiffContext {
 }
 
 export interface DiffReviewConfig {
-  tempDirectory: string;
   actions: DiffCodeLensAction[];
   autoOpen?: boolean;
 }

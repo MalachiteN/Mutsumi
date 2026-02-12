@@ -13,7 +13,8 @@ interface EditSession {
     resolve: (value: string) => void;
     reject: (reason: any) => void;
     originalUri: vscode.Uri;
-    tempUri: vscode.Uri;
+    backupUri: vscode.Uri;  // Backup of original content (.temp-backup)
+    editUri: vscode.Uri;     // User-editable temp file (.temp-edit)
     toolName: string;
     signalTermination?: () => void;
 }
@@ -21,16 +22,12 @@ interface EditSession {
 // Map<OriginalFilePath, Session>
 const activeSessions = new Map<string, EditSession>();
 let globalDiffAgent: DiffReviewAgent | undefined;
-let globalTempDir: string | undefined;
 
 // --- Extension Activation ---
 
 export function activateEditSupport(context: vscode.ExtensionContext) {
     // 1. Initialize DiffReviewAgent
-    globalTempDir = path.join(context.globalStorageUri.fsPath, 'temp_edits');
-    
     const diffReviewConfig = {
-        tempDirectory: globalTempDir,
         actions: [],
         autoOpen: true
     };
@@ -45,14 +42,46 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
         const session = activeSessions.get(filePath);
         if (session) {
             try {
-                // Read from Temp file
-                const newContentBytes = await vscode.workspace.fs.readFile(session.tempUri);
-                // Overwrite Original file
-                await vscode.workspace.fs.writeFile(session.originalUri, newContentBytes);
+                // 1. Read User's Final Version (from the editable temp file)
+                const userContentBytes = await vscode.workspace.fs.readFile(session.editUri);
+                const userContent = new TextDecoder().decode(userContentBytes);
 
-                // Cleanup and Resolve
+                // 2. Read Backup (original AI proposal)
+                const backupContentBytes = await vscode.workspace.fs.readFile(session.backupUri);
+                const backupContent = new TextDecoder().decode(backupContentBytes);
+
+                // 3. Overwrite Original file with user's edited version
+                await vscode.workspace.fs.writeFile(session.originalUri, userContentBytes);
+
+                // 4. Generate Diff (User edits vs AI Proposal)
+                const fileName = path.basename(filePath);
+                const patch = Diff.createTwoFilesPatch(
+                    `AI_Proposal/${fileName}`,
+                    `User_Edited/${fileName}`,
+                    backupContent,
+                    userContent,
+                    'AI Original',
+                    'User Final'
+                );
+
+                // 5. Construct Feedback Message
+                let feedbackMsg: string;
+                if (patch.includes('@@')) {
+                    feedbackMsg = [
+                        "User accepted the changes with manual edits.",
+                        "Below is the diff showing what the User changed ON TOP OF your generation:",
+                        "",
+                        patch,
+                        "",
+                        "Please analyze these manual edits to understand the User's intent."
+                    ].join('\n');
+                } else {
+                    feedbackMsg = "User accepted the changes (no manual modifications made).";
+                }
+
+                // 6. Cleanup and Resolve
                 cleanupSession(filePath, true);
-                session.resolve('User accepted the edit.');
+                session.resolve(feedbackMsg);
 
                 vscode.window.showInformationMessage('Changes applied successfully.');
             } catch (e: any) {
@@ -72,86 +101,6 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
             // Resolve with a rejection message that includes tool name, so the conversation can continue
             session.resolve(`[Tool Call Rejected] The ${toolName} operation was rejected by user.`);
             vscode.window.showInformationMessage('Changes rejected.');
-        }
-    }));
-
-    // Command: Partially Accept (Apply changes -> Edit manually -> Continue)
-    context.subscriptions.push(vscode.commands.registerCommand('diffReview.action.partiallyAccept', async (filePath: string, _action: DiffCodeLensAction) => {
-        const session = activeSessions.get(filePath);
-        if (session && globalDiffAgent) {
-            try {
-                // 1. Apply AI changes to the original file
-                const newContentBytes = await vscode.workspace.fs.readFile(session.tempUri);
-                await vscode.workspace.fs.writeFile(session.originalUri, newContentBytes);
-
-                // 2. Mark session as partially accepted in the manager
-                editFileSessionManager.markPartiallyAccepted(session.id);
-
-                // 3. Define the "Continue" action
-                const continueAction: DiffCodeLensAction = {
-                    id: 'continueGenerate',
-                    label: '$(sparkle) Continue Mutsumi Generate',
-                    tooltip: 'Submit your manual adjustments and let AI continue',
-                    handler: async () => {}
-                };
-
-                // 4. Switch View (Diff -> Standard Editor) and Update CodeLens
-                // DO NOT resolve the session yet. The tool call remains pending.
-                await globalDiffAgent.switchToStandardEditMode(filePath, [continueAction]);
-
-                vscode.window.showInformationMessage('Changes applied. You can now edit the file. Click "Continue Mutsumi Generate" when done.');
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to proceed: ${e.message}`);
-            }
-        }
-    }));
-
-    // Command: Continue Mutsumi Generate (Finalize manual edits)
-    context.subscriptions.push(vscode.commands.registerCommand('diffReview.action.continueGenerate', async (filePath: string, _action: DiffCodeLensAction) => {
-        const session = activeSessions.get(filePath);
-        if (session) {
-            try {
-                // 1. Read User's Final Version (from the actively edited file)
-                const userDoc = await vscode.workspace.openTextDocument(session.originalUri);
-                const userContent = userDoc.getText();
-
-                // 2. Read AI's Original Proposal (from Temp file)
-                const aiTempBytes = await vscode.workspace.fs.readFile(session.tempUri);
-                const aiContent = new TextDecoder().decode(aiTempBytes);
-
-                // 3. Generate Diff (User edits vs AI Proposal)
-                const fileName = path.basename(filePath);
-                const patch = Diff.createTwoFilesPatch(
-                    `AI_Proposal/${fileName}`,
-                    `User_Edited/${fileName}`,
-                    aiContent,
-                    userContent,
-                    'AI Original',
-                    'User Final'
-                );
-
-                // 4. Construct Feedback Prompt
-                let feedbackMsg = "User accepted the changes.";
-                if (patch.includes('@@')) {
-                     feedbackMsg = [
-                        "User partially accepted the changes and made manual edits.",
-                        "Below is the diff showing what the User changed ON TOP OF your generation:",
-                        "```diff",
-                        patch,
-                        "```",
-                        "Please analyze these manual edits to understand the User's intent, and then continue generating the rest of the content."
-                    ].join('\n');
-                } else {
-                    feedbackMsg = "User accepted the changes (no manual modifications made).";
-                }
-
-                // 5. Cleanup and Resolve
-                cleanupSession(filePath, true);
-                session.resolve(feedbackMsg);
-
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Error processing manual edits: ${e.message}`);
-            }
         }
     }));
 
@@ -175,47 +124,24 @@ export function activateEditSupport(context: vscode.ExtensionContext) {
         }
 
         try {
-            const managerSession = editFileSessionManager.getSession(sessionId);
-
-            if (managerSession?.status === 'partially_accepted') {
-                // Partially accepted: open standard editor with Continue button
-                const continueAction: DiffCodeLensAction = {
-                    id: 'continueGenerate',
-                    label: '$(sparkle) Continue Mutsumi Generate',
-                    tooltip: 'Submit your manual adjustments and let AI continue',
+            // Reopen diff view between backup (left) and editable temp file (right)
+            const actions: DiffCodeLensAction[] = [
+                {
+                    id: 'accept',
+                    label: '$(check) Accept',
+                    tooltip: 'Overwrite original file with changes',
                     handler: async () => {}
-                };
-                await globalDiffAgent.switchToStandardEditMode(filePath, [continueAction]);
-                vscode.window.showInformationMessage('Reopened file editor. Click "Continue Mutsumi Generate" when done.');
-            } else {
-                // Pending: reopen diff view
-                const tempContentBytes = await vscode.workspace.fs.readFile(session.tempUri);
-                const tempContent = new TextDecoder().decode(tempContentBytes);
+                },
+                {
+                    id: 'reject',
+                    label: '$(x) Reject',
+                    tooltip: 'Discard changes',
+                    handler: async () => {}
+                }
+            ];
 
-                const actions: DiffCodeLensAction[] = [
-                    {
-                        id: 'accept',
-                        label: '$(check) Accept',
-                        tooltip: 'Overwrite original file with changes',
-                        handler: async () => {}
-                    },
-                    {
-                        id: 'partiallyAccept',
-                        label: '$(edit) Partially Accept',
-                        tooltip: 'Apply changes, edit manually, then continue',
-                        handler: async () => {}
-                    },
-                    {
-                        id: 'reject',
-                        label: '$(x) Reject',
-                        tooltip: 'Discard changes',
-                        handler: async () => {}
-                    }
-                ];
-
-                await globalDiffAgent.compareWithTemp(filePath, tempContent, actions);
-                vscode.window.showInformationMessage('Reopened diff editor for review.');
-            }
+            await globalDiffAgent.compareWithTemp(filePath, session.editUri.fsPath, actions);
+            vscode.window.showInformationMessage('Reopened diff editor for review.');
         } catch (e: any) {
             vscode.window.showErrorMessage(`Failed to reopen editor: ${e.message}`);
         }
@@ -238,9 +164,44 @@ function cleanupSession(filePath: string, resolveManagerSession: boolean = true)
             editFileSessionManager.resolveSession(session.id);
         }
 
-        // Clean up temp file
+        // Close the Diff Editor tab if it contains our temp file, then delete temp files
         if (session) {
-            vscode.workspace.fs.delete(session.tempUri).then(undefined, () => {});
+            closeDiffEditorForTempFile(session.editUri).then(() => {
+                // Delete both temp files after closing the tab
+                vscode.workspace.fs.delete(session.editUri).then(undefined, () => {});
+                vscode.workspace.fs.delete(session.backupUri).then(undefined, () => {});
+            }).catch(() => {
+                // If closing fails, still try to delete the temp files
+                vscode.workspace.fs.delete(session.editUri).then(undefined, () => {});
+                vscode.workspace.fs.delete(session.backupUri).then(undefined, () => {});
+            });
+        }
+    }
+}
+
+/**
+ * Find and close the Diff Editor tab that contains the specified temp file.
+ * This specifically looks for tabs in diff view mode (vscode-diff:// scheme) 
+ * where the modified side matches our temp file.
+ */
+async function closeDiffEditorForTempFile(tempUri: vscode.Uri): Promise<void> {
+    const tempUriString = tempUri.toString();
+    
+    for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) {
+            // Check if this is an input with a modified field (diff editor)
+            const input = tab.input as { 
+                modified?: vscode.Uri; 
+                original?: vscode.Uri;
+                kind?: string;
+            } | undefined;
+            
+            // Diff editor tabs have 'modified' property pointing to the right side
+            if (input?.modified && input.modified.toString() === tempUriString) {
+                // Close this specific tab
+                await vscode.window.tabGroups.close(tab);
+                return; // Found and closed, we're done
+            }
         }
     }
 }
@@ -248,7 +209,7 @@ function cleanupSession(filePath: string, resolveManagerSession: boolean = true)
 // --- Main Tool Logic ---
 
 export async function handleEdit(uriInput: string, newContent: string, context: ToolContext, toolName: string = 'edit_file'): Promise<string> {
-    if (!globalDiffAgent || !globalTempDir) {
+    if (!globalDiffAgent) {
         throw new Error("Edit support not activated. Please ensure the extension is correctly initialized.");
     }
 
@@ -274,17 +235,32 @@ export async function handleEdit(uriInput: string, newContent: string, context: 
     }
 
     return new Promise<string>(async (resolve, reject) => {
-        // Construct Temp URI
+        // Construct Temp URIs in the same directory as the original file
+        // This ensures relative path imports in the file are correctly resolved
         const ext = path.extname(filePath);
         const basename = path.basename(filePath, ext);
-        const tempPath = path.join(globalTempDir!, `${basename}.new${ext}`);
-        const tempUri = vscode.Uri.file(tempPath);
+        const originalDir = path.dirname(filePath);
+        
+        // Create TWO temp files:
+        // 1. Backup file (.temp-backup) - stores the original AI proposal
+        const backupPath = path.join(originalDir, `.${basename}.temp-backup${ext}`);
+        const backupUri = vscode.Uri.file(backupPath);
+        
+        // 2. Editable file (.temp-edit) - user edits this in diff editor
+        const editPath = path.join(originalDir, `.${basename}.temp-edit${ext}`);
+        const editUri = vscode.Uri.file(editPath);
+
+        // Write AI proposal to BOTH files initially
+        const encoder = new TextEncoder();
+        const newContentBytes = encoder.encode(newContent);
+        await vscode.workspace.fs.writeFile(backupUri, newContentBytes);
+        await vscode.workspace.fs.writeFile(editUri, newContentBytes);
 
         // Register session with the manager first to get an ID
         const sessionId = editFileSessionManager.addSession({
             filePath,
             originalUri: uri,
-            tempUri: tempUri,
+            tempUri: editUri,  // Keep this for backward compatibility
             toolName: toolName
         });
 
@@ -293,24 +269,19 @@ export async function handleEdit(uriInput: string, newContent: string, context: 
             resolve,
             reject,
             originalUri: uri,
-            tempUri: tempUri,
+            backupUri: backupUri,
+            editUri: editUri,
             toolName: toolName,
             signalTermination: context.signalTermination
         };
 
-        // Define Actions
+        // Define Actions (only Accept and Reject, no Partially Accept)
         const actions: DiffCodeLensAction[] = [
             {
                 id: 'accept',
                 label: '$(check) Accept',
                 tooltip: 'Overwrite original file with changes',
                 handler: async () => {} 
-            },
-            {
-                id: 'partiallyAccept',
-                label: '$(edit) Partially Accept',
-                tooltip: 'Apply changes, edit manually, then continue',
-                handler: async () => {}
             },
             {
                 id: 'reject',
@@ -336,12 +307,16 @@ export async function handleEdit(uriInput: string, newContent: string, context: 
             }
 
             // Launch Diff View via Agent
-            await globalDiffAgent!.compareWithTemp(filePath, newContent, actions);
+            // Show: Original file (left) vs Editable temp file (right)
+            await globalDiffAgent!.compareWithTemp(filePath, editUri.fsPath, actions);
             
         } catch (e) {
             // Mark session as resolved in case of error
             editFileSessionManager.resolveSession(sessionId);
             activeSessions.delete(filePath);
+            // Clean up temp files
+            vscode.workspace.fs.delete(backupUri).then(undefined, () => {});
+            vscode.workspace.fs.delete(editUri).then(undefined, () => {});
             reject(e);
         }
     });
