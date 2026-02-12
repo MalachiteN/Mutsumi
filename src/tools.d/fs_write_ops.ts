@@ -95,6 +95,6 @@ export const createNewFileTool: ITool = {
         }
     },
     prettyPrint: (args: any) => {
-        return `🆕 Mutsumi created file ${args.uri || '(unknown path)'}`;
+        return `✨ Mutsumi created file ${args.uri || '(unknown path)'}`;
     }
 };

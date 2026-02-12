@@ -145,11 +145,22 @@ export class AgentController {
                 return;
             }
 
-            execution.replaceOutput([
-                new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.error(err)
-                ])
-            ]);
+            // Network/API errors are handled in AgentRunner to preserve stream history
+            // Only show notification here as a fallback for unhandled errors
+            const errorMessage = err.message || String(err);
+            console.error('Agent execution error:', err);
+            
+            vscode.window.showErrorMessage(
+                `Mutsumi Error: ${errorMessage}`,
+                'Copy Details'
+            ).then(selection => {
+                if (selection === 'Copy Details') {
+                    vscode.env.clipboard.writeText(err.stack || errorMessage);
+                }
+            });
+
+            // Do NOT replace output - preserve any streamed content that was displayed
+            // The AgentRunner should have already appended an error indicator to the UI
             execution.end(false, Date.now());
         } finally {
             tokenDisposable.dispose();

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { TextDecoder, TextEncoder } from 'util';
 import { AgentContext, AgentMessage, AgentMetadata, MessageContent } from '../types';
 import { AgentOrchestrator } from '../agent/agentOrchestrator';
+import { ToolManager } from '../toolManager';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -85,7 +86,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                     cell.metadata.mutsumi_interaction = group;
 
                     // Render interaction group as Markdown for cell output
-                    const displayText = this.renderInteractionToMarkdown(group);
+                    const displayText = this.renderInteractionToMarkdown(group, !!raw.metadata.parent_agent_id);
                     const item = vscode.NotebookCellOutputItem.text(displayText, 'text/markdown');
                     cell.outputs = [new vscode.NotebookCellOutput([item])];
                 }
@@ -115,7 +116,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 }
 
                 // Render group as Markdown display
-                const displayText = this.renderInteractionToMarkdown(group);
+                const displayText = this.renderInteractionToMarkdown(group, !!raw.metadata.parent_agent_id);
 
                 const cell = new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
@@ -248,8 +249,10 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
      * @param {AgentMessage[]} group - Message group
      * @returns {string} String in Markdown format
      */
-    private renderInteractionToMarkdown(group: AgentMessage[]): string {
+    private renderInteractionToMarkdown(group: AgentMessage[], isSubAgent: boolean): string {
         let displayText = '';
+        const toolCallMap = new Map<string, { name: string; args: any }>();
+
         for (const m of group) {
             if (m.role === 'assistant') {
                 if (m.reasoning_content) {
@@ -260,15 +263,45 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 }
                 if (m.tool_calls) {
                     for (const tc of m.tool_calls) {
-                        displayText += `> 🔧 **Call**: \`${tc.function.name}\`\n\n`;
+                        let parsedArgs: any = {};
+                        if (tc.function?.arguments) {
+                            try {
+                                parsedArgs = JSON.parse(tc.function.arguments);
+                            } catch {
+                                parsedArgs = {};
+                            }
+                        }
+                        if (tc.id) {
+                            toolCallMap.set(tc.id, { name: tc.function.name, args: parsedArgs });
+                        }
                     }
                 }
             } else if (m.role === 'tool') {
                 const contentStr = this.serializeContentToString(m.content);
-                const truncated = contentStr.length > 200
-                    ? contentStr.substring(0, 200) + '...'
-                    : contentStr;
-                displayText += `<details><summary>📝 Result: ${m.name}</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n\n</details>\n\n`;
+                const mapped = m.tool_call_id ? toolCallMap.get(m.tool_call_id) : undefined;
+                const toolName = mapped?.name ?? m.name ?? 'unknown';
+                const args = mapped?.args ?? {};
+                const prettyPrintSummary = mapped
+                    ? ToolManager.getInstance().getPrettyPrint(toolName, args, isSubAgent)
+                    : `🔧 Tool Call: ${toolName}`;
+
+                displayText += `
+
+<details>
+<summary>${prettyPrintSummary}</summary>
+
+**Arguments:**
+\`\`\`json
+${JSON.stringify(args, null, 2)}
+\`\`\`
+
+**Result:**
+\`\`\`
+${contentStr}
+\`\`\`
+</details>
+
+`;
             }
         }
         return displayText;
