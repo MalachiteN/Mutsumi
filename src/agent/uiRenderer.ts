@@ -103,6 +103,7 @@ export class UIRenderer {
      * Formats tool output as HTML details element.
      * @description Creates a collapsible HTML details element containing the tool name,
      * arguments (as JSON), and result (truncated if over 500 characters).
+     * Uses 4-backtick fences to safely handle tool results that contain code blocks.
      * @param {string} toolName - Name of the tool
      * @param {any} toolArgs - Tool arguments
      * @param {string} toolResult - Tool execution result

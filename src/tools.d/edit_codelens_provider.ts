@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as Diff from 'diff';
 import { DiffCodeLensAction, DiffContext, DiffReviewConfig } from './edit_codelens_types';
 
 export class DiffReviewAgent {
@@ -21,47 +22,15 @@ export class DiffReviewAgent {
 
   async compareWithTemp(
     originalFilePath: string,
-    newContent: string,
+    tempEditPath: string,
     actions: DiffCodeLensAction[]
   ): Promise<void> {
-    // 1. Write new content to Temp directory
-    const ext = path.extname(originalFilePath);
-    const basename = path.basename(originalFilePath, ext);
-    const tempPath = path.join(this.config.tempDirectory, `${basename}.new${ext}`);
-    
-    const tempDir = vscode.Uri.file(this.config.tempDirectory);
-    const tempFileUri = vscode.Uri.file(tempPath);
+    // 1. Register CodeLens actions for the temp file (diff editor right side)
+    // Use temp file path as key so CodeLens only shows on the right side
+    this.codeLensProvider.registerActions(tempEditPath, actions, [], originalFilePath);
 
-    // Ensure Temp directory exists
-    try {
-      await vscode.workspace.fs.stat(tempDir);
-    } catch {
-      await vscode.workspace.fs.createDirectory(tempDir);
-    }
-
-    // Write file
-    const encoder = new TextEncoder();
-    const fileData = encoder.encode(newContent);
-    await vscode.workspace.fs.writeFile(tempFileUri, fileData);
-
-    // 2. Register CodeLens actions for the original file
-    this.codeLensProvider.registerActions(originalFilePath, actions);
-
-    // 3. Open Diff Editor
-    await this.openDiffEditor(originalFilePath, tempPath);
-  }
-
-  // --- Standard Edit Mode (New) ---
-
-  async switchToStandardEditMode(
-    filePath: string,
-    actions: DiffCodeLensAction[]
-  ): Promise<void> {
-    // 1. Update CodeLens actions
-    this.codeLensProvider.registerActions(filePath, actions);
-
-    // 2. Open Standard Editor
-    await this.openStandardEditor(filePath);
+    // 2. Open Diff Editor
+    await this.openDiffEditor(originalFilePath, tempEditPath);
   }
 
   private async openDiffEditor(originalPath: string, modifiedPath: string) {
@@ -79,14 +48,6 @@ export class DiffReviewAgent {
     this.ensureCodeLensEnabled();
   }
 
-  private async openStandardEditor(filePath: string) {
-    const uri = vscode.Uri.file(filePath);
-    const doc = await vscode.workspace.openTextDocument(uri);
-    await vscode.window.showTextDocument(doc, { preview: false });
-    
-    this.ensureCodeLensEnabled();
-  }
-
   private async ensureCodeLensEnabled() {
     const config = vscode.workspace.getConfiguration('diffEditor');
     if (!config.get('codeLens')) {
@@ -97,18 +58,30 @@ export class DiffReviewAgent {
 
 class CustomCodeLensProvider implements vscode.CodeLensProvider<any> {
   private actionMap = new Map<string, DiffCodeLensAction[]>();
+  private tempFileToOriginalMap = new Map<string, string>(); // Map temp file path to original file path
   private onChangeEmitter = new vscode.EventEmitter<void>();
   readonly onDidChange = this.onChangeEmitter.event;
 
   constructor(private config: DiffReviewConfig) {}
 
-  registerActions(filePath: string, actions: DiffCodeLensAction[]): void {
+  registerActions(filePath: string, actions: DiffCodeLensAction[], diffPositions?: number[], originalFilePath?: string): void {
     this.actionMap.set(filePath, actions);
+    // If original file path is provided, create mapping from temp file to original file
+    // (for looking up session later)
+    if (originalFilePath !== undefined) {
+      this.tempFileToOriginalMap.set(filePath, originalFilePath);
+    }
     this.onChangeEmitter.fire();
   }
 
   clearActions(filePath: string): void {
     this.actionMap.delete(filePath);
+    // Also clean up any temp file mappings pointing to this file
+    for (const [tempPath, origPath] of this.tempFileToOriginalMap.entries()) {
+      if (origPath === filePath) {
+        this.tempFileToOriginalMap.delete(tempPath);
+      }
+    }
     this.onChangeEmitter.fire();
   }
 
@@ -116,22 +89,40 @@ class CustomCodeLensProvider implements vscode.CodeLensProvider<any> {
     document: vscode.TextDocument,
     token: vscode.CancellationToken
   ): vscode.ProviderResult<any[]> {
-    const actions = this.actionMap.get(document.fileName) || [];
+    // Check if this is the original file that has a corresponding temp file
+    // (i.e., it's the left side of a diff editor - don't show CodeLens there)
+    const isOriginalWithTempFile = Array.from(this.tempFileToOriginalMap.values()).includes(document.fileName);
+    if (isOriginalWithTempFile) {
+      return [];
+    }
+
+    // Look up actions by document.fileName
+    let actions = this.actionMap.get(document.fileName);
+    
+    if (!actions) {
+      return [];
+    }
+
+    // Determine the original file path for command arguments
+    // If this is a temp file, use the mapped original path; otherwise use document's path
+    const originalFilePath = this.tempFileToOriginalMap.get(document.fileName) || document.fileName;
     const codeLenses: vscode.CodeLens[] = [];
 
-    // Create a CodeLens for each registered action
-    actions.forEach((action, index) => {
-      // Place at the top of the file
-      const range = new vscode.Range(0, 0, 0, 0); 
+    if (actions.length === 0) {
+      return codeLenses;
+    }
+
+    // Place CodeLens at the top of the file
+    const range = new vscode.Range(0, 0, 0, 0);
+    actions.forEach((action) => {
       const codeLens = new vscode.CodeLens(range);
-      
       codeLens.command = {
         title: action.label,
         command: `diffReview.action.${action.id}`,
         tooltip: action.tooltip,
-        arguments: [document.fileName, action]
+        // Use originalFilePath for session lookup
+        arguments: [originalFilePath, action]
       };
-
       codeLenses.push(codeLens);
     });
 
