@@ -14,52 +14,7 @@ export const IMG_REGEX = /!\[([^\]]*)\]\(([^)]+)\)/g;
 /**
  * Get language identifier for Markdown code block based on file extension
  */
-export function getLanguageIdentifier(ext: string): string {
-    const langMap: Record<string, string> = {
-        'ts': 'typescript',
-        'tsx': 'tsx',
-        'js': 'javascript',
-        'jsx': 'jsx',
-        'py': 'python',
-        'rb': 'ruby',
-        'go': 'go',
-        'rs': 'rust',
-        'java': 'java',
-        'kt': 'kotlin',
-        'swift': 'swift',
-        'c': 'c',
-        'cpp': 'cpp',
-        'cc': 'cpp',
-        'h': 'c',
-        'hpp': 'cpp',
-        'cs': 'csharp',
-        'php': 'php',
-        'html': 'html',
-        'htm': 'html',
-        'css': 'css',
-        'scss': 'scss',
-        'sass': 'sass',
-        'less': 'less',
-        'json': 'json',
-        'xml': 'xml',
-        'yaml': 'yaml',
-        'yml': 'yaml',
-        'toml': 'toml',
-        'md': 'markdown',
-        'sh': 'bash',
-        'bash': 'bash',
-        'zsh': 'zsh',
-        'fish': 'fish',
-        'ps1': 'powershell',
-        'sql': 'sql',
-        'dockerfile': 'dockerfile',
-        'makefile': 'makefile',
-        'vue': 'vue',
-        'svelte': 'svelte',
-        'astro': 'astro'
-    };
-    return langMap[ext.toLowerCase()] || '';
-}
+export { getLanguageIdentifier } from '../utils';
 
 /**
  * Read image file as base64 data URL

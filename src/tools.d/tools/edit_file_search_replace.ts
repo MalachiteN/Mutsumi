@@ -121,5 +121,7 @@ export const editFileSearchReplaceTool: ITool = {
     },
     prettyPrint: (args: any) => {
         return `✏️ Mutsumi edited ${args.uri || '(unknown file)'} (search/replace)`;
-    }
+    },
+    argsToCodeBlock: ['search_replace'],
+    codeBlockFilePaths: ['uri']
 };

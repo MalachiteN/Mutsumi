@@ -69,5 +69,7 @@ export const shellExecTool: ITool = {
     prettyPrint: (args: any) => {
         const cmdPreview = args.cmd ? (args.cmd.length > 40 ? args.cmd.substring(0, 40) + '...' : args.cmd) : '(unknown command)';
         return `⚡ Mutsumi executed "${cmdPreview}" in ${args.uri || '(unknown directory)'}`;
-    }
+    },
+    argsToCodeBlock: ['cmd'],
+    codeBlockFilePaths: [ 'dummy.sh' ]
 };

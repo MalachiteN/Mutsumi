@@ -1,14 +1,19 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as Diff from 'diff'; // Assuming 'diff' package is available
+import * as Diff from 'diff';
 import { v4 as uuidv4 } from 'uuid';
 import { ToolContext, TerminationError } from './interface';
 import { resolveUri, checkAccess } from './utils';
 import { DiffReviewAgent } from './edit_codelens_provider';
 import { DiffCodeLensAction } from './edit_codelens_types';
 
-// --- Edit File Session Types and Manager (migrated from permission.ts) ---
+// ============================================================================
+// Types and Interfaces
+// ============================================================================
 
+/**
+ * Public session interface for sidebar display
+ */
 export interface EditFileSession {
     id: string;
     filePath: string;
@@ -18,6 +23,166 @@ export interface EditFileSession {
     timestamp: Date;
     status: 'pending' | 'partially_accepted' | 'resolved';
 }
+
+/**
+ * Internal transaction state
+ */
+interface EditTransactionState {
+    id: string;
+    resolve: (value: string) => void;
+    reject: (reason: any) => void;
+    originalUri: vscode.Uri;
+    backupUri: vscode.Uri;
+    editUri: vscode.Uri;
+    toolName: string;
+    signalTermination?: () => void;
+}
+
+// ============================================================================
+// TempFileHandler - Manages temporary file operations
+// ============================================================================
+
+class TempFileHandler {
+    private readonly backupUri: vscode.Uri;
+    private readonly editUri: vscode.Uri;
+
+    constructor(originalUri: vscode.Uri) {
+        const filePath = originalUri.fsPath;
+        const ext = path.extname(filePath);
+        const basename = path.basename(filePath, ext);
+        const originalDir = path.dirname(filePath);
+
+        const backupPath = path.join(originalDir, `.${basename}.temp-backup${ext}`);
+        const editPath = path.join(originalDir, `.${basename}.temp-edit${ext}`);
+
+        this.backupUri = vscode.Uri.file(backupPath);
+        this.editUri = vscode.Uri.file(editPath);
+    }
+
+    getBackupUri(): vscode.Uri {
+        return this.backupUri;
+    }
+
+    getEditUri(): vscode.Uri {
+        return this.editUri;
+    }
+
+    /**
+     * Initialize temp files with the same content
+     */
+    async initialize(content: string): Promise<void> {
+        const encoder = new TextEncoder();
+        const contentBytes = encoder.encode(content);
+        await vscode.workspace.fs.writeFile(this.backupUri, contentBytes);
+        await vscode.workspace.fs.writeFile(this.editUri, contentBytes);
+    }
+
+    /**
+     * Read user-edited content from the editable temp file
+     */
+    async readUserContent(): Promise<string> {
+        const bytes = await vscode.workspace.fs.readFile(this.editUri);
+        return new TextDecoder().decode(bytes);
+    }
+
+    /**
+     * Read backup content (original AI proposal)
+     */
+    async readBackupContent(): Promise<string> {
+        const bytes = await vscode.workspace.fs.readFile(this.backupUri);
+        return new TextDecoder().decode(bytes);
+    }
+
+    /**
+     * Overwrite the original file with user content
+     */
+    async overwriteOriginal(originalUri: vscode.Uri, userContentBytes: Uint8Array): Promise<void> {
+        await vscode.workspace.fs.writeFile(originalUri, userContentBytes);
+    }
+
+    /**
+     * Clean up temp files silently (ignore errors)
+     */
+    async cleanup(): Promise<void> {
+        await this.deleteSilently(this.editUri);
+        await this.deleteSilently(this.backupUri);
+    }
+
+    private async deleteSilently(uri: vscode.Uri): Promise<void> {
+        try {
+            await vscode.workspace.fs.delete(uri);
+        } catch {
+            // Silently ignore deletion errors
+        }
+    }
+}
+
+// ============================================================================
+// DiffEditorController - Manages diff editor UI operations
+// ============================================================================
+
+class DiffEditorController {
+    private diffAgent: DiffReviewAgent | undefined;
+
+    initialize(context: vscode.ExtensionContext): void {
+        const diffReviewConfig = {
+            actions: [],
+            autoOpen: true
+        };
+
+        this.diffAgent = new DiffReviewAgent(diffReviewConfig);
+        this.diffAgent.register(context);
+    }
+
+    getDiffAgent(): DiffReviewAgent | undefined {
+        return this.diffAgent;
+    }
+
+    /**
+     * Open diff editor between original and temp file
+     */
+    async openDiff(originalFilePath: string, editUri: vscode.Uri, actions: DiffCodeLensAction[]): Promise<void> {
+        if (!this.diffAgent) {
+            throw new Error("DiffReviewAgent not initialized");
+        }
+        await this.diffAgent.compareWithTemp(originalFilePath, editUri.fsPath, actions);
+    }
+
+    /**
+     * Clear CodeLens for a file
+     */
+    clearCodeLens(filePath: string): void {
+        if (this.diffAgent) {
+            this.diffAgent.codeLensProvider.clearActions(filePath);
+        }
+    }
+
+    /**
+     * Close the diff editor tab containing the temp file
+     */
+    async closeDiffEditor(tempUri: vscode.Uri): Promise<void> {
+        const tempUriString = tempUri.toString();
+
+        for (const group of vscode.window.tabGroups.all) {
+            for (const tab of group.tabs) {
+                const input = tab.input as {
+                    modified?: vscode.Uri;
+                    original?: vscode.Uri;
+                    kind?: string;
+                } | undefined;
+
+                if (input?.modified && input.modified.toString() === tempUriString) {
+                    await vscode.window.tabGroups.close(tab);
+                    return;
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// EditFileSessionManager - Sidebar UI state management (Legacy, kept for compatibility)
+// ============================================================================
 
 class EditFileSessionManager {
     private static instance: EditFileSessionManager;
@@ -34,17 +199,17 @@ class EditFileSessionManager {
         return EditFileSessionManager.instance;
     }
 
-    public addSession(session: Omit<EditFileSession, 'id' | 'timestamp' | 'status'>): string {
-        const id = uuidv4();
+    public addSession(session: Omit<EditFileSession, 'id' | 'timestamp' | 'status'>, id?: string): string {
+        const sessionId = id || uuidv4();
         const fullSession: EditFileSession = {
             ...session,
-            id,
+            id: sessionId,
             timestamp: new Date(),
             status: 'pending'
         };
-        this.sessions.set(id, fullSession);
+        this.sessions.set(sessionId, fullSession);
         this._onDidChangeSessions.fire();
-        return id;
+        return sessionId;
     }
 
     public markPartiallyAccepted(id: string): void {
@@ -89,331 +254,440 @@ class EditFileSessionManager {
 
 export const editFileSessionManager = EditFileSessionManager.getInstance();
 
-// --- State Management ---
+// ============================================================================
+// EditTransaction - Represents a single edit transaction with its lifecycle
+// ============================================================================
 
-interface EditSession {
-    id: string;
-    resolve: (value: string) => void;
-    reject: (reason: any) => void;
-    originalUri: vscode.Uri;
-    backupUri: vscode.Uri;  // Backup of original content (.temp-backup)
-    editUri: vscode.Uri;     // User-editable temp file (.temp-edit)
-    toolName: string;
-    signalTermination?: () => void;
-}
+class EditTransaction {
+    private readonly state: EditTransactionState;
+    private readonly tempFileHandler: TempFileHandler;
+    private readonly filePath: string;
+    private resolved = false;
 
-// Map<OriginalFilePath, Session>
-const activeSessions = new Map<string, EditSession>();
-let globalDiffAgent: DiffReviewAgent | undefined;
+    constructor(
+        filePath: string,
+        originalUri: vscode.Uri,
+        toolName: string,
+        resolve: (value: string) => void,
+        reject: (reason: any) => void,
+        signalTermination?: () => void
+    ) {
+        this.filePath = filePath;
+        this.tempFileHandler = new TempFileHandler(originalUri);
 
-// --- Extension Activation ---
+        this.state = {
+            id: uuidv4(),
+            resolve,
+            reject,
+            originalUri,
+            backupUri: this.tempFileHandler.getBackupUri(),
+            editUri: this.tempFileHandler.getEditUri(),
+            toolName,
+            signalTermination
+        };
+    }
 
-export function activateEditSupport(context: vscode.ExtensionContext) {
-    // 1. Initialize DiffReviewAgent
-    const diffReviewConfig = {
-        actions: [],
-        autoOpen: true
-    };
-    
-    globalDiffAgent = new DiffReviewAgent(diffReviewConfig);
-    globalDiffAgent.register(context);
+    getId(): string {
+        return this.state.id;
+    }
 
-    // 2. Register Commands
+    getFilePath(): string {
+        return this.filePath;
+    }
 
-    // Command: Accept
-    context.subscriptions.push(vscode.commands.registerCommand('diffReview.action.accept', async (filePath: string, _action: DiffCodeLensAction) => {
-        const session = activeSessions.get(filePath);
-        if (session) {
-            try {
-                // 1. Read User's Final Version (from the editable temp file)
-                const userContentBytes = await vscode.workspace.fs.readFile(session.editUri);
-                const userContent = new TextDecoder().decode(userContentBytes);
+    getEditUri(): vscode.Uri {
+        return this.state.editUri;
+    }
 
-                // 2. Read Backup (original AI proposal)
-                const backupContentBytes = await vscode.workspace.fs.readFile(session.backupUri);
-                const backupContent = new TextDecoder().decode(backupContentBytes);
+    /**
+     * Initialize temp files and register with session manager
+     */
+    async initialize(newContent: string): Promise<void> {
+        await this.tempFileHandler.initialize(newContent);
 
-                // 3. Overwrite Original file with user's edited version
-                await vscode.workspace.fs.writeFile(session.originalUri, userContentBytes);
+        // Register with sidebar manager, using the transaction's id
+        editFileSessionManager.addSession({
+            filePath: this.filePath,
+            originalUri: this.state.originalUri,
+            tempUri: this.state.editUri,
+            toolName: this.state.toolName
+        }, this.state.id);
+    }
 
-                // 4. Generate Diff (User edits vs AI Proposal)
-                const fileName = path.basename(filePath);
-                const patch = Diff.createTwoFilesPatch(
-                    `AI_Proposal/${fileName}`,
-                    `User_Edited/${fileName}`,
-                    backupContent,
-                    userContent,
-                    'AI Original',
-                    'User Final'
-                );
-
-                // 5. Construct Feedback Message
-                let feedbackMsg: string;
-                if (patch.includes('@@')) {
-                    feedbackMsg = [
-                        "User accepted the changes with manual edits.",
-                        "Below is the diff showing what the User changed ON TOP OF your generation:",
-                        "",
-                        patch,
-                        "",
-                        "Please analyze these manual edits to understand the User's intent."
-                    ].join('\n');
-                } else {
-                    feedbackMsg = "User accepted the changes (no manual modifications made).";
-                }
-
-                // 6. Cleanup and Resolve
-                cleanupSession(filePath, true);
-                session.resolve(feedbackMsg);
-
-                vscode.window.showInformationMessage('Changes applied successfully.');
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to apply edits: ${e.message}`);
-            }
-        }
-    }));
-
-    // Command: Reject
-    context.subscriptions.push(vscode.commands.registerCommand('diffReview.action.reject', async (filePath: string, _action: DiffCodeLensAction) => {
-        const session = activeSessions.get(filePath);
-        if (session) {
-            const toolName = session.toolName;
-            
-            // Show input box for rejection reason
-            const reason = await vscode.window.showInputBox({
-                placeHolder: 'Enter rejection reason (optional, press ESC to reject without reason)',
-                prompt: 'Why are you rejecting these changes?'
-            });
-            
-            if (reason === undefined || reason.trim() === '') {
-                // User cancelled or entered empty reason - terminate the session
-                session.signalTermination?.();
-                cleanupSession(filePath, true);
-                session.resolve(`[Rejected] The ${toolName} operation was rejected by user.`);
-                vscode.window.showInformationMessage('Changes rejected.');
-            } else {
-                // User provided a reason - allow AI to continue with the feedback
-                cleanupSession(filePath, true);
-                session.resolve(`[Rejected with Reason] The ${toolName} operation was rejected by user. Reason: ${reason}`);
-                vscode.window.showInformationMessage('Changes rejected with reason. Agent will continue generating.');
-            }
-        }
-    }));
-
-    // Command: Reopen Diff Editor from sidebar
-    context.subscriptions.push(vscode.commands.registerCommand('mutsumi.reopenEditDiff', async (sessionId: string) => {
-        // Find active session by sessionId
-        let session: EditSession | undefined;
-        let filePath: string | undefined;
-
-        for (const [fp, s] of activeSessions.entries()) {
-            if (s.id === sessionId) {
-                session = s;
-                filePath = fp;
-                break;
-            }
-        }
-
-        if (!session || !globalDiffAgent || !filePath) {
-            vscode.window.showWarningMessage('Edit session not found or has already been resolved.');
-            return;
+    /**
+     * Handle accept action - apply user edits to original file
+     */
+    async accept(): Promise<string> {
+        if (this.resolved) {
+            return "Transaction already resolved";
         }
 
         try {
-            // Reopen diff view between backup (left) and editable temp file (right)
-            const actions: DiffCodeLensAction[] = [
-                {
-                    id: 'accept',
-                    label: '$(check) Accept',
-                    tooltip: 'Overwrite original file with changes',
-                    handler: async () => {}
-                },
-                {
-                    id: 'reject',
-                    label: '$(x) Reject',
-                    tooltip: 'Discard changes',
-                    handler: async () => {}
-                }
-            ];
+            const userContent = await this.tempFileHandler.readUserContent();
+            const backupContent = await this.tempFileHandler.readBackupContent();
+            const encoder = new TextEncoder();
+            const userContentBytes = encoder.encode(userContent);
 
-            await globalDiffAgent.compareWithTemp(filePath, session.editUri.fsPath, actions);
-            vscode.window.showInformationMessage('Reopened diff editor for review.');
-        } catch (e: any) {
-            vscode.window.showErrorMessage(`Failed to reopen editor: ${e.message}`);
-        }
-    }));
-}
+            // Overwrite original file
+            await this.tempFileHandler.overwriteOriginal(this.state.originalUri, userContentBytes);
 
-// --- Helper Functions ---
+            // Generate diff
+            const fileName = path.basename(this.filePath);
+            const patch = Diff.createTwoFilesPatch(
+                `AI_Proposal/${fileName}`,
+                `User_Edited/${fileName}`,
+                backupContent,
+                userContent,
+                'AI Original',
+                'User Final'
+            );
 
-function cleanupSession(filePath: string, resolveManagerSession: boolean = true) {
-    if (activeSessions.has(filePath) && globalDiffAgent) {
-        // Clear CodeLens
-        globalDiffAgent.codeLensProvider.clearActions(filePath);
-
-        // Remove session
-        const session = activeSessions.get(filePath);
-        activeSessions.delete(filePath);
-
-        // Mark session as resolved in the manager
-        if (session && resolveManagerSession) {
-            editFileSessionManager.resolveSession(session.id);
-        }
-
-        // Close the Diff Editor tab if it contains our temp file, then delete temp files
-        if (session) {
-            closeDiffEditorForTempFile(session.editUri).then(() => {
-                // Delete both temp files after closing the tab
-                vscode.workspace.fs.delete(session.editUri).then(undefined, () => {});
-                vscode.workspace.fs.delete(session.backupUri).then(undefined, () => {});
-            }).catch(() => {
-                // If closing fails, still try to delete the temp files
-                vscode.workspace.fs.delete(session.editUri).then(undefined, () => {});
-                vscode.workspace.fs.delete(session.backupUri).then(undefined, () => {});
-            });
-        }
-    }
-}
-
-/**
- * Find and close the Diff Editor tab that contains the specified temp file.
- * This specifically looks for tabs in diff view mode (vscode-diff:// scheme) 
- * where the modified side matches our temp file.
- */
-async function closeDiffEditorForTempFile(tempUri: vscode.Uri): Promise<void> {
-    const tempUriString = tempUri.toString();
-    
-    for (const group of vscode.window.tabGroups.all) {
-        for (const tab of group.tabs) {
-            // Check if this is an input with a modified field (diff editor)
-            const input = tab.input as { 
-                modified?: vscode.Uri; 
-                original?: vscode.Uri;
-                kind?: string;
-            } | undefined;
-            
-            // Diff editor tabs have 'modified' property pointing to the right side
-            if (input?.modified && input.modified.toString() === tempUriString) {
-                // Close this specific tab
-                await vscode.window.tabGroups.close(tab);
-                return; // Found and closed, we're done
+            // Construct feedback
+            let feedbackMsg: string;
+            if (patch.includes('@@')) {
+                feedbackMsg = [
+                    "User accepted the changes with manual edits.",
+                    "Below is the diff showing what the User changed ON TOP OF your generation:",
+                    "",
+                    patch,
+                    "",
+                    "Please analyze these manual edits to understand the User's intent."
+                ].join('\n');
+            } else {
+                feedbackMsg = "User accepted the changes (no manual modifications made).";
             }
+
+            return feedbackMsg;
+        } catch (e: any) {
+            throw new Error(`Failed to apply edits: ${e.message}`);
         }
     }
-}
 
-// --- Main Tool Logic ---
-
-export async function handleEdit(uriInput: string, newContent: string, context: ToolContext, toolName: string = 'edit_file'): Promise<string> {
-    if (!globalDiffAgent) {
-        throw new Error("Edit support not activated. Please ensure the extension is correctly initialized.");
-    }
-
-    const uri = resolveUri(uriInput);
-    if (!checkAccess(uri, context.allowedUris)) {
-        throw new Error(`Access Denied: Agent is not allowed to edit ${uri.toString()}`);
-    }
-
-    if (!context.notebook || !context.execution) {
-        return "Error: Tool requires notebook context (interactive mode).";
-    }
-
-    const filePath = uri.fsPath;
-
-    // Cancel existing session for this file if any
-    if (activeSessions.has(filePath)) {
-        const oldSession = activeSessions.get(filePath);
-        if (oldSession) {
-            editFileSessionManager.resolveSession(oldSession.id);
-            oldSession.reject(new Error("New edit session started for this file, overriding previous request."));
+    /**
+     * Handle reject action - discard changes
+     */
+    async handleReject(reason?: string): Promise<string> {
+        if (this.resolved) {
+            return "Transaction already resolved";
         }
-        cleanupSession(filePath, false); // Don't resolve again, we already did it above
+
+        if (reason === undefined || reason.trim() === '') {
+            // Throw TerminationError to stop the session, but mark as NOT a completed task
+            // This distinguishes edit rejection from task_finish
+            throw new TerminationError(
+                `[Rejected] The ${this.state.toolName} operation was rejected by user.`,
+                'edit_reject',
+                false  // isTaskComplete = false - this is NOT a successful task completion
+            );
+        } else {
+            return `[Rejected with Reason] The ${this.state.toolName} operation was rejected by user. Reason: ${reason}`;
+        }
     }
 
-    return new Promise<string>(async (resolve, reject) => {
-        // Construct Temp URIs in the same directory as the original file
-        // This ensures relative path imports in the file are correctly resolved
-        const ext = path.extname(filePath);
-        const basename = path.basename(filePath, ext);
-        const originalDir = path.dirname(filePath);
-        
-        // Create TWO temp files:
-        // 1. Backup file (.temp-backup) - stores the original AI proposal
-        const backupPath = path.join(originalDir, `.${basename}.temp-backup${ext}`);
-        const backupUri = vscode.Uri.file(backupPath);
-        
-        // 2. Editable file (.temp-edit) - user edits this in diff editor
-        const editPath = path.join(originalDir, `.${basename}.temp-edit${ext}`);
-        const editUri = vscode.Uri.file(editPath);
+    /**
+     * Handle cancellation
+     */
+    cancel(): string {
+        if (this.resolved) {
+            return "Transaction already resolved";
+        }
+        return `[Tool Call Cancelled] The ${this.state.toolName} operation was cancelled by user or system.`;
+    }
 
-        // Write AI proposal to BOTH files initially
-        const encoder = new TextEncoder();
-        const newContentBytes = encoder.encode(newContent);
-        await vscode.workspace.fs.writeFile(backupUri, newContentBytes);
-        await vscode.workspace.fs.writeFile(editUri, newContentBytes);
+    /**
+     * Clean up resources and mark as resolved
+     */
+    async cleanup(diffController: DiffEditorController, resolveManagerSession: boolean = true): Promise<void> {
+        if (this.resolved) {
+            return;
+        }
+        this.resolved = true;
 
-        // Register session with the manager first to get an ID
-        const sessionId = editFileSessionManager.addSession({
-            filePath,
-            originalUri: uri,
-            tempUri: editUri,  // Keep this for backward compatibility
-            toolName: toolName
-        });
+        // Clear CodeLens
+        diffController.clearCodeLens(this.filePath);
 
-        const session: EditSession = {
-            id: sessionId,
-            resolve,
-            reject,
-            originalUri: uri,
-            backupUri: backupUri,
-            editUri: editUri,
-            toolName: toolName,
-            signalTermination: context.signalTermination
-        };
+        // Mark session as resolved in sidebar
+        if (resolveManagerSession) {
+            editFileSessionManager.resolveSession(this.state.id);
+        }
 
-        // Define Actions (only Accept and Reject, no Partially Accept)
-        const actions: DiffCodeLensAction[] = [
+        // Close diff editor and clean up temp files
+        try {
+            await diffController.closeDiffEditor(this.state.editUri);
+        } catch {
+            // Ignore close errors
+        }
+
+        await this.tempFileHandler.cleanup();
+    }
+
+    /**
+     * Get actions for CodeLens
+     */
+    getActions(): DiffCodeLensAction[] {
+        return [
             {
                 id: 'accept',
                 label: '$(check) Accept',
                 tooltip: 'Overwrite original file with changes',
-                handler: async () => {} 
+                handler: async () => {}
             },
             {
                 id: 'reject',
                 label: '$(x) Reject',
                 tooltip: 'Discard changes',
-                handler: async () => {} 
+                handler: async () => {}
             }
         ];
+    }
 
-        try {
-            // Register session
-            activeSessions.set(filePath, session);
-
-            // Handle cancellation
-            if (context.abortSignal) {
-                context.abortSignal.addEventListener('abort', () => {
-                    if (activeSessions.has(filePath)) {
-                        cleanupSession(filePath, true);
-                        // Resolve with a cancellation message so the conversation can continue
-                        resolve(`[Tool Call Cancelled] The ${toolName} operation was cancelled by user or system.`);
-                    }
-                });
-            }
-
-            // Launch Diff View via Agent
-            // Show: Original file (left) vs Editable temp file (right)
-            await globalDiffAgent!.compareWithTemp(filePath, editUri.fsPath, actions);
-            
-        } catch (e) {
-            // Mark session as resolved in case of error
-            editFileSessionManager.resolveSession(sessionId);
-            activeSessions.delete(filePath);
-            // Clean up temp files
-            vscode.workspace.fs.delete(backupUri).then(undefined, () => {});
-            vscode.workspace.fs.delete(editUri).then(undefined, () => {});
-            reject(e);
+    /**
+     * Resolve the promise with a value
+     */
+    resolve(value: string): void {
+        if (!this.resolved) {
+            this.state.resolve(value);
         }
-    });
+    }
+
+    /**
+     * Reject the promise with a reason
+     */
+    reject(reason: any): void {
+        if (!this.resolved) {
+            this.state.reject(reason);
+        }
+    }
+
+    /**
+     * Check if transaction is resolved
+     */
+    isResolved(): boolean {
+        return this.resolved;
+    }
+}
+
+// ============================================================================
+// EditService - Core service managing all edit transactions
+// ============================================================================
+
+class EditService {
+    private static instance: EditService;
+    private transactions = new Map<string, EditTransaction>(); // Map<filePath, EditTransaction>
+    private diffController = new DiffEditorController();
+    private initialized = false;
+
+    private constructor() {}
+
+    public static getInstance(): EditService {
+        if (!EditService.instance) {
+            EditService.instance = new EditService();
+        }
+        return EditService.instance;
+    }
+
+    /**
+     * Initialize the service and register commands
+     */
+    initialize(context: vscode.ExtensionContext): void {
+        if (this.initialized) {
+            return;
+        }
+        this.initialized = true;
+
+        this.diffController.initialize(context);
+        this.registerCommands(context);
+    }
+
+    private registerCommands(context: vscode.ExtensionContext): void {
+        // Command: Accept
+        context.subscriptions.push(
+            vscode.commands.registerCommand('diffReview.action.accept', async (filePath: string, _action: DiffCodeLensAction) => {
+                const transaction = this.transactions.get(filePath);
+                if (!transaction) {
+                    return;
+                }
+
+                try {
+                    const feedbackMsg = await transaction.accept();
+                    // Resolve first, then cleanup (cleanup sets resolved flag which would block resolve)
+                    transaction.resolve(feedbackMsg);
+                    await transaction.cleanup(this.diffController, true);
+                    this.transactions.delete(filePath);
+                    vscode.window.showInformationMessage('Changes applied successfully.');
+                } catch (e: any) {
+                    vscode.window.showErrorMessage(e.message);
+                }
+            })
+        );
+
+        // Command: Reject
+        context.subscriptions.push(
+            vscode.commands.registerCommand('diffReview.action.reject', async (filePath: string, _action: DiffCodeLensAction) => {
+                const transaction = this.transactions.get(filePath);
+                if (!transaction) {
+                    return;
+                }
+
+                const reason = await vscode.window.showInputBox({
+                    placeHolder: 'Enter rejection reason (optional, press ESC to reject without reason)',
+                    prompt: 'Why are you rejecting these changes?'
+                });
+
+                const feedbackMsg = await transaction.handleReject(reason);
+                // Resolve first, then cleanup (cleanup sets resolved flag which would block resolve)
+                transaction.resolve(feedbackMsg);
+                await transaction.cleanup(this.diffController, true);
+                this.transactions.delete(filePath);
+
+                if (reason === undefined || reason.trim() === '') {
+                    vscode.window.showInformationMessage('Changes rejected.');
+                } else {
+                    vscode.window.showInformationMessage('Changes rejected with reason. Agent will continue generating.');
+                }
+            })
+        );
+
+        // Command: Reopen Diff Editor from sidebar
+        context.subscriptions.push(
+            vscode.commands.registerCommand('mutsumi.reopenEditDiff', async (sessionId: string) => {
+                let transaction: EditTransaction | undefined;
+                let filePath: string | undefined;
+
+                for (const [fp, tx] of this.transactions.entries()) {
+                    if (tx.getId() === sessionId) {
+                        transaction = tx;
+                        filePath = fp;
+                        break;
+                    }
+                }
+
+                if (!transaction || !filePath) {
+                    vscode.window.showWarningMessage('Edit session not found or has already been resolved.');
+                    return;
+                }
+
+                try {
+                    await this.diffController.openDiff(filePath, transaction.getEditUri(), transaction.getActions());
+                    vscode.window.showInformationMessage('Reopened diff editor for review.');
+                } catch (e: any) {
+                    vscode.window.showErrorMessage(`Failed to reopen editor: ${e.message}`);
+                }
+            })
+        );
+    }
+
+    /**
+     * Request a new edit operation
+     */
+    async requestEdit(
+        uriInput: string,
+        newContent: string,
+        context: ToolContext,
+        toolName: string = 'edit_file'
+    ): Promise<string> {
+        if (!this.diffController.getDiffAgent()) {
+            throw new Error("Edit support not activated. Please ensure the extension is correctly initialized.");
+        }
+
+        const uri = resolveUri(uriInput);
+        if (!checkAccess(uri, context.allowedUris)) {
+            throw new Error(`Access Denied: Agent is not allowed to edit ${uri.toString()}`);
+        }
+
+        if (!context.notebook || !context.execution) {
+            return "Error: Tool requires notebook context (interactive mode).";
+        }
+
+        const filePath = uri.fsPath;
+
+        // Cancel existing session for this file if any
+        await this.cancelExistingTransaction(filePath);
+
+        return new Promise<string>(async (resolve, reject) => {
+            const transaction = new EditTransaction(
+                filePath,
+                uri,
+                toolName,
+                resolve,
+                reject,
+                context.signalTermination
+            );
+
+            try {
+                // Initialize temp files
+                await transaction.initialize(newContent);
+
+                // Register transaction
+                this.transactions.set(filePath, transaction);
+
+                // Handle cancellation
+                if (context.abortSignal) {
+                    context.abortSignal.addEventListener('abort', () => {
+                        this.handleCancellation(filePath);
+                    });
+                }
+
+                // Open diff editor
+                await this.diffController.openDiff(filePath, transaction.getEditUri(), transaction.getActions());
+
+            } catch (e) {
+                // Cleanup on error
+                editFileSessionManager.resolveSession(transaction.getId());
+                this.transactions.delete(filePath);
+                await transaction.cleanup(this.diffController, false);
+                reject(e);
+            }
+        });
+    }
+
+    /**
+     * Cancel existing transaction for a file
+     */
+    private async cancelExistingTransaction(filePath: string): Promise<void> {
+        const existingTx = this.transactions.get(filePath);
+        if (existingTx) {
+            editFileSessionManager.resolveSession(existingTx.getId());
+            existingTx.reject(new Error("New edit session started for this file, overriding previous request."));
+            await existingTx.cleanup(this.diffController, false);
+            this.transactions.delete(filePath);
+        }
+    }
+
+    /**
+     * Handle transaction cancellation
+     */
+    private async handleCancellation(filePath: string): Promise<void> {
+        const transaction = this.transactions.get(filePath);
+        if (transaction && !transaction.isResolved()) {
+            const msg = transaction.cancel();
+            // Resolve first, then cleanup (cleanup sets resolved flag which would block resolve)
+            transaction.resolve(msg);
+            await transaction.cleanup(this.diffController, true);
+            this.transactions.delete(filePath);
+        }
+    }
+}
+
+// ============================================================================
+// Legacy Exports - Compatibility Adapters
+// ============================================================================
+
+/**
+ * @deprecated Use EditService.initialize() instead. Kept for backward compatibility.
+ */
+export function activateEditSupport(context: vscode.ExtensionContext): void {
+    EditService.getInstance().initialize(context);
+}
+
+/**
+ * Main entry point for edit_file tool - delegates to EditService
+ */
+export async function handleEdit(
+    uriInput: string,
+    newContent: string,
+    context: ToolContext,
+    toolName: string = 'edit_file'
+): Promise<string> {
+    return EditService.getInstance().requestEdit(uriInput, newContent, context, toolName);
 }

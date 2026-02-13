@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { wrapInThemedContainer } from '../utils';
+import { wrapInThemedContainer, getLanguageIdentifier } from '../utils';
 
 /**
  * Handles UI rendering and output management for agent execution.
@@ -111,48 +111,103 @@ export class UIRenderer {
     /**
      * Formats a tool call (streaming or finished) as an HTML details element.
      * @description Creates a collapsible HTML details element containing the tool name,
-     * arguments (as JSON), and optionally the result (truncated if over 500 characters).
+     * arguments (as Markdown list or code blocks), and optionally the result (truncated if over 500 characters).
      * @param {any} toolArgs - Tool arguments (complete or partial)
      * @param {string} prettyPrintSummary - Human-readable summary
      * @param {boolean} isStreaming - Whether this is a pending/streaming tool call
      * @param {string} [toolResult] - Optional execution result (for finished calls)
+     * @param {Object} [renderingConfig] - Optional configuration for rendering code blocks
      * @returns {string} Formatted HTML string
      */
     formatToolCall(
         toolArgs: any, 
         prettyPrintSummary: string, 
         isStreaming: boolean, 
-        toolResult?: string
+        toolResult?: string,
+        renderingConfig?: { argsToCodeBlock?: string[], codeBlockFilePaths?: (string | undefined)[] }
     ): string {
         const summaryPrefix = isStreaming ? '⏳ ' : '';
         const summarySuffix = isStreaming ? ' ...' : '';
         const openAttr = isStreaming ? ' open' : '';
         
-        // If args are completely empty during streaming, display as empty object
-        const argsDisplay = JSON.stringify(toolArgs, null, 2);
+        let argsContent = '';
+        let codeBlocksContent: string[] = [];
+        
+        // Ensure toolArgs is an object
+        const safeArgs = (typeof toolArgs === 'object' && toolArgs !== null) ? toolArgs : {};
+
+        // Separate regular args and code block args if config exists
+        const regularArgs: Record<string, any> = {};
+        const codeBlockArgs: Record<string, any> = {};
+
+        if (renderingConfig?.argsToCodeBlock?.length) {
+            const { argsToCodeBlock, codeBlockFilePaths } = renderingConfig;
+            
+            for (const [key, value] of Object.entries(safeArgs)) {
+                if (argsToCodeBlock.includes(key)) {
+                    codeBlockArgs[key] = value;
+                } else {
+                    regularArgs[key] = value;
+                }
+            }
+
+            // Generate code blocks
+            for (let i = 0; i < argsToCodeBlock.length; i++) {
+                const argName = argsToCodeBlock[i];
+                const val = codeBlockArgs[argName];
+                
+                if (val !== undefined && val !== null) {
+                    let lang = '';
+                    // Only try to detect language if not streaming and file path is available
+                    if (!isStreaming && codeBlockFilePaths) {
+                        const pathArgName = codeBlockFilePaths[i];
+                        if (pathArgName) {
+                            const pathVal = safeArgs[pathArgName];
+                            if (typeof pathVal === 'string') {
+                                const ext = pathVal.split('.').pop() || '';
+                                lang = getLanguageIdentifier(ext);
+                            }
+                        }
+                    }
+                    
+                    codeBlocksContent.push(`\n**${argName}:**\n\`\`\`${lang}\n${val}\n\`\`\``);
+                }
+            }
+
+        } else {
+            // Default: everything is a regular arg
+            Object.assign(regularArgs, safeArgs);
+        }
+
+        // Render regular args as a markdown list
+        if (Object.keys(regularArgs).length > 0) {
+            argsContent += '\n';
+            for (const [key, value] of Object.entries(regularArgs)) {
+                 // Use JSON.stringify for values to handle escaping (newlines, quotes) and complex types
+                 // But remove outer quotes if it's a string for cleaner display? 
+                 // User asked for: - `key`: `value`
+                 // If value has newlines, JSON.stringify converts them to \n which is what we want (escaped)
+                 const valStr = JSON.stringify(value);
+                 argsContent += `- \`${key}\`: \`${valStr}\`\n`;
+            }
+        }
 
         let resultBlock = '';
         if (toolResult !== undefined) {
-            const truncated = toolResult.length > 500
-                ? toolResult.substring(0, 500) + '... (truncated)'
-                : toolResult;
             resultBlock = `
 **Result:**
 \`\`\`
-${truncated}
+${toolResult}
 \`\`\`
 `;
-        } else if (isStreaming) {
-            // For streaming, we might not have a result yet, just show arguments
         }
 
         const toolContent = `<details${openAttr}>
 <summary>${summaryPrefix}${prettyPrintSummary}${summarySuffix}</summary>
 
 **Arguments${isStreaming ? ' (Streaming)' : ''}:**
-\`\`\`json
-${argsDisplay}
-\`\`\`
+${argsContent}
+${codeBlocksContent.join('\n')}
 ${resultBlock}
 </details>`;
 
