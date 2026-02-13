@@ -243,30 +243,13 @@ export async function requestApproval(
     const autoApprove = shouldAutoApprove();
     
     if (autoApprove) {
-        // Log auto-approval in Notebook output
-        if (context.appendOutput) {
-            await context.appendOutput(
-                `\n\n**⚡ Auto Approved**${isInRuleParsingMode() ? ' (Rule Parsing)' : ''}\n\n` +
-                `Action: **${actionDescription}**\n` +
-                `Target: \`${targetUri}\`\n` +
-                (details ? `Details: ${details}\n` : '')
-            );
-        }
-        
-        // Create a request record for history (but auto-approved)
+        // Auto-approved: show notification and create a record for sidebar history
+        const modeText = isInRuleParsingMode() ? ' (Rule Parsing)' : '';
+        vscode.window.showInformationMessage(
+            `⚡ Auto Approved${modeText}: ${actionDescription} - ${targetUri}`
+        );
         approvalManager.createRequest(actionDescription, targetUri, details, true);
         return true;
-    }
-
-    // 在 Notebook 中显示等待信息
-    if (context.appendOutput) {
-        await context.appendOutput(
-            `\n\n**⚠️ Approval Required**\n\n` +
-            `Agent wants to: **${actionDescription}**\n` +
-            `Target: \`${targetUri}\`\n` +
-            (details ? `Details: ${details}\n` : '') +
-            `\n_Please check the Mutsumi sidebar or notification to approve or reject this request._\n`
-        );
     }
 
     // 创建请求并获取 ID 和 Promise
@@ -275,12 +258,12 @@ export async function requestApproval(
     // 显示带有快速批准/拒绝按钮的通知
     vscode.window.showInformationMessage(
         `Mutsumi: Agent requests permission to ${actionDescription}`,
-        '✅ Approve',
-        '❌ Reject'
+        'Approve',
+        'Reject'
     ).then(selection => {
-        if (selection === '✅ Approve') {
+        if (selection === 'Approve') {
             approvalManager.approveRequest(id);
-        } else if (selection === '❌ Reject') {
+        } else if (selection === 'Reject') {
             approvalManager.rejectRequest(id);
         }
         // 如果用户关闭通知而不点击按钮，请求仍保留在侧边栏等待处理
@@ -288,11 +271,6 @@ export async function requestApproval(
 
     // 等待用户响应（通过通知按钮或侧边栏）
     const approved = await requestPromise;
-
-    // 更新 Notebook 输出
-    if (context.appendOutput) {
-        await context.appendOutput(approved ? `**✅ Approved**\n\n` : `**❌ Rejected**\n\n`);
-    }
 
     return approved;
 }
