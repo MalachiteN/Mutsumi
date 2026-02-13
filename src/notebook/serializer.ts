@@ -4,7 +4,7 @@ import { AgentContext, AgentMessage, AgentMetadata, MessageContent } from '../ty
 import { AgentOrchestrator } from '../agent/agentOrchestrator';
 import { ToolManager } from '../toolManager';
 import { v4 as uuidv4 } from 'uuid';
-import { wrapInThemedContainer } from '../utils';
+import { UIRenderer } from '../agent/uiRenderer';
 
 /**
  * @description Mutsumi Notebook serializer class
@@ -251,17 +251,11 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
      * @returns {string} String in Markdown format
      */
     private renderInteractionToMarkdown(group: AgentMessage[], isSubAgent: boolean): string {
-        let displayText = '';
+        const renderer = new UIRenderer();
         const toolCallMap = new Map<string, { name: string; args: any }>();
 
         for (const m of group) {
             if (m.role === 'assistant') {
-                if (m.reasoning_content) {
-                    displayText += wrapInThemedContainer(`<details><summary>💭 Thinking Process</summary>\n\n${m.reasoning_content}\n\n</details>`)+'\n\n';
-                }
-                if (m.content) {
-                    displayText += this.serializeContentToString(m.content) + '\n\n';
-                }
                 if (m.tool_calls) {
                     for (const tc of m.tool_calls) {
                         let parsedArgs: any = {};
@@ -277,6 +271,13 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                         }
                     }
                 }
+
+                const contentStr = this.serializeContentToString(m.content);
+                const reasoningStr = m.reasoning_content || '';
+                
+                if (contentStr || reasoningStr) {
+                    renderer.commitRoundUI(contentStr ? contentStr + '\n\n' : '', reasoningStr);
+                }
             } else if (m.role === 'tool') {
                 const contentStr = this.serializeContentToString(m.content);
                 const mapped = m.tool_call_id ? toolCallMap.get(m.tool_call_id) : undefined;
@@ -286,25 +287,16 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                     ? ToolManager.getInstance().getPrettyPrint(toolName, args, isSubAgent)
                     : `🔧 Tool Call: ${toolName}`;
 
-                displayText += wrapInThemedContainer(`
-
-<details>
-<summary>${prettyPrintSummary}</summary>
-
-**Arguments:**
-\`\`\`json
-${JSON.stringify(args, null, 2)}
-\`\`\`
-
-**Result:**
-\`\`\`
-${contentStr}
-\`\`\`
-</details>
-`+'\n');
+                const toolHtml = renderer.formatToolCall(
+                    args,
+                    prettyPrintSummary,
+                    false,
+                    contentStr
+                );
+                renderer.appendHtml(toolHtml);
             }
         }
-        return displayText;
+        return renderer.getCommittedHtml();
     }
 
     /**
