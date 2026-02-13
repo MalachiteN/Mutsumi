@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { TextDecoder, TextEncoder } from 'util';
 import { AgentContext, AgentMessage, AgentMetadata, MessageContent } from '../types';
 import { AgentOrchestrator } from '../agent/agentOrchestrator';
-import { ToolManager } from '../toolManager';
+import { ToolManager } from '../tools.d/toolManager';
 import { v4 as uuidv4 } from 'uuid';
 import { UIRenderer } from '../agent/uiRenderer';
 

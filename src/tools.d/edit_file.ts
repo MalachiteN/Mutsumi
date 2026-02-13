@@ -1,10 +1,93 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as Diff from 'diff'; // Assuming 'diff' package is available
+import { v4 as uuidv4 } from 'uuid';
 import { ToolContext, TerminationError } from './interface';
-import { resolveUri, checkAccess, editFileSessionManager } from './utils';
+import { resolveUri, checkAccess } from './utils';
 import { DiffReviewAgent } from './edit_codelens_provider';
 import { DiffCodeLensAction } from './edit_codelens_types';
+
+// --- Edit File Session Types and Manager (migrated from permission.ts) ---
+
+export interface EditFileSession {
+    id: string;
+    filePath: string;
+    originalUri: vscode.Uri;
+    tempUri: vscode.Uri;
+    toolName: string;
+    timestamp: Date;
+    status: 'pending' | 'partially_accepted' | 'resolved';
+}
+
+class EditFileSessionManager {
+    private static instance: EditFileSessionManager;
+    private sessions: Map<string, EditFileSession> = new Map();
+    private _onDidChangeSessions = new vscode.EventEmitter<void>();
+    public readonly onDidChangeSessions = this._onDidChangeSessions.event;
+
+    private constructor() {}
+
+    public static getInstance(): EditFileSessionManager {
+        if (!EditFileSessionManager.instance) {
+            EditFileSessionManager.instance = new EditFileSessionManager();
+        }
+        return EditFileSessionManager.instance;
+    }
+
+    public addSession(session: Omit<EditFileSession, 'id' | 'timestamp' | 'status'>): string {
+        const id = uuidv4();
+        const fullSession: EditFileSession = {
+            ...session,
+            id,
+            timestamp: new Date(),
+            status: 'pending'
+        };
+        this.sessions.set(id, fullSession);
+        this._onDidChangeSessions.fire();
+        return id;
+    }
+
+    public markPartiallyAccepted(id: string): void {
+        const session = this.sessions.get(id);
+        if (session) {
+            session.status = 'partially_accepted';
+            this._onDidChangeSessions.fire();
+        }
+    }
+
+    public resolveSession(id: string): void {
+        const session = this.sessions.get(id);
+        if (session) {
+            session.status = 'resolved';
+            setTimeout(() => {
+                this.sessions.delete(id);
+                this._onDidChangeSessions.fire();
+            }, 1000);
+        }
+    }
+
+    public getSession(id: string): EditFileSession | undefined {
+        return this.sessions.get(id);
+    }
+
+    public getActiveSessions(): EditFileSession[] {
+        return Array.from(this.sessions.values())
+            .filter(s => s.status !== 'resolved')
+            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    }
+
+    public getAllSessions(): EditFileSession[] {
+        return Array.from(this.sessions.values())
+            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    }
+
+    public removeSession(id: string): void {
+        this.sessions.delete(id);
+        this._onDidChangeSessions.fire();
+    }
+}
+
+export const editFileSessionManager = EditFileSessionManager.getInstance();
 
 // --- State Management ---
 

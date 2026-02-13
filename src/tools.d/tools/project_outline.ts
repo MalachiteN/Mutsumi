@@ -1,7 +1,8 @@
-import { ITool, ToolContext } from './interface';
-import { resolveUri, requestApproval } from './utils';
+import { ITool, ToolContext } from '../interface';
+import { resolveUri } from '../utils';
+import { requestApproval } from '../permission';
 import * as vscode from 'vscode';
-import { CodebaseService } from '../codebase/service';
+import { CodebaseService } from '../../codebase/service';
 
 const MAX_FILES_TO_SCAN = 100;
 

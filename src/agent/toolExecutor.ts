@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ToolManager } from '../toolManager';
+import { ToolManager } from '../tools.d/toolManager';
 import { ToolContext, TerminationError } from '../tools.d/interface';
 import { AgentMessage } from '../types';
 import { UIRenderer } from './uiRenderer';

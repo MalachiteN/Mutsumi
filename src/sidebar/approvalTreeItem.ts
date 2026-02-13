@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { ApprovalRequest, EditFileSession } from '../tools.d/utils';
+import { ApprovalRequest } from '../tools.d/permission';
+import { EditFileSession } from '../tools.d/edit_file';
 
 /**
  * @description Approval request tree node item for displaying tool call approval requests in the sidebar

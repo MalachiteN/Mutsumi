@@ -164,18 +164,15 @@ export async function updateNotebookMetadataWithSync(
     notebook: vscode.NotebookDocument,
     title: string
 ): Promise<void> {
-    // Read file to get complete metadata (notebook.metadata may not contain custom fields)
-    const content = await vscode.workspace.fs.readFile(notebook.uri);
-    const raw = JSON.parse(new TextDecoder().decode(content));
-
+    // Use in-memory metadata as base to preserve unsaved changes
     const edit = new vscode.WorkspaceEdit();
-    const newMetadata = { ...raw.metadata, name: title };
+    const newMetadata = { ...notebook.metadata, name: title };
     const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
     edit.set(notebook.uri, [nbEdit]);
     await vscode.workspace.applyEdit(edit);
 
     // Sync registry and refresh sidebar UI
-    const uuid = notebook.metadata?.uuid || raw.metadata?.uuid;
+    const uuid = notebook.metadata?.uuid;
     if (uuid) {
         AgentOrchestrator.getInstance().updateAgentName(uuid, title);
     }

@@ -156,7 +156,7 @@ ${argsDisplay}
 ${resultBlock}
 </details>`;
 
-        return wrapInThemedContainer(toolContent) + '\n\n';
+        return '\n\n' + wrapInThemedContainer(toolContent) + '\n\n';
     }
 
     /**

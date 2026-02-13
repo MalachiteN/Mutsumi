@@ -6,6 +6,8 @@
 import * as vscode from 'vscode';
 import { regenerateTitleForNotebook } from '../agent/titleGenerator';
 import { buildInteractionHistory } from '../contextManagement/history';
+import { toggleAutoApprove, isAutoApproveEnabled } from '../tools.d/permission';
+import { SkillManager } from '../contextManagement/skillManager';
 
 /**
  * Registers all toolbar-related commands for Mutsumi notebooks.
@@ -54,12 +56,9 @@ export function registerToolbarCommands(context: vscode.ExtensionContext): void 
             });
             
             if (selected) {
-                // Read file to get complete metadata (editor.notebook.metadata may not contain custom fields)
-                const content = await vscode.workspace.fs.readFile(editor.notebook.uri);
-                const raw = JSON.parse(new TextDecoder().decode(content));
-                
+                // Use in-memory metadata as base to preserve unsaved changes
                 const edit = new vscode.WorkspaceEdit();
-                const newMetadata = { ...raw.metadata, model: selected.label };
+                const newMetadata = { ...editor.notebook.metadata, model: selected.label };
                 const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
                 edit.set(editor.notebook.uri, [nbEdit]);
                 await vscode.workspace.applyEdit(edit);
@@ -356,7 +355,6 @@ export function registerToolbarCommands(context: vscode.ExtensionContext): void 
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.recompileSkills', async () => {
             try {
-                const { SkillManager } = await import('../skillManager');
                 const skillManager = SkillManager.getInstance();
                 await skillManager.recompileAllSkills();
                 vscode.window.showInformationMessage('All skills recompiled successfully.');
@@ -366,4 +364,47 @@ export function registerToolbarCommands(context: vscode.ExtensionContext): void 
             }
         })
     );
+
+    // Toggle auto approve command (OFF -> ON)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.toggleAutoApprove', async () => {
+            try {
+                const newState = await toggleAutoApprove();
+                // Update global state for UI refresh (this controls icon visibility)
+                await vscode.commands.executeCommand('setContext', 'mutsumi:autoApproveEnabled', newState);
+                
+                if (newState) {
+                    vscode.window.showWarningMessage('Auto-approve mode is now ON. Tools will be executed without confirmation.');
+                } else {
+                    vscode.window.showInformationMessage('Auto-approve mode is now OFF. Tools will require confirmation.');
+                }
+            } catch (error) {
+                console.error('Failed to toggle auto-approve:', error);
+                vscode.window.showErrorMessage(`Failed to toggle auto-approve: ${error}`);
+            }
+        })
+    );
+
+    // Toggle auto approve command (ON -> OFF) - same command but different icon
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.toggleAutoApproveOn', async () => {
+            try {
+                const newState = await toggleAutoApprove();
+                // Update global state for UI refresh (this controls icon visibility)
+                await vscode.commands.executeCommand('setContext', 'mutsumi:autoApproveEnabled', newState);
+                
+                if (newState) {
+                    vscode.window.showWarningMessage('Auto-approve mode is now ON. Tools will be executed without confirmation.');
+                } else {
+                    vscode.window.showInformationMessage('Auto-approve mode is now OFF. Tools will require confirmation.');
+                }
+            } catch (error) {
+                console.error('Failed to toggle auto-approve:', error);
+                vscode.window.showErrorMessage(`Failed to toggle auto-approve: ${error}`);
+            }
+        })
+    );
+
+    // Set initial context for auto-approve state
+    void vscode.commands.executeCommand('setContext', 'mutsumi:autoApproveEnabled', isAutoApproveEnabled());
 }

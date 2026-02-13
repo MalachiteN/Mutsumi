@@ -123,6 +123,18 @@
                 "title": "Reopen Diff Editor",
                 "category": "Mutsumi",
                 "icon": "$(git-compare)"
+            },
+            {
+                "command": "mutsumi.toggleAutoApprove",
+                "title": "Enter Auto-Approve",
+                "category": "Mutsumi",
+                "icon": "$(run-all)"
+            },
+            {
+                "command": "mutsumi.toggleAutoApproveOn",
+                "title": "Exit Auto-Approve",
+                "category": "Mutsumi",
+                "icon": "$(debug-disconnect)"
             }
         ],
         "menus": {
@@ -191,6 +203,16 @@
                     "command": "mutsumi.debugContext",
                     "group": "navigation@6",
                     "when": "notebookType == mutsumi-notebook"
+                },
+                {
+                    "command": "mutsumi.toggleAutoApprove",
+                    "group": "navigation@7",
+                    "when": "notebookType == mutsumi-notebook && !mutsumi:autoApproveEnabled"
+                },
+                {
+                    "command": "mutsumi.toggleAutoApproveOn",
+                    "group": "navigation@7",
+                    "when": "notebookType == mutsumi-notebook && mutsumi:autoApproveEnabled"
                 }
             ]
         },
@@ -230,6 +252,11 @@
                     "type": "string",
                     "default": "openai/gpt-4.1-nano",
                     "description": "Model used for generating agent titles from conversation context (must be one of the models in the list)"
+                },
+                "mutsumi.autoApproveEnabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When enabled, all tool calls will be automatically approved without user confirmation (use with caution)"
                 }
             }
         }

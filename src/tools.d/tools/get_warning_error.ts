@@ -1,5 +1,5 @@
-import { ITool, ToolContext } from './interface';
-import { resolveUri } from './utils';
+import { ITool, ToolContext } from '../interface';
+import { resolveUri } from '../utils';
 import * as vscode from 'vscode';
 import * as path from 'path';
 

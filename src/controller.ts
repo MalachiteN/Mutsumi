@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ToolManager } from './toolManager';
+import { ToolManager } from './tools.d/toolManager';
 import { AgentRunner } from './agent/agentRunner';
 import { buildInteractionHistory } from './contextManagement/history';
 import { AgentOrchestrator } from './agent/agentOrchestrator';

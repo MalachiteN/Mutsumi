@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { isCommonIgnored } from '../tools.d/utils';
-import { ToolManager } from '../toolManager';
+import { ToolManager } from '../tools.d/toolManager';
 
 /**
  * @description Provider class for reference auto-completion functionality

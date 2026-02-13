@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { ITool, ToolContext } from './interface';
-import { AgentOrchestrator } from '../agent/agentOrchestrator';
+import { ITool, ToolContext } from '../interface';
+import { AgentOrchestrator } from '../../agent/agentOrchestrator';
 
 export const selfForkTool: ITool = {
     name: 'self_fork',

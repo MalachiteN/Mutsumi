@@ -3,22 +3,22 @@
  * @module toolManager
  */
 
-import { ITool, ToolContext } from './tools.d/interface';
-import { readFileTool } from './tools.d/read_file';
-import { lsTool } from './tools.d/ls';
-import { shellExecTool } from './tools.d/shell_exec';
-import { editFileSearchReplaceTool } from './tools.d/edit_file_search_replace';
-import { editFileFullReplaceTool } from './tools.d/edit_file_full_replace';
+import { ITool, ToolContext } from './interface';
+import { readFileTool } from './tools/read_file';
+import { lsTool } from './tools/ls';
+import { shellExecTool } from './tools/shell_exec';
+import { editFileSearchReplaceTool } from './tools/edit_file_search_replace';
+import { editFileFullReplaceTool } from './tools/edit_file_full_replace';
 
-import { partiallyReadByRangeTool, partiallyReadAroundKeywordTool } from './tools.d/read_partial';
-import { searchFileContainsKeywordTool, searchFileNameIncludesTool } from './tools.d/search_fs';
-import { getFileSizeTool, getEnvVarTool, systemInfoTool } from './tools.d/system_info';
-import { mkdirTool, createNewFileTool } from './tools.d/fs_write_ops';
-import { gitCmdTool } from './tools.d/git_cmd';
-import { selfForkTool, taskFinishTool, getAvailableModelsTool } from './tools.d/agent_control';
-import { projectOutlineTool } from './tools.d/project_outline';
-import { getWarningErrorTool } from './tools.d/get_warning_error';
-import { SkillManager } from './skillManager';
+import { partiallyReadByRangeTool, partiallyReadAroundKeywordTool } from './tools/read_partial';
+import { searchFileContainsKeywordTool, searchFileNameIncludesTool } from './tools/search_fs';
+import { getFileSizeTool, getEnvVarTool, systemInfoTool } from './tools/system_info';
+import { mkdirTool, createNewFileTool } from './tools/fs_write_ops';
+import { gitCmdTool } from './tools/git_cmd';
+import { selfForkTool, taskFinishTool, getAvailableModelsTool } from './tools/agent_control';
+import { projectOutlineTool } from './tools/project_outline';
+import { getWarningErrorTool } from './tools/get_warning_error';
+import { SkillManager } from '../contextManagement/skillManager';
 
 import OpenAI from 'openai';
 
