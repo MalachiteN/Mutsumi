@@ -1,5 +1,5 @@
-import { ITool, ToolContext } from './interface';
-import { resolveUri, checkAccess } from './utils';
+import { ITool, ToolContext } from '../interface';
+import { resolveUri, checkAccess } from '../utils';
 import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
 

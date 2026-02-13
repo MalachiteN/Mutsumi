@@ -3,6 +3,7 @@ import { TextDecoder } from 'util';
 import { ContextItem } from '../types';
 import { ContextAssembler, ParseMode } from './contextAssembler';
 import { MacroContext } from './preprocessor';
+import { withRuleParsingMode } from '../tools.d/permission';
 
 /**
  * @description Initialize rules directory and default rules file
@@ -75,13 +76,16 @@ export async function getRulesContext(
 
                 // We process the rule content to resolve any nested @[...] references (INLINE)
                 // Rules should be fully expanded when presented
-                const expandedContent = await ContextAssembler.assembleDocument(
-                    decodedContent,
-                    workspaceUri.fsPath,
-                    allowedUris,
-                    ParseMode.INLINE,
-                    undefined,  // collector (not used here)
-                    macroContext  // Pass macro context for preprocessing
+                // Use withRuleParsingMode to auto-approve tool calls during rule parsing
+                const expandedContent = await withRuleParsingMode(() =>
+                    ContextAssembler.assembleDocument(
+                        decodedContent,
+                        workspaceUri.fsPath,
+                        allowedUris,
+                        ParseMode.INLINE,
+                        undefined,  // collector (not used here)
+                        macroContext  // Pass macro context for preprocessing
+                    )
                 );
 
                 items.push({

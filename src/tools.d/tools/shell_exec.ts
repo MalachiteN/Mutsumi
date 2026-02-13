@@ -1,5 +1,6 @@
-import { ITool, ToolContext } from './interface';
-import { resolveUri, requestApproval } from './utils';
+import { ITool, ToolContext } from '../interface';
+import { resolveUri } from '../utils';
+import { requestApproval } from '../permission';
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';

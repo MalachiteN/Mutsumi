@@ -1,5 +1,6 @@
-import { ITool, ToolContext } from './interface';
-import { resolveUri, checkAccess, requestApproval } from './utils';
+import { ITool, ToolContext } from '../interface';
+import { resolveUri, checkAccess } from '../utils';
+import { requestApproval } from '../permission';
 import * as vscode from 'vscode';
 import { TextEncoder } from 'util';
 

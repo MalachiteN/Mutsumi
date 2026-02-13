@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TextDecoder } from 'util';
-import { ToolManager } from '../toolManager';
+import { ToolManager } from '../tools.d/toolManager';
 import { ToolContext } from '../tools.d/interface';
 import { MessageContent, ContentPartText, ContentPartImage, ContextItem } from '../types';
 

@@ -2,9 +2,9 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 // Use require to ensure we get the function correctly in CommonJS env without esModuleInterop
 const matter = require('gray-matter'); 
-import { ITool, ToolContext } from './tools.d/interface';
-import { ContextAssembler, ParseMode } from './contextManagement/contextAssembler';
-import { Preprocessor } from './contextManagement/preprocessor';
+import { ITool, ToolContext } from '../tools.d/interface';
+import { ContextAssembler, ParseMode } from './contextAssembler';
+import { Preprocessor } from './preprocessor';
 import { TextDecoder, TextEncoder } from 'util';
 
 export class SkillManager {

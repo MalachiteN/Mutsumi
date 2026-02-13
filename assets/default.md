@@ -13,14 +13,16 @@
 - 了解包管理器、虚拟化环境等
 
 ### 2. 文件大小检查
-**在读取任何文件之前，必须先执行 `get_file_size`。**
+**在读写任何文件之前，必须先执行 `get_file_size`。**
 
-读取策略：
+原因：常用编程模型可能只有 200K Tokens 左右的上下文窗口。
+
+读写策略：
 | 文件大小 | 推荐操作 |
 |---------|---------|
-| < 50 KB | `read_file` 全文读取 |
-| 50-500 KB | `partially_read_by_range` 或 `partially_read_around_keyword` |
-| > 500 KB | 优先使用搜索和上下文读取 |
+| < 5 KB | `read_file` / `edit_file_full_replace` 全文读写 |
+| 5-50 KB | 无特殊困惑时尽量用 `partially_read_by_range` 或 `partially_read_around_keyword` 读，`edit_file_search_replace` 写 |
+| > 50 KB | 优先使用搜索和上下文读取，禁止全文读写 |
 
 ### 3. 模型查询
 **在执行 `self_fork` 时，必须根据下列模型名称与标签为每个子 Agent 分配恰当的模型。**
@@ -51,6 +53,16 @@
 - 涉及多个模块但组合为一个需要整体协调的功能
 - 难以拆分为数个不相交的任务
 - 对上下文的连续互通有特殊要求
+
+---
+
+## 为子 Agent 生成 prompt 的要求
+
+本插件实现了文件插入预执行系统。
+
+请使用 `@[文件路径]` 包裹子 Agent 必须读取的文件。该文件会被直接插入该子 Agent 的上下文。
+
+这能有效减少子 Agent 自行决定调用工具、读取文件造成的推理预算和循环发送历史记录的 Token 开销。
 
 ---
 

@@ -20,7 +20,13 @@ UI 上，本项目使用 NotebookSerializer 呈现 Agent 对话页面，允许�
 
 动态上下文提供器模块见 src/contextManagement/。
 
+项目图谱：
+
+@[project_outline{"uri": "src"}]
+
 当你需要检查该项目的错误时，请直接尝试执行 `npm run compile`, 这是最直观的。
+
+然而，当你作为子 Agent 编辑文件时请不要尝试编译，因为队友可能还没完成他们的子任务！
 
 该项目的原则是要兼容多根工作区和其他插件的 `FileSystemProvider` 指定的特殊 schema。
 

@@ -1,5 +1,5 @@
-import { ITool, ToolContext } from './interface';
-import { handleEdit } from './edit_file';
+import { ITool, ToolContext } from '../interface';
+import { handleEdit } from '../edit_file';
 
 export const editFileFullReplaceTool: ITool = {
     name: 'edit_file_full_replace',

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AgentTreeDataProvider } from './agentTreeProvider';
 import { ApprovalTreeDataProvider } from './approvalTreeProvider';
-import { approvalManager } from '../tools.d/utils';
+import { approvalManager } from '../tools.d/permission';
 
 /**
  * @description Main controller for the Agent sidebar

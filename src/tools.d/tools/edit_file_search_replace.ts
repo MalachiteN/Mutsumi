@@ -1,6 +1,6 @@
-import { ITool, ToolContext } from './interface';
-import { resolveUri, checkAccess } from './utils';
-import { handleEdit } from './edit_file';
+import { ITool, ToolContext } from '../interface';
+import { resolveUri, checkAccess } from '../utils';
+import { handleEdit } from '../edit_file';
 import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
 

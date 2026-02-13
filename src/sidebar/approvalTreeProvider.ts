@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ApprovalTreeItem, EditFileTreeItem } from './approvalTreeItem';
-import { approvalManager, editFileSessionManager } from '../tools.d/utils';
+import { approvalManager } from '../tools.d/permission';
+import { editFileSessionManager } from '../tools.d/edit_file';
 
 /**
  * Union type for tree items in the approval sidebar
