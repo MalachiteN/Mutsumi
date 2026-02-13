@@ -2,5 +2,7 @@ node_modules/
 out/
 assets/tree-sitter/*.wasm
 .continue/
-.mutsumi/
+.mutsumi/**
+!.mutsumi/rules/
+!.mutsumi/rules/mutsumi.md
 *.vsix
