@@ -196,6 +196,29 @@ export class CodebaseService {
      */
     private extractNodes(node: Parser.SyntaxNode, config: LanguageConfig, source: string): OutlineNode[] {
         /**
+         * Filters out anonymous nodes that have no named descendants.
+         * Recursively processes children first (bottom-up), then decides if current node should be kept.
+         * @param {OutlineNode[]} nodes - The nodes to filter
+         * @returns {OutlineNode[]} Filtered nodes
+         */
+        const filterAnonymousNodes = (nodes: OutlineNode[]): OutlineNode[] => {
+            const result: OutlineNode[] = [];
+            for (const node of nodes) {
+                // Recursively filter children first (bottom-up)
+                node.children = filterAnonymousNodes(node.children);
+                
+                // Keep the node if:
+                // 1. It's not anonymous (has a real name), OR
+                // 2. It has children after filtering (meaning it has named descendants)
+                if (node.name !== '<anonymous>' || node.children.length > 0) {
+                    result.push(node);
+                }
+                // Anonymous nodes with no children are pruned (no named descendants)
+            }
+            return result;
+        };
+
+        /**
          * Recursively collects outline nodes from the syntax tree.
          * @param {Parser.SyntaxNode} currentNode - The current node being processed
          * @returns {OutlineNode[]} Array of outline nodes found in this subtree
@@ -234,7 +257,8 @@ export class CodebaseService {
             return nodes;
         };
 
-        return collect(node);
+        const collectedNodes = collect(node);
+        return filterAnonymousNodes(collectedNodes);
     }
 
     /**
