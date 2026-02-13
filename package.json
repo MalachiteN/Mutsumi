@@ -200,12 +200,12 @@
                 "mutsumi.apiKey": {
                     "type": "string",
                     "default": "",
-                    "description": "OpenAI API Key"
+                    "description": "OpenAI Compatible API Key"
                 },
                 "mutsumi.baseUrl": {
                     "type": "string",
-                    "default": "https://api.openai.com/v1",
-                    "description": "OpenAI Compatible Base URL"
+                    "default": "https://zenmux.ai/api/v1",
+                    "description": "OpenAI Compatible Endpoint Base URL"
                 },
                 "mutsumi.models": {
                     "type": "object",
@@ -213,12 +213,11 @@
                         "type": "string"
                     },
                     "default": {
-                        "stepfun/step-3.5-flash": "速度超快，有时有幻觉，只适合非重要任务，如执行非常具体的指令、修改简单的配置文件等",
-                        "moonshotai/kimi-k2.5": "最泛用，经济性好，非常适合普通编码任务或作为子模块进一步拆分的调度者",
-                        "google/gemini-3-pro-preview": "超贵，但智能极高、上下文窗口大，适合无法分解、非常复杂的任务，或开始新项目前为整个项目设计长远架构和开发计划",
-                        "openai/gpt-5.2-codex": "较贵，但智能较高、上下文窗口较大，适合较复杂的编码任务、无法分解的复杂任务",
-                        "anthropic/claude-haiku-4.5": "较贵，适合阅读代码库、生成可信度高的模块概览或文档",
-                        "openai/gpt-4.1-nano": "质量极差，仅用于生成对话标题"
+                      "openai/gpt-4.1-nano": "质量极差，仅用于生成对话标题",
+                      "moonshotai/kimi-k2.5": "经济性好，适合普通编码任务，且经过为多Agent编排子任务的针对性后训练",
+                      "stepfun/step-3.5-flash": "有时有幻觉，只适合非重要任务，如执行简单具体的指令、修改简单的配置文件等",
+                      "google/gemini-3-pro-preview": "超贵，但智能极高、上下文窗口最大，适合无法分解、非常复杂的任务，或开始新项目前为整个项目设计长远架构和开发计划",
+                      "anthropic/claude-haiku-4.5": "略贵，适合阅读代码库、生成可信度高的模块概览或文档"
                     },
                     "description": "List of available AI models with labels. Key is model name, value contains label."
                 },
