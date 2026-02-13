@@ -109,55 +109,53 @@ export class UIRenderer {
     }
 
     /**
-     * Formats tool output as HTML details element.
+     * Formats a tool call (streaming or finished) as an HTML details element.
      * @description Creates a collapsible HTML details element containing the tool name,
-     * arguments (as JSON), and result (truncated if over 500 characters).
-     * Uses 4-backtick fences to safely handle tool results that contain code blocks.
-     * @param {any} toolArgs - Tool arguments
-     * @param {string} toolResult - Tool execution result
-     * @param {string} [prettyPrintSummary] - Optional human-readable summary for the summary line
+     * arguments (as JSON), and optionally the result (truncated if over 500 characters).
+     * @param {any} toolArgs - Tool arguments (complete or partial)
+     * @param {string} prettyPrintSummary - Human-readable summary
+     * @param {boolean} isStreaming - Whether this is a pending/streaming tool call
+     * @param {string} [toolResult] - Optional execution result (for finished calls)
      * @returns {string} Formatted HTML string
-     * @example
-     * const html = renderer.formatToolOutput('read_file', { uri: '/path/to/file' }, 'file content...', '📖 Mutsumi read /path/to/file');
-     * // Returns: <details><summary>📖 Mutsumi read /path/to/file</summary>...</details>
      */
-    formatToolOutput(toolArgs: any, toolResult: string, prettyPrintSummary: string): string {
-        const truncated = toolResult.length > 500
-            ? toolResult.substring(0, 500) + '... (truncated)'
-            : toolResult;
-        const toolContent = `<details>
-<summary>${prettyPrintSummary}</summary>
+    formatToolCall(
+        toolArgs: any, 
+        prettyPrintSummary: string, 
+        isStreaming: boolean, 
+        toolResult?: string
+    ): string {
+        const summaryPrefix = isStreaming ? '⏳ ' : '';
+        const summarySuffix = isStreaming ? ' ...' : '';
+        const openAttr = isStreaming ? ' open' : '';
+        
+        // If args are completely empty during streaming, display as empty object
+        const argsDisplay = JSON.stringify(toolArgs, null, 2);
 
-**Arguments:**
-\`\`\`json
-${JSON.stringify(toolArgs, null, 2)}
-\`\`\`
-
+        let resultBlock = '';
+        if (toolResult !== undefined) {
+            const truncated = toolResult.length > 500
+                ? toolResult.substring(0, 500) + '... (truncated)'
+                : toolResult;
+            resultBlock = `
 **Result:**
 \`\`\`
 ${truncated}
 \`\`\`
-</details>`;
-        return wrapInThemedContainer(toolContent) + '\n\n';
-    }
+`;
+        } else if (isStreaming) {
+            // For streaming, we might not have a result yet, just show arguments
+        }
 
-    /**
-     * Formats a pending (streaming) tool call as HTML.
-     * @description Creates a visual representation for a tool call that is currently being generated.
-     * @param {any} toolArgs - Current tool arguments (may be incomplete)
-     * @param {string} prettyPrintSummary - Human-readable summary
-     * @returns {string} Formatted HTML string
-     */
-    formatPendingTool(toolArgs: any, prettyPrintSummary: string): string {
-        const toolContent = `<details open>
-<summary>⏳ ${prettyPrintSummary} ...</summary>
+        const toolContent = `<details${openAttr}>
+<summary>${summaryPrefix}${prettyPrintSummary}${summarySuffix}</summary>
 
-**Arguments (Streaming):**
+**Arguments${isStreaming ? ' (Streaming)' : ''}:**
 \`\`\`json
-${JSON.stringify(toolArgs, null, 2)}
+${argsDisplay}
 \`\`\`
-
+${resultBlock}
 </details>`;
+
         return wrapInThemedContainer(toolContent) + '\n\n';
     }
 
