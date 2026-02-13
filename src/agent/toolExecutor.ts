@@ -104,7 +104,7 @@ export class ToolExecutor {
 
             // Get the pretty print summary for this tool call
             const prettyPrintSummary = this.tools.getPrettyPrint(toolName, toolArgs, this.isSubAgent);
-            await callbacks.appendOutput(this.uiRenderer.formatToolOutput(toolArgs, toolResult, prettyPrintSummary));
+            await callbacks.appendOutput(this.uiRenderer.formatToolCall(toolArgs, prettyPrintSummary, false, toolResult));
 
             toolMessages.push({
                 role: 'tool',
