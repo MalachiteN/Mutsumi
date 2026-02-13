@@ -62,7 +62,5 @@ export function wrapInThemedContainer(content: string): string {
     if (!content || content.trim().length === 0) {
         return '';
     }
-    return `<div style="background-color: rgba(60, 60, 60, 1); padding: 12px 16px; border-radius: 8px; margin: 8px 0; display: block; width: fit-content; max-width: 90%;">
-${content}
-</div>`;
+    return `<div style="background-color: rgba(60, 60, 60, 1); padding: 12px 16px; border-radius: 8px; margin: 8px 0; display: block; width: fit-content; max-width: 90%;">${content}</div>`;
 }
