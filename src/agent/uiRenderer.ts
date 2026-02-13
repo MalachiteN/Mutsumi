@@ -39,32 +39,38 @@ export class UIRenderer {
     commitRoundUI(content: string, reasoning: string): void {
         if (reasoning) {
             const thinkingContent = `<details><summary>💭 Thinking Process</summary>\n\n${reasoning}\n\n</details>\n\n`;
-            this.committedUiHtml += wrapInThemedContainer(thinkingContent);
+            this.committedUiHtml += wrapInThemedContainer(thinkingContent) + '\n\n';
         }
         this.committedUiHtml += content;
     }
 
     /**
      * Renders the current UI state to the cell output.
-     * @description Combines committed HTML with current content and reasoning,
+     * @description Combines committed HTML with current content, reasoning, and optional pending tools,
      * then updates the notebook cell output. Current reasoning is displayed
      * in an open (expanded) details element.
      * @param {vscode.NotebookCellExecution} execution - Cell execution context
      * @param {string} currentContent - Current content to display
      * @param {string} currentReasoning - Current reasoning to display
+     * @param {string} [pendingToolsHtml] - Optional HTML for pending (streaming) tool calls
      * @returns {Promise<void>}
      */
     async renderUI(
         execution: vscode.NotebookCellExecution,
         currentContent: string,
-        currentReasoning: string
+        currentReasoning: string,
+        pendingToolsHtml?: string
     ): Promise<void> {
         let display = this.committedUiHtml;
         if (currentReasoning) {
             const thinkingContent = `<details open><summary>💭 Thinking Process</summary>\n\n${currentReasoning}\n\n</details>\n\n`;
-            display += wrapInThemedContainer(thinkingContent);
+            display += wrapInThemedContainer(thinkingContent) + '\n\n';
         }
         display += currentContent;
+
+        if (pendingToolsHtml) {
+            display += pendingToolsHtml;
+        }
 
         await execution.replaceOutput([
             new vscode.NotebookCellOutput([
@@ -119,9 +125,7 @@ export class UIRenderer {
         const truncated = toolResult.length > 500
             ? toolResult.substring(0, 500) + '... (truncated)'
             : toolResult;
-        const toolContent = `
-
-<details>
+        const toolContent = `<details>
 <summary>${prettyPrintSummary}</summary>
 
 **Arguments:**
@@ -133,10 +137,28 @@ ${JSON.stringify(toolArgs, null, 2)}
 \`\`\`
 ${truncated}
 \`\`\`
-</details>
+</details>`;
+        return wrapInThemedContainer(toolContent) + '\n\n';
+    }
 
-`;
-        return wrapInThemedContainer(toolContent);
+    /**
+     * Formats a pending (streaming) tool call as HTML.
+     * @description Creates a visual representation for a tool call that is currently being generated.
+     * @param {any} toolArgs - Current tool arguments (may be incomplete)
+     * @param {string} prettyPrintSummary - Human-readable summary
+     * @returns {string} Formatted HTML string
+     */
+    formatPendingTool(toolArgs: any, prettyPrintSummary: string): string {
+        const toolContent = `<details open>
+<summary>⏳ ${prettyPrintSummary} ...</summary>
+
+**Arguments (Streaming):**
+\`\`\`json
+${JSON.stringify(toolArgs, null, 2)}
+\`\`\`
+
+</details>`;
+        return wrapInThemedContainer(toolContent) + '\n\n';
     }
 
     /**

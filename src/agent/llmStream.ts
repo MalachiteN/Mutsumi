@@ -10,8 +10,9 @@ import { LLMClient, StreamChunk } from './llmClient';
  * @callback StreamProgressCallback
  * @param {string} content - Accumulated content from the stream
  * @param {string} reasoning - Accumulated reasoning content from the stream
+ * @param {any[]} [toolCalls] - Accumulated raw tool calls (may be partial/incomplete)
  */
-export type StreamProgressCallback = (content: string, reasoning: string) => void;
+export type StreamProgressCallback = (content: string, reasoning: string, toolCalls?: any[]) => void;
 
 /**
  * Result of a streaming response operation.
@@ -192,11 +193,6 @@ export class LLMStreamHandler {
                 progressUpdateNeeded = true;
             }
 
-            // Call progress callback if provided and update is needed
-            if (progressUpdateNeeded && onProgress) {
-                onProgress(currentRoundContent, currentReasoningContent);
-            }
-
             // Buffer tool calls from the stream
             if (chunk.tool_calls) {
                 for (const tc of chunk.tool_calls) {
@@ -211,6 +207,12 @@ export class LLMStreamHandler {
                         toolCallBuffers[idx].function.arguments += tc.function.arguments;
                     }
                 }
+                progressUpdateNeeded = true;
+            }
+
+            // Call progress callback if provided and update is needed
+            if (progressUpdateNeeded && onProgress) {
+                onProgress(currentRoundContent, currentReasoningContent, Object.values(toolCallBuffers));
             }
         }
 
