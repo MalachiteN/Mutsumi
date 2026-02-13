@@ -26,5 +26,7 @@ export const editFileFullReplaceTool: ITool = {
     },
     prettyPrint: (args: any) => {
         return `📝 Mutsumi edited ${args.uri || '(unknown file)'} (fully replace)`;
-    }
+    },
+    argsToCodeBlock: ['new_content'],
+    codeBlockFilePaths: ['uri']
 };

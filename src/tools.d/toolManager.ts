@@ -215,6 +215,21 @@ export class ToolManager {
     }
 
     /**
+     * Gets the rendering configuration for a tool.
+     * @param {string} name - Name of the tool
+     * @param {boolean} isSubAgent - Whether the caller is a sub-agent
+     * @returns {Object | undefined} The rendering configuration or undefined if tool not found
+     */
+    public getToolRenderingConfig(name: string, isSubAgent: boolean): { argsToCodeBlock?: string[], codeBlockFilePaths?: (string | undefined)[] } | undefined {
+        const tool = this.getTool(name, isSubAgent);
+        if (typeof tool === 'string') return undefined;
+        return {
+            argsToCodeBlock: tool.argsToCodeBlock,
+            codeBlockFilePaths: tool.codeBlockFilePaths
+        };
+    }
+
+    /**
      * Helper method to look up a tool by name.
      * @private
      * @param {string} name - Name of the tool

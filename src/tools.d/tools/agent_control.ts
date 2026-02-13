@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ITool, ToolContext } from '../interface';
+import { ITool, ToolContext, TerminationError } from '../interface';
 import { AgentOrchestrator } from '../../agent/agentOrchestrator';
 
 export const selfForkTool: ITool = {
@@ -97,9 +97,9 @@ export const taskFinishTool: ITool = {
         const summary = args.context_summary;
         
         AgentOrchestrator.getInstance().reportTaskFinished(myUuid, summary);
-        // Signal that the session should be terminated after this tool call
-        context.signalTermination?.();
-        return 'Task Finished. Report submitted.';
+        // Throw TerminationError to signal task completion
+        // This allows the agent runner to distinguish task completion from other terminations
+        throw new TerminationError('Task Finished. Report submitted.', 'task_finish', true);
     },
     prettyPrint: (_args: any) => {
         return `✅ Mutsumi finished task`;

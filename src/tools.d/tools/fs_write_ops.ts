@@ -97,5 +97,7 @@ export const createNewFileTool: ITool = {
     },
     prettyPrint: (args: any) => {
         return `✨ Mutsumi created file ${args.uri || '(unknown path)'}`;
-    }
+    },
+    argsToCodeBlock: ['content'],
+    codeBlockFilePaths: ['uri']
 };

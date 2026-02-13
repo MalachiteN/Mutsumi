@@ -131,7 +131,8 @@ export class AgentRunner {
                                     const rawArgs = ptc.function?.arguments || '';
                                     const args = tryParsePartialJson(rawArgs);
                                     const summary = this.tools.getPrettyPrint(toolName, args, this.isSubAgent);
-                                    pendingToolsHtml += this.uiRenderer.formatToolCall(args, summary, true);
+                                    const config = this.tools.getToolRenderingConfig(toolName, this.isSubAgent);
+                                    pendingToolsHtml += this.uiRenderer.formatToolCall(args, summary, true, undefined, config);
                                 }
                             }
                         }
@@ -215,6 +216,7 @@ export class AgentRunner {
             this.uiRenderer.commitRoundUI(roundContent, roundReasoning);
 
             let toolMessages: AgentMessage[] = [];
+            let shouldTerminate = false;
             try {
                 const result = await this.toolExecutor.executeTools(
                     execution,
@@ -226,17 +228,24 @@ export class AgentRunner {
                             await this.uiRenderer.updateOutput(execution);
                         },
                         signalTermination: () => {
-                            isTaskFinished = true;
+                            // Legacy callback - tools should throw TerminationError instead
+                            // to properly specify termination source
+                            shouldTerminate = true;
                         }
                     }
                 );
                 toolMessages = result.messages;
                 if (result.shouldTerminate) {
-                    isTaskFinished = true;
+                    shouldTerminate = true;
                 }
             } catch (err: any) {
                 if (err instanceof TerminationError) {
                     await this.uiRenderer.appendErrorUI(execution, `_⛔ ${err.message}_`);
+                    // Only mark notebook as finished if this is a successful task completion
+                    // (e.g., from task_finish tool), not if it's from edit rejection or other interruptions
+                    if (err.isTaskComplete) {
+                        isTaskFinished = true;
+                    }
                     break;
                 }
                 throw err;
