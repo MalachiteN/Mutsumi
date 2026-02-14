@@ -74,7 +74,7 @@ export class ContextAssembler {
      */
     static async prepareSkill(
         text: string,
-        workspaceRoot: string,
+        workspaceRoot: vscode.Uri,
         allowedUris: string[],
         mode: ParseMode = ParseMode.INLINE,
         collector?: ContextItem[]
@@ -136,7 +136,7 @@ export class ContextAssembler {
     /**
      * @description Assemble document with full pipeline
      * @param text - Document text to process
-     * @param workspaceRoot - Workspace root path
+     * @param workspaceRoot - Workspace root URI
      * @param allowedUris - Allowed URIs for security
      * @param mode - Parse mode (INLINE or APPEND)
      * @param collector - Optional context item collector
@@ -144,7 +144,7 @@ export class ContextAssembler {
      */
     static async assembleDocument(
         text: string,
-        workspaceRoot: string,
+        workspaceRoot: vscode.Uri,
         allowedUris: string[],
         mode: ParseMode = ParseMode.INLINE,
         collector?: ContextItem[],
@@ -165,7 +165,7 @@ export class ContextAssembler {
      */
     static async resolveContext(
         text: string,
-        workspaceRoot: string,
+        workspaceRoot: vscode.Uri,
         allowedUris: string[]
     ): Promise<ContextItem[]> {
         const collector: ContextItem[] = [];
@@ -176,14 +176,14 @@ export class ContextAssembler {
     /**
      * @description Parse references in user prompt, collect context items with macro support
      * @param text - User prompt text
-     * @param workspaceRoot - Workspace root path
+     * @param workspaceRoot - Workspace root URI
      * @param allowedUris - Allowed URIs for security
      * @param macroContext - Optional shared MacroContext
      * @returns Collected context items
      */
     static async resolveContextWithMacros(
         text: string,
-        workspaceRoot: string,
+        workspaceRoot: vscode.Uri,
         allowedUris: string[],
         macroContext?: MacroContext
     ): Promise<ContextItem[]> {
@@ -202,7 +202,7 @@ export class ContextAssembler {
     // Deprecated: Kept for compatibility if needed, but logic moved to resolveContext
     static async resolveUserPromptReferences(
         text: string,
-        workspaceRoot: string,
+        workspaceRoot: vscode.Uri,
         allowedUris: string[]
     ): Promise<string> {
         // This function is deprecated in favor of manual context assembly in history.ts
@@ -223,7 +223,7 @@ export class ContextAssembler {
 
     private static async resolveStaticIncludes(
         text: string,
-        root: string,
+        rootUri: vscode.Uri,
         allowedUris: string[],
         depth: number,
         mode: ParseMode,
@@ -261,7 +261,7 @@ export class ContextAssembler {
             } else {
                 // Static file reference
                 try {
-                    const { uri, startLine, endLine } = parseReference(content, root);
+                    const { uri, startLine, endLine } = parseReference(content, rootUri);
                     const rawContent = await readResource(uri, startLine, endLine);
                     
                     const isMd = isMarkdownFile(uri);
@@ -283,7 +283,7 @@ export class ContextAssembler {
                     if (shouldRecurse) {
                         const childResult = await this.resolveStaticIncludes(
                             processedContent,
-                            root,
+                            rootUri,
                             allowedUris,
                             depth + 1,
                             ParseMode.INLINE, // Always inline children for the content

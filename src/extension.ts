@@ -252,7 +252,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
             const name = `agent-${Date.now()}.mtm`;
             const newFileUri = vscode.Uri.joinPath(agentDir, name);
-            const initialContent = MutsumiSerializer.createDefaultContent([root.fsPath], allRules);
+            
+            // Collect all workspace root URIs in standard format (e.g., file:///c:/...)
+            const allWorkspaceUris = vscode.workspace.workspaceFolders?.map(f => f.uri.toString()) || [root.toString()];
+            const initialContent = MutsumiSerializer.createDefaultContent(allWorkspaceUris, allRules);
             
             await vscode.workspace.fs.writeFile(newFileUri, initialContent);
             await vscode.window.showNotebookDocument(
@@ -307,9 +310,35 @@ function registerCommands(context: vscode.ExtensionContext): void {
             }
 
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(targetUri);
-            let relativePath = targetUri.fsPath;
-            if (workspaceFolder) {
-                relativePath = path.relative(workspaceFolder.uri.fsPath, targetUri.fsPath).replace(/\\/g, '/');
+            if (!workspaceFolder) {
+                vscode.window.showErrorMessage('File is not in the workspace.');
+                return;
+            }
+            
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            const isMultiRoot = workspaceFolders && workspaceFolders.length > 1;
+            
+            // Calculate relative path from the workspace folder
+            const relativePath = path.relative(workspaceFolder.uri.fsPath, targetUri.fsPath).replace(/\\/g, '/');
+            
+            let refPath: string;
+            if (isMultiRoot) {
+                // In multi-root workspace, prefix with workspace folder name
+                const folderName = path.basename(workspaceFolder.uri.path);
+                refPath = `${folderName}/${relativePath}`;
+            } else {
+                // In single-root workspace, use relative path only
+                refPath = relativePath;
+            }
+
+            // Check if target is a directory, if so append trailing slash
+            try {
+                const stat = await vscode.workspace.fs.stat(targetUri);
+                if (stat.type === vscode.FileType.Directory) {
+                    refPath += '/';
+                }
+            } catch {
+                // Ignore errors (e.g., file doesn't exist)
             }
 
             let refString = '';
@@ -317,12 +346,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
             if (selection && !selection.isEmpty && !selection.isSingleLine) {
                 const start = selection.start.line + 1;
                 const end = selection.end.line + 1;
-                refString = `@[${relativePath}](${start}-${end})`;
+                refString = `@[${refPath}:${start}:${end}]`;
             } else if (selection) {
                 const line = selection.active.line + 1;
-                refString = `@[${relativePath}](${line})`;
+                refString = `@[${refPath}:${line}]`;
             } else {
-                refString = `@[${relativePath}]`;
+                refString = `@[${refPath}]`;
             }
 
             await vscode.env.clipboard.writeText(refString);

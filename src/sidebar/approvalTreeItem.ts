@@ -111,7 +111,7 @@ export class EditFileTreeItem extends vscode.TreeItem {
     constructor(
         public readonly session: EditFileSession
     ) {
-        super(session.filePath, vscode.TreeItemCollapsibleState.None);
+        super(session.uri, vscode.TreeItemCollapsibleState.None);
 
         this.description = this.formatTime(session.timestamp);
         this.tooltip = this.buildTooltip();
@@ -144,7 +144,7 @@ export class EditFileTreeItem extends vscode.TreeItem {
     private buildTooltip(): vscode.MarkdownString {
         const md = new vscode.MarkdownString();
         md.appendMarkdown(`**Edit File Session**\n\n`);
-        md.appendMarkdown(`📁 File: \`${this.session.filePath}\`\n\n`);
+        md.appendMarkdown(`📁 Uri: \`${this.session.uri}\`\n\n`);
         md.appendMarkdown(`🔧 Tool: ${this.session.toolName}\n\n`);
         md.appendMarkdown(`🕐 Started: ${this.session.timestamp.toLocaleString()}\n\n`);
         md.appendMarkdown(`Status: ${this.getStatusText()}\n\n`);

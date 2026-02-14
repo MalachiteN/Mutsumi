@@ -34,9 +34,7 @@ export const getWarningErrorTool: ITool = {
                     const stat = await vscode.workspace.fs.stat(filterUri);
                     isDirectory = (stat.type === vscode.FileType.Directory);
                 } catch (e) {
-                    // If file doesn't exist on disk (e.g. unsaved untitled file), we proceed as is.
-                    // But usually for diagnostics, the file should exist or be open.
-                    // We assume it's a file path if we can't stat it correctly or it acts as a filter.
+                    // Proceed even if stat fails (e.g. unsaved/virtual file)
                 }
             }
 
@@ -47,23 +45,28 @@ export const getWarningErrorTool: ITool = {
             const results: string[] = [];
             let totalCount = 0;
 
-            // Sort files alphabetically to ensure stable output
-            allDiagnostics.sort((a, b) => a[0].fsPath.localeCompare(b[0].fsPath));
+            // Sort by URI string for stability
+            allDiagnostics.sort((a, b) => a[0].toString().localeCompare(b[0].toString()));
 
             for (const [fileUri, diagnostics] of allDiagnostics) {
                 // Filter by Scope
                 if (filterUri) {
+                    // Check scheme match first
+                    if (fileUri.scheme !== filterUri.scheme) continue;
+                    
+                    // Simple authority check (case insensitive)
+                    if (fileUri.authority.toLowerCase() !== filterUri.authority.toLowerCase()) continue;
+
                     if (isDirectory) {
                         // Directory match: check if file is child of directory
-                        // We use fsPath normalized check provided by path.relative
-                        const relative = path.relative(filterUri.fsPath, fileUri.fsPath);
-                        // If relative path does not start with '..' and is not absolute, it is inside
-                        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+                        // Use URI path logic
+                        const filterPath = filterUri.path.endsWith('/') ? filterUri.path : filterUri.path + '/';
+                        if (!fileUri.path.startsWith(filterPath)) {
                             continue;
                         }
                     } else {
-                        // File match: exact check
-                        if (fileUri.toString() !== filterUri.toString()) {
+                        // File match: exact check (path)
+                        if (fileUri.path !== filterUri.path) {
                             continue;
                         }
                     }
@@ -89,10 +92,9 @@ export const getWarningErrorTool: ITool = {
                 for (const diag of relevantDiagnostics) {
                     totalCount++;
                     const severity = diag.severity === vscode.DiagnosticSeverity.Error ? 'Error' : 'Warning';
-                    const line = diag.range.start.line + 1; // 1-based for human readability
+                    const line = diag.range.start.line + 1; // 1-based
                     const col = diag.range.start.character + 1;
                     
-                    // Format: [Error] Line 10:15 - Message (Source)
                     let message = `[${severity}] Line ${line}:${col} - ${diag.message}`;
                     if (diag.source) {
                         message += ` (${diag.source})`;

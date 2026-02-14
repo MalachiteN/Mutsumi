@@ -26,6 +26,8 @@ export async function buildInteractionHistory(
     const allowedUris = metadata.allowed_uris || ['/'];
     const isSubAgent = !!metadata.parent_agent_id;
     const wsUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : notebook.uri;
+    
+    
 
     // Extract macro definitions from current user prompt
     const userDefinedMacros = extractMacroDefinitions(currentPrompt);
@@ -81,7 +83,7 @@ export async function buildInteractionHistory(
                 // Re-resolve to get fresh content
                 const freshItems = await ContextAssembler.resolveContextWithMacros(
                     `@[${item.key}]`,
-                    wsUri.fsPath,
+                    wsUri,
                     allowedUris,
                     sharedMacroContext
                 );
@@ -105,7 +107,7 @@ export async function buildInteractionHistory(
     // This adds any new file references or tool calls from the current user message
     const currentContext = await ContextAssembler.resolveContextWithMacros(
         currentPrompt,
-        wsUri.fsPath,
+        wsUri,
         allowedUris,
         sharedMacroContext
     );

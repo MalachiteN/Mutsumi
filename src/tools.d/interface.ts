@@ -1,30 +1,6 @@
 import * as vscode from 'vscode';
 import OpenAI from 'openai';
 
-/**
- * Error class for signaling session termination.
- * Different sources of termination have different implications:
- * - 'task_finish': Normal task completion, should mark notebook as finished
- * - 'edit_reject': User rejected an edit, should terminate but NOT mark as finished
- */
-export class TerminationError extends Error {
-    /** The source/tool that triggered the termination */
-    public source: string;
-    /** Whether this termination represents a successfully completed task */
-    public isTaskComplete: boolean;
-
-    constructor(
-        message: string = 'Execution terminated by user',
-        source: string = 'unknown',
-        isTaskComplete: boolean = false
-    ) {
-        super(message);
-        this.name = 'TerminationError';
-        this.source = source;
-        this.isTaskComplete = isTaskComplete;
-    }
-}
-
 export interface ToolContext {
     allowedUris: string[];
     notebook?: vscode.NotebookDocument;
@@ -34,9 +10,9 @@ export interface ToolContext {
     /**
      * Signal that the session should be terminated after this tool call.
      * The tool result will be added to the conversation before termination.
-     * @deprecated Use throwing TerminationError instead to specify termination source
+     * @param isTaskComplete - Whether this termination represents a successfully completed task (default: false)
      */
-    signalTermination?: () => void;
+    signalTermination?: (isTaskComplete?: boolean) => void;
 }
 
 export interface ITool {

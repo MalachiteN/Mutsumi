@@ -5,7 +5,6 @@
 
 import * as vscode from 'vscode';
 import { ToolManager } from '../tools.d/toolManager';
-import { TerminationError } from '../tools.d/interface';
 import { AgentMessage } from '../types';
 import { UIRenderer } from './uiRenderer';
 import { LLMStreamHandler } from './llmStream';
@@ -101,7 +100,6 @@ export class AgentRunner {
         const messages = [...initialMessages];
         const newMessages: AgentMessage[] = [];
         let loopCount = 0;
-        let isTaskFinished = false;
 
         while (loopCount < this.maxLoops) {
             if (execution.token.isCancellationRequested) {
@@ -215,46 +213,32 @@ export class AgentRunner {
 
             this.uiRenderer.commitRoundUI(roundContent, roundReasoning);
 
-            let toolMessages: AgentMessage[] = [];
-            let shouldTerminate = false;
-            try {
-                const result = await this.toolExecutor.executeTools(
-                    execution,
-                    toolCalls,
-                    abortController.signal,
-                    {
-                        appendOutput: async (content: string) => {
-                            this.uiRenderer.appendHtml(content);
-                            await this.uiRenderer.updateOutput(execution);
-                        },
-                        signalTermination: () => {
-                            // Legacy callback - tools should throw TerminationError instead
-                            // to properly specify termination source
-                            shouldTerminate = true;
-                        }
+            const result = await this.toolExecutor.executeTools(
+                execution,
+                toolCalls,
+                abortController.signal,
+                {
+                    appendOutput: async (content: string) => {
+                        this.uiRenderer.appendHtml(content);
+                        await this.uiRenderer.updateOutput(execution);
+                    },
+                    signalTermination: () => {
+                        // Termination handled via return values
                     }
-                );
-                toolMessages = result.messages;
-                if (result.shouldTerminate) {
-                    shouldTerminate = true;
                 }
-            } catch (err: any) {
-                if (err instanceof TerminationError) {
-                    await this.uiRenderer.appendErrorUI(execution, `_⛔ ${err.message}_`);
-                    // Only mark notebook as finished if this is a successful task completion
-                    // (e.g., from task_finish tool), not if it's from edit rejection or other interruptions
-                    if (err.isTaskComplete) {
-                        isTaskFinished = true;
-                    }
-                    break;
-                }
-                throw err;
-            }
+            );
+            const toolMessages = result.messages;
             messages.push(...toolMessages);
             newMessages.push(...toolMessages);
 
-            if (isTaskFinished) {
+            // Handle task completion (e.g., from task_finish tool)
+            if (result.isTaskComplete) {
                 await this.markNotebookAsFinished();
+                break;
+            }
+
+            // Handle other termination cases (e.g., edit rejection)
+            if (result.shouldTerminate) {
                 break;
             }
         }

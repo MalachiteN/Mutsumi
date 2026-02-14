@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { ITool, ToolContext, TerminationError } from '../interface';
+import { ITool, ToolContext } from '../interface';
 import { AgentOrchestrator } from '../../agent/agentOrchestrator';
+import { resolveUri } from '../utils';
 
 export const selfForkTool: ITool = {
     name: 'self_fork',
@@ -52,15 +53,32 @@ export const selfForkTool: ITool = {
         }
 
         try {
+            // Normalize allowed_uris to standard URI strings
+            const normalizedSubAgents = sub_agents.map((agent: any) => {
+                if (agent.allowed_uris && Array.isArray(agent.allowed_uris)) {
+                    return {
+                        ...agent,
+                        allowed_uris: agent.allowed_uris.map((u: string) => {
+                            try {
+                                return resolveUri(u).toString();
+                            } catch (e) {
+                                return u; // Fallback to original if resolve fails
+                            }
+                        })
+                    };
+                }
+                return agent;
+            });
+
             if (context.appendOutput) {
-                await context.appendOutput(`\n\n**🔄 Created ${sub_agents.length} sub-agents...**\nPlease run them manually in the sidebar or opened windows.\nWaiting for completion...`);
+                await context.appendOutput(`\n\n**🔄 Created ${normalizedSubAgents.length} sub-agents...**\nPlease run them manually in the sidebar or opened windows.\nWaiting for completion...`);
             }
 
             // This blocks until all children are finished or deleted
             const report = await AgentOrchestrator.getInstance().requestFork(
                 parentUuid, 
                 context_summary, 
-                sub_agents,
+                normalizedSubAgents,
                 context.abortSignal
             );
             
@@ -97,9 +115,13 @@ export const taskFinishTool: ITool = {
         const summary = args.context_summary;
         
         AgentOrchestrator.getInstance().reportTaskFinished(myUuid, summary);
-        // Throw TerminationError to signal task completion
-        // This allows the agent runner to distinguish task completion from other terminations
-        throw new TerminationError('Task Finished. Report submitted.', 'task_finish', true);
+        
+        // Signal task completion
+        if (context.signalTermination) {
+            context.signalTermination(true);
+        }
+        
+        return 'Task Finished. Report submitted.';
     },
     prettyPrint: (_args: any) => {
         return `✅ Mutsumi finished task`;

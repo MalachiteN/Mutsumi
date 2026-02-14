@@ -1,5 +1,5 @@
 import { ITool, ToolContext } from '../interface';
-import { resolveUri, checkAccess } from '../utils';
+import { resolveUri } from '../utils';
 import * as vscode from 'vscode';
 
 export const lsTool: ITool = {

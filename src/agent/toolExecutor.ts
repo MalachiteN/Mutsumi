@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import { ToolManager } from '../tools.d/toolManager';
-import { ToolContext, TerminationError } from '../tools.d/interface';
+import { ToolContext } from '../tools.d/interface';
 import { AgentMessage } from '../types';
 import { UIRenderer } from './uiRenderer';
 
@@ -18,6 +18,19 @@ export interface ToolExecutorCallbacks {
     appendOutput: (content: string) => Promise<void>;
     /** Signal that the task should terminate */
     signalTermination: () => void;
+}
+
+/**
+ * Result of executing tools
+ * @interface ToolExecutionResult
+ */
+export interface ToolExecutionResult {
+    /** Messages from tool executions */
+    messages: AgentMessage[];
+    /** Whether the agent should terminate */
+    shouldTerminate: boolean;
+    /** Whether this is a successful task completion (e.g., from task_finish tool) */
+    isTaskComplete: boolean;
 }
 
 /**
@@ -67,9 +80,10 @@ export class ToolExecutor {
         toolCalls: any[],
         abortSignal: AbortSignal,
         callbacks: ToolExecutorCallbacks
-    ): Promise<{ messages: AgentMessage[]; shouldTerminate: boolean }> {
+    ): Promise<ToolExecutionResult> {
         const toolMessages: AgentMessage[] = [];
         let shouldTerminate = false;
+        let isTaskComplete = false;
 
         for (const tc of toolCalls) {
             if (execution.token.isCancellationRequested) {
@@ -86,8 +100,9 @@ export class ToolExecutor {
                 execution: execution,
                 abortSignal: abortSignal,
                 appendOutput: callbacks.appendOutput,
-                signalTermination: () => {
+                signalTermination: (taskComplete = false) => {
                     shouldTerminate = true;
+                    isTaskComplete = taskComplete;
                     callbacks.signalTermination();
                 }
             };
@@ -96,9 +111,6 @@ export class ToolExecutor {
             try {
                 toolResult = await this.tools.executeTool(toolName, toolArgs, context, this.isSubAgent);
             } catch (err: any) {
-                if (err instanceof TerminationError) {
-                    throw err;
-                }
                 toolResult = `Error executing tool: ${err.message}`;
             }
 
@@ -113,7 +125,12 @@ export class ToolExecutor {
                 name: toolName,
                 content: toolResult
             });
+
+            // If termination signal received, stop processing more tools
+            if (shouldTerminate) {
+                break;
+            }
         }
-        return { messages: toolMessages, shouldTerminate };
+        return { messages: toolMessages, shouldTerminate, isTaskComplete };
     }
 }
