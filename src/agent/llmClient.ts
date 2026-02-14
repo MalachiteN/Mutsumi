@@ -228,35 +228,5 @@ export class LLMClient {
     }
 }
 
-/**
- * Factory function to create an LLMClient from VSCode configuration.
- * @description Reads the mutsumi configuration and creates a properly configured
- * LLMClient instance.
- * @param {string} [specificModel] - Optional specific model to use instead of default
- * @returns {LLMClient | undefined} Configured client or undefined if not configured
- * @example
- * const client = createLLMClientFromConfig();
- * if (client) {
- *     const result = await client.chatCompletion({ messages });
- * }
- */
-export function createLLMClientFromConfig(specificModel?: string): LLMClient | undefined {
-    const config = vscode.workspace.getConfiguration('mutsumi');
-    const apiKey = config.get<string>('apiKey');
-    const baseUrlValue = config.get<string>('baseUrl');
-    const baseUrl = baseUrlValue ? baseUrlValue : undefined;
-    const model = specificModel || config.get<string>('defaultModel') || 'gpt-3.5-turbo';
-
-    if (!apiKey) {
-        return undefined;
-    }
-
-    return new LLMClient({
-        apiKey,
-        baseUrl,
-        model
-    });
-}
-
 // Import vscode at the end to avoid circular dependency issues
 import * as vscode from 'vscode';
