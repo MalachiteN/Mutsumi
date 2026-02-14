@@ -70,7 +70,7 @@ export class SkillManager {
             
             for (const [name, type] of entries) {
                 if (type === vscode.FileType.File && name.endsWith('.skill.md')) {
-                    await this.processSkillFile(name, skillDirUri, cacheDirUri, rootPath, newSkills);
+                    await this.processSkillFile(name, skillDirUri, cacheDirUri, rootUri, newSkills);
                 }
             }
             
@@ -115,9 +115,10 @@ export class SkillManager {
         filename: string, 
         skillDirUri: vscode.Uri, 
         cacheDirUri: vscode.Uri, 
-        rootPath: string,
+        rootUri: vscode.Uri,
         targetMap: Map<string, ITool>
     ) {
+        const rootPath = rootUri.fsPath;
         const skillName = filename.replace('.skill.md', '');
         const cacheFileUri = vscode.Uri.joinPath(cacheDirUri, filename);
         const sourceFileUri = vscode.Uri.joinPath(skillDirUri, filename);
@@ -158,8 +159,8 @@ export class SkillManager {
                 // Assuming references are relative to workspace root
                 const prepared = await ContextAssembler.prepareSkill(
                     sourceContent,
-                    rootPath,
-                    [rootPath], // Allowed URIs
+                    rootUri,
+                    [rootPath], // Allowed URIs (still use fsPath for allowed URIs as they are compared against fsPath elsewhere)
                     ParseMode.INLINE
                 );
 

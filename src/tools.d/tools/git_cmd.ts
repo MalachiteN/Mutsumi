@@ -27,6 +27,11 @@ export const gitCmdTool: ITool = {
             if (!uriInput || !gitArgs) return 'Error: Missing "uri" or "args" argument.';
 
             const uri = resolveUri(uriInput);
+            
+            if (uri.scheme !== 'file') {
+                 return `Error: git_cmd only supports 'file' scheme. Current scheme: '${uri.scheme}'.`;
+            }
+
             const cwd = uri.fsPath;
             
             // Remove 'git ' prefix if model hallucinated it

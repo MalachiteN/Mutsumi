@@ -49,9 +49,14 @@ export const projectOutlineTool: ITool = {
                 try {
                     const nodes = await codebaseService.getFileOutline(fileUri);
                     if (nodes && nodes.length > 0) {
-                        const relPath = vscode.workspace.asRelativePath(fileUri);
+                        // Display relative path safely
+                        const relPath = fileUri.toString().startsWith(rootUri.toString())
+                            ? fileUri.toString().substring(rootUri.toString().length)
+                            : vscode.workspace.asRelativePath(fileUri);
+                        const cleanPath = relPath.startsWith('/') ? relPath.substring(1) : relPath;
+
                         const treeStr = codebaseService.formatOutline(nodes);
-                        return `File: ${relPath}\n${treeStr}`;
+                        return `File: ${cleanPath}\n${treeStr}`;
                     }
                 } catch (e) {
                     // Ignore parse errors

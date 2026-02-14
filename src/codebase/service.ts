@@ -154,7 +154,7 @@ export class CodebaseService {
     public async getFileOutline(uri: vscode.Uri, content?: string): Promise<OutlineNode[] | null> {
         if (!this.initialized) return null;
 
-        const ext = path.extname(uri.fsPath).toLowerCase();
+        const ext = path.extname(uri.path).toLowerCase();
         const langId = EXT_TO_LANG[ext];
         if (!langId) return null;
 
@@ -181,7 +181,7 @@ export class CodebaseService {
 
             return nodes;
         } catch (e) {
-            console.error(`Error parsing ${uri.fsPath}:`, e);
+            console.error(`Error parsing ${uri.toString()}:`, e);
             return null;
         }
     }

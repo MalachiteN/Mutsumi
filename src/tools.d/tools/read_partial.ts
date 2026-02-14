@@ -27,11 +27,9 @@ export const partiallyReadByRangeTool: ITool = {
 
             const uri = resolveUri(uriInput);
             
-            // 使用 openTextDocument 加载文档对象 (这比 raw fs 读取更安全，处理了编码和换行)
             const doc = await vscode.workspace.openTextDocument(uri);
             const lineCount = doc.lineCount;
 
-            // 修正范围，防止越界
             const start = Math.max(0, m - 1);
             const end = Math.min(lineCount - 1, n - 1);
 
@@ -39,7 +37,6 @@ export const partiallyReadByRangeTool: ITool = {
 
             const resultLines: string[] = [];
             for (let i = start; i <= end; i++) {
-                // doc.lineAt(i).text 获取该行纯文本（不含换行符）
                 resultLines.push(`${i + 1}: ${doc.lineAt(i).text}`);
             }
 
@@ -83,7 +80,6 @@ export const partiallyReadAroundKeywordTool: ITool = {
 
             const indicesToKeep = new Set<number>();
 
-            // 遍历文档行
             for (let i = 0; i < lineCount; i++) {
                 const lineText = doc.lineAt(i).text;
                 if (lineText.includes(keyword)) {

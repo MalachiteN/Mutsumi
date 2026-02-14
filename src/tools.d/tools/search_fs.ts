@@ -25,29 +25,29 @@ export const searchFileContainsKeywordTool: ITool = {
             const { uri: uriInput, keyword } = args;
             if (!uriInput || !keyword) return 'Error: Missing arguments.';
             
-            // 1. 构建 Glob Pattern
-            // 如果指定了目录，限制在该目录下；否则全工作区
             const rootUri = resolveUri(uriInput);
+            
+            // Note: workspace.findFiles works globally on the workspace if no base URI provided,
+            // or relative to workspace folders.
+            // It allows a RelativePattern to scope search.
+            // RelativePattern requires a WorkspaceFolder OR a URI base.
+            // VS Code API says: new RelativePattern(base: WorkspaceFolder | Uri | string, pattern: string)
+            
             const relativePattern = new vscode.RelativePattern(rootUri, '**/*');
 
-            // 2. 使用 findFiles 获取文件列表
-            // 这会自动遵循 .gitignore 和 files.exclude 设置
-            // maxResults 设置为 undefined (不限制) 或者一个合理的数字防止卡死
+            // 2. Use findFiles
             const files = await vscode.workspace.findFiles(relativePattern);
 
             if (files.length === 0) return 'No files found in directory.';
 
             let result = '';
             
-            // 3. 并发读取文件内容并搜索
-            // 为了避免打开过多文件句柄，这里可以简单的用 Promise.all 
-            // 如果文件极多，可能需要分批处理，但作为 Agent 工具通常范围可控
+            // 3. Concurrent Read
             const searchPromises = files.map(async (fileUri) => {
                 try {
                     const bytes = await vscode.workspace.fs.readFile(fileUri);
                     const content = new TextDecoder().decode(bytes);
                     
-                    // 简单的二进制检查
                     if (content.includes('\0')) return null;
 
                     const lines = content.split(/\r?\n/);
@@ -55,10 +55,16 @@ export const searchFileContainsKeywordTool: ITool = {
                     
                     lines.forEach((line, idx) => {
                         if (line.includes(keyword)) {
-                            const relPath = vscode.workspace.asRelativePath(fileUri);
-                            // 限制单行长度，防止极长行输出过多
+                            // Display path relative to search root
+                            const relPath = fileUri.toString().startsWith(rootUri.toString()) 
+                                ? fileUri.toString().substring(rootUri.toString().length) 
+                                : vscode.workspace.asRelativePath(fileUri);
+                            
+                            // Remove leading slash if any from simple substring
+                            const displayPath = relPath.startsWith('/') ? relPath.substring(1) : relPath;
+
                             const displayLine = line.length > 300 ? line.substring(0, 300) + '...' : line;
-                            fileResult += `${relPath}:${idx + 1}:${displayLine.trim()}\n`;
+                            fileResult += `${displayPath}:${idx + 1}:${displayLine.trim()}\n`;
                         }
                     });
                     return fileResult;
@@ -104,16 +110,20 @@ export const searchFileNameIncludesTool: ITool = {
 
             const rootUri = resolveUri(uriInput);
             
-            // 构建 Glob: **/*name_includes*
+            // Glob: **/*name_includes*
             const pattern = `**/*${name_includes}*`;
             const relativePattern = new vscode.RelativePattern(rootUri, pattern);
 
-            // 使用 VS Code API 查找
             const files = await vscode.workspace.findFiles(relativePattern, null, 200);
 
             if (files.length === 0) return 'No files found.';
 
-            return files.map(uri => vscode.workspace.asRelativePath(uri)).join('\n');
+            // Output relative paths
+            return files.map(uri => {
+                 return uri.toString().startsWith(rootUri.toString()) 
+                    ? uri.toString().substring(rootUri.toString().length + (rootUri.toString().endsWith('/') ? 0 : 1)) 
+                    : vscode.workspace.asRelativePath(uri);
+            }).join('\n');
         } catch (err: any) {
             return `Error searching filenames: ${err.message}`;
         }

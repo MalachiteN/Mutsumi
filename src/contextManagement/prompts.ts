@@ -45,7 +45,7 @@ Current Allowed URIs: ${JSON.stringify(allowedUris)}`;
 
 /**
  * @description Get rules content as structured context items
- * @param workspaceUri - Workspace root URI
+ * @param workspaceUri - Workspace root URI (must be file:// scheme)
  * @param allowedUris - List of allowed URIs for security
  * @param macroContext - Optional shared MacroContext for processing rules with user-defined macros
  * @param activeRules - Optional list of rule filenames to include. If undefined, all rules are included.
@@ -57,6 +57,11 @@ export async function getRulesContext(
     macroContext?: MacroContext,
     activeRules?: string[]
 ): Promise<ContextItem[]> {
+    // Rules are stored in local file system, ensure we have a valid path
+    if (workspaceUri.scheme !== 'file') {
+        console.warn('Rules context requires a file:// workspace URI');
+        return [];
+    }
     const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
     const items: ContextItem[] = [];
 
@@ -80,7 +85,7 @@ export async function getRulesContext(
                 const expandedContent = await withRuleParsingMode(() =>
                     ContextAssembler.assembleDocument(
                         decodedContent,
-                        workspaceUri.fsPath,
+                        workspaceUri,
                         allowedUris,
                         ParseMode.INLINE,
                         undefined,  // collector (not used here)

@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as Diff from 'diff';
 import { v4 as uuidv4 } from 'uuid';
-import { ToolContext, TerminationError } from './interface';
-import { resolveUri, checkAccess } from './utils';
+import { ToolContext } from './interface';
+import { resolveUri, checkAccess, getUriKey } from './utils';
 import { DiffReviewAgent } from './edit_codelens_provider';
 import { DiffCodeLensAction } from './edit_codelens_types';
 
@@ -16,7 +16,8 @@ import { DiffCodeLensAction } from './edit_codelens_types';
  */
 export interface EditFileSession {
     id: string;
-    filePath: string;
+    // filePath: string; // Deprecated, use displayPath or uri
+    uri: vscode.Uri;
     originalUri: vscode.Uri;
     tempUri: vscode.Uri;
     toolName: string;
@@ -35,7 +36,7 @@ interface EditTransactionState {
     backupUri: vscode.Uri;
     editUri: vscode.Uri;
     toolName: string;
-    signalTermination?: () => void;
+    signalTermination?: (isTaskComplete?: boolean) => void;
 }
 
 // ============================================================================
@@ -47,16 +48,19 @@ class TempFileHandler {
     private readonly editUri: vscode.Uri;
 
     constructor(originalUri: vscode.Uri) {
-        const filePath = originalUri.fsPath;
-        const ext = path.extname(filePath);
-        const basename = path.basename(filePath, ext);
-        const originalDir = path.dirname(filePath);
+        // Use path.posix to manipulate URI paths which always use forward slashes
+        const p = path.posix;
+        const originalPath = originalUri.path;
+        const ext = p.extname(originalPath);
+        const basename = p.basename(originalPath, ext);
+        
+        // Construct temp file URIs in the same directory using URI logic
+        // format: .<filename>.temp-backup<ext>
+        const backupName = `.${basename}.temp-backup${ext}`;
+        const editName = `.${basename}.temp-edit${ext}`;
 
-        const backupPath = path.join(originalDir, `.${basename}.temp-backup${ext}`);
-        const editPath = path.join(originalDir, `.${basename}.temp-edit${ext}`);
-
-        this.backupUri = vscode.Uri.file(backupPath);
-        this.editUri = vscode.Uri.file(editPath);
+        this.backupUri = vscode.Uri.joinPath(originalUri, '..', backupName);
+        this.editUri = vscode.Uri.joinPath(originalUri, '..', editName);
     }
 
     getBackupUri(): vscode.Uri {
@@ -141,19 +145,19 @@ class DiffEditorController {
     /**
      * Open diff editor between original and temp file
      */
-    async openDiff(originalFilePath: string, editUri: vscode.Uri, actions: DiffCodeLensAction[]): Promise<void> {
+    async openDiff(originalUri: vscode.Uri, editUri: vscode.Uri, actions: DiffCodeLensAction[]): Promise<void> {
         if (!this.diffAgent) {
             throw new Error("DiffReviewAgent not initialized");
         }
-        await this.diffAgent.compareWithTemp(originalFilePath, editUri.fsPath, actions);
+        await this.diffAgent.compareWithTemp(originalUri, editUri, actions);
     }
 
     /**
      * Clear CodeLens for a file
      */
-    clearCodeLens(filePath: string): void {
+    clearCodeLens(uri: vscode.Uri): void {
         if (this.diffAgent) {
-            this.diffAgent.codeLensProvider.clearActions(filePath);
+            this.diffAgent.codeLensProvider.clearActions(uri);
         }
     }
 
@@ -181,7 +185,7 @@ class DiffEditorController {
 }
 
 // ============================================================================
-// EditFileSessionManager - Sidebar UI state management (Legacy, kept for compatibility)
+// EditFileSessionManager - Sidebar UI state management
 // ============================================================================
 
 class EditFileSessionManager {
@@ -261,25 +265,24 @@ export const editFileSessionManager = EditFileSessionManager.getInstance();
 class EditTransaction {
     private readonly state: EditTransactionState;
     private readonly tempFileHandler: TempFileHandler;
-    private readonly filePath: string;
+    private readonly targetUri: vscode.Uri;
     private resolved = false;
 
     constructor(
-        filePath: string,
-        originalUri: vscode.Uri,
+        targetUri: vscode.Uri,
         toolName: string,
         resolve: (value: string) => void,
         reject: (reason: any) => void,
-        signalTermination?: () => void
+        signalTermination?: (isTaskComplete?: boolean) => void
     ) {
-        this.filePath = filePath;
-        this.tempFileHandler = new TempFileHandler(originalUri);
+        this.targetUri = targetUri;
+        this.tempFileHandler = new TempFileHandler(targetUri);
 
         this.state = {
             id: uuidv4(),
             resolve,
             reject,
-            originalUri,
+            originalUri: targetUri,
             backupUri: this.tempFileHandler.getBackupUri(),
             editUri: this.tempFileHandler.getEditUri(),
             toolName,
@@ -291,8 +294,8 @@ class EditTransaction {
         return this.state.id;
     }
 
-    getFilePath(): string {
-        return this.filePath;
+    getUri(): vscode.Uri {
+        return this.targetUri;
     }
 
     getEditUri(): vscode.Uri {
@@ -307,7 +310,7 @@ class EditTransaction {
 
         // Register with sidebar manager, using the transaction's id
         editFileSessionManager.addSession({
-            filePath: this.filePath,
+            uri: this.state.originalUri,
             originalUri: this.state.originalUri,
             tempUri: this.state.editUri,
             toolName: this.state.toolName
@@ -331,8 +334,8 @@ class EditTransaction {
             // Overwrite original file
             await this.tempFileHandler.overwriteOriginal(this.state.originalUri, userContentBytes);
 
-            // Generate diff
-            const fileName = path.basename(this.filePath);
+            // Generate diff for feedback
+            const fileName = path.posix.basename(this.targetUri.path);
             const patch = Diff.createTwoFilesPatch(
                 `AI_Proposal/${fileName}`,
                 `User_Edited/${fileName}`,
@@ -372,13 +375,11 @@ class EditTransaction {
         }
 
         if (reason === undefined || reason.trim() === '') {
-            // Throw TerminationError to stop the session, but mark as NOT a completed task
-            // This distinguishes edit rejection from task_finish
-            throw new TerminationError(
-                `[Rejected] The ${this.state.toolName} operation was rejected by user.`,
-                'edit_reject',
-                false  // isTaskComplete = false - this is NOT a successful task completion
-            );
+            // Signal termination if user rejected without reason (force stop)
+            if (this.state.signalTermination) {
+                this.state.signalTermination(false);
+            }
+            return `[Rejected] The ${this.state.toolName} operation was rejected by user.`;
         } else {
             return `[Rejected with Reason] The ${this.state.toolName} operation was rejected by user. Reason: ${reason}`;
         }
@@ -404,7 +405,7 @@ class EditTransaction {
         this.resolved = true;
 
         // Clear CodeLens
-        diffController.clearCodeLens(this.filePath);
+        diffController.clearCodeLens(this.targetUri);
 
         // Mark session as resolved in sidebar
         if (resolveManagerSession) {
@@ -473,7 +474,7 @@ class EditTransaction {
 
 class EditService {
     private static instance: EditService;
-    private transactions = new Map<string, EditTransaction>(); // Map<filePath, EditTransaction>
+    private transactions = new Map<string, EditTransaction>(); // Map<uriKey, EditTransaction>
     private diffController = new DiffEditorController();
     private initialized = false;
 
@@ -500,20 +501,40 @@ class EditService {
     }
 
     private registerCommands(context: vscode.ExtensionContext): void {
+        // Helper to find transaction from URI or string
+        const getTransaction = (arg: string | vscode.Uri): EditTransaction | undefined => {
+            if (arg instanceof vscode.Uri) {
+                return this.transactions.get(getUriKey(arg));
+            } else if (typeof arg === 'string') {
+                // Try resolving as URI first, or check if it matches a key
+                try {
+                     // In CodeLens arguments, we pass the originalUri as string (if json serialized) or Uri
+                     // The command argument usually comes as URI object from CodeLens if not serialized?
+                     // Actually CodeLens arguments are preserved.
+                     // But if invoked from command palette?
+                     // Let's assume it's a URI or a string path.
+                     const uri = resolveUri(arg);
+                     return this.transactions.get(getUriKey(uri));
+                } catch {
+                    return undefined;
+                }
+            }
+            return undefined;
+        };
+
         // Command: Accept
         context.subscriptions.push(
-            vscode.commands.registerCommand('diffReview.action.accept', async (filePath: string, _action: DiffCodeLensAction) => {
-                const transaction = this.transactions.get(filePath);
+            vscode.commands.registerCommand('diffReview.action.accept', async (uriArg: vscode.Uri | string, _action: DiffCodeLensAction) => {
+                const transaction = getTransaction(uriArg);
                 if (!transaction) {
                     return;
                 }
 
                 try {
                     const feedbackMsg = await transaction.accept();
-                    // Resolve first, then cleanup (cleanup sets resolved flag which would block resolve)
                     transaction.resolve(feedbackMsg);
                     await transaction.cleanup(this.diffController, true);
-                    this.transactions.delete(filePath);
+                    this.transactions.delete(getUriKey(transaction.getUri()));
                     vscode.window.showInformationMessage('Changes applied successfully.');
                 } catch (e: any) {
                     vscode.window.showErrorMessage(e.message);
@@ -523,8 +544,8 @@ class EditService {
 
         // Command: Reject
         context.subscriptions.push(
-            vscode.commands.registerCommand('diffReview.action.reject', async (filePath: string, _action: DiffCodeLensAction) => {
-                const transaction = this.transactions.get(filePath);
+            vscode.commands.registerCommand('diffReview.action.reject', async (uriArg: vscode.Uri | string, _action: DiffCodeLensAction) => {
+                const transaction = getTransaction(uriArg);
                 if (!transaction) {
                     return;
                 }
@@ -535,10 +556,9 @@ class EditService {
                 });
 
                 const feedbackMsg = await transaction.handleReject(reason);
-                // Resolve first, then cleanup (cleanup sets resolved flag which would block resolve)
                 transaction.resolve(feedbackMsg);
                 await transaction.cleanup(this.diffController, true);
-                this.transactions.delete(filePath);
+                this.transactions.delete(getUriKey(transaction.getUri()));
 
                 if (reason === undefined || reason.trim() === '') {
                     vscode.window.showInformationMessage('Changes rejected.');
@@ -552,23 +572,22 @@ class EditService {
         context.subscriptions.push(
             vscode.commands.registerCommand('mutsumi.reopenEditDiff', async (sessionId: string) => {
                 let transaction: EditTransaction | undefined;
-                let filePath: string | undefined;
 
-                for (const [fp, tx] of this.transactions.entries()) {
+                // Find by Session ID
+                for (const tx of this.transactions.values()) {
                     if (tx.getId() === sessionId) {
                         transaction = tx;
-                        filePath = fp;
                         break;
                     }
                 }
 
-                if (!transaction || !filePath) {
+                if (!transaction) {
                     vscode.window.showWarningMessage('Edit session not found or has already been resolved.');
                     return;
                 }
 
                 try {
-                    await this.diffController.openDiff(filePath, transaction.getEditUri(), transaction.getActions());
+                    await this.diffController.openDiff(transaction.getUri(), transaction.getEditUri(), transaction.getActions());
                     vscode.window.showInformationMessage('Reopened diff editor for review.');
                 } catch (e: any) {
                     vscode.window.showErrorMessage(`Failed to reopen editor: ${e.message}`);
@@ -599,14 +618,13 @@ class EditService {
             return "Error: Tool requires notebook context (interactive mode).";
         }
 
-        const filePath = uri.fsPath;
+        const uriKey = getUriKey(uri);
 
         // Cancel existing session for this file if any
-        await this.cancelExistingTransaction(filePath);
+        await this.cancelExistingTransaction(uriKey);
 
         return new Promise<string>(async (resolve, reject) => {
             const transaction = new EditTransaction(
-                filePath,
                 uri,
                 toolName,
                 resolve,
@@ -619,22 +637,22 @@ class EditService {
                 await transaction.initialize(newContent);
 
                 // Register transaction
-                this.transactions.set(filePath, transaction);
+                this.transactions.set(uriKey, transaction);
 
                 // Handle cancellation
                 if (context.abortSignal) {
                     context.abortSignal.addEventListener('abort', () => {
-                        this.handleCancellation(filePath);
+                        this.handleCancellation(uriKey);
                     });
                 }
 
                 // Open diff editor
-                await this.diffController.openDiff(filePath, transaction.getEditUri(), transaction.getActions());
+                await this.diffController.openDiff(uri, transaction.getEditUri(), transaction.getActions());
 
             } catch (e) {
                 // Cleanup on error
                 editFileSessionManager.resolveSession(transaction.getId());
-                this.transactions.delete(filePath);
+                this.transactions.delete(uriKey);
                 await transaction.cleanup(this.diffController, false);
                 reject(e);
             }
@@ -644,27 +662,26 @@ class EditService {
     /**
      * Cancel existing transaction for a file
      */
-    private async cancelExistingTransaction(filePath: string): Promise<void> {
-        const existingTx = this.transactions.get(filePath);
+    private async cancelExistingTransaction(uriKey: string): Promise<void> {
+        const existingTx = this.transactions.get(uriKey);
         if (existingTx) {
             editFileSessionManager.resolveSession(existingTx.getId());
             existingTx.reject(new Error("New edit session started for this file, overriding previous request."));
             await existingTx.cleanup(this.diffController, false);
-            this.transactions.delete(filePath);
+            this.transactions.delete(uriKey);
         }
     }
 
     /**
      * Handle transaction cancellation
      */
-    private async handleCancellation(filePath: string): Promise<void> {
-        const transaction = this.transactions.get(filePath);
+    private async handleCancellation(uriKey: string): Promise<void> {
+        const transaction = this.transactions.get(uriKey);
         if (transaction && !transaction.isResolved()) {
             const msg = transaction.cancel();
-            // Resolve first, then cleanup (cleanup sets resolved flag which would block resolve)
             transaction.resolve(msg);
             await transaction.cleanup(this.diffController, true);
-            this.transactions.delete(filePath);
+            this.transactions.delete(uriKey);
         }
     }
 }
@@ -673,16 +690,10 @@ class EditService {
 // Legacy Exports - Compatibility Adapters
 // ============================================================================
 
-/**
- * @deprecated Use EditService.initialize() instead. Kept for backward compatibility.
- */
 export function activateEditSupport(context: vscode.ExtensionContext): void {
     EditService.getInstance().initialize(context);
 }
 
-/**
- * Main entry point for edit_file tool - delegates to EditService
- */
 export async function handleEdit(
     uriInput: string,
     newContent: string,

@@ -146,26 +146,45 @@ export function extractBracketContent(text: string, start: number): { content: s
 
 /**
  * Parse a file reference string into URI and line range
+ * Supports multi-root workspace paths like "workspaceFolderName/relative/path"
+ * @param ref - Reference string, e.g., "path/to/file.ts:10:20" or "hv-paste/README.md"
+ * @param defaultUri - Default base URI for resolving relative paths (typically workspaceFolders[0].uri)
  */
-export function parseReference(ref: string, root: string): { uri: vscode.Uri, startLine?: number, endLine?: number } {
-    const parts = ref.split(':');
-    const filePath = parts[0];
+export function parseReference(ref: string, defaultUri: vscode.Uri): { uri: vscode.Uri, startLine?: number, endLine?: number } {
+    // Parse line numbers from the end, handling Windows paths like "C:/path" vs "path:10:20"
+    let filePath = ref;
     let startLine: number | undefined;
     let endLine: number | undefined;
 
-    if (parts.length > 1) startLine = parseInt(parts[1], 10);
-    if (parts.length > 2) endLine = parseInt(parts[2], 10);
-
-    let uri: vscode.Uri;
-    if (filePath.includes('://')) {
-        uri = vscode.Uri.parse(filePath);
-    } else {
-        if (path.isAbsolute(filePath)) {
-            uri = vscode.Uri.file(filePath);
+    // Parse line numbers from the right: path:start:end or path:start
+    // (References are always relative workspace paths, no Windows drive letters like C:)
+    const parts = ref.split(':');
+    if (parts.length >= 2 && /^\d+$/.test(parts[parts.length - 1])) {
+        const num = parseInt(parts.pop()!, 10);
+        if (parts.length >= 2 && /^\d+$/.test(parts[parts.length - 1])) {
+            // Two numbers: path:start:end
+            endLine = num;
+            startLine = parseInt(parts.pop()!, 10);
         } else {
-            uri = vscode.Uri.file(path.join(root, filePath));
+            // One number: path:start (single line)
+            startLine = num;
         }
+        filePath = parts.join(':');
     }
+
+    // Resolve relative path (references are always workspace-relative)
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    const firstSegment = filePath.split(/[\\/]/)[0];
+    
+    // Check for multi-root workspace format "folderName/rest/of/path"
+    const matchingFolder = workspaceFolders?.find(wf => {
+        const folderName = path.basename(wf.uri.path);
+        return folderName === firstSegment;
+    });
+
+    const uri = matchingFolder && workspaceFolders && workspaceFolders.length > 1
+        ? vscode.Uri.joinPath(matchingFolder.uri, filePath.substring(firstSegment.length + 1))
+        : vscode.Uri.joinPath(defaultUri, filePath);
 
     return { uri, startLine, endLine };
 }
@@ -200,7 +219,7 @@ export async function readResource(uri: vscode.Uri, start?: number, end?: number
  * Check if URI points to a Markdown file
  */
 export function isMarkdownFile(uri: vscode.Uri): boolean {
-    const ext = path.extname(uri.fsPath).toLowerCase();
+    const ext = path.extname(uri.path).toLowerCase();
     return ext === '.md';
 }
 
@@ -208,7 +227,7 @@ export function isMarkdownFile(uri: vscode.Uri): boolean {
  * Check if file should be recursively parsed for references
  */
 export function shouldRecurseFile(uri: vscode.Uri): boolean {
-    const ext = path.extname(uri.fsPath).toLowerCase();
+    const ext = path.extname(uri.path).toLowerCase();
     return ext === '.md' || ext === '.txt';
 }
 

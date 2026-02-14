@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as Diff from 'diff';
 import { DiffCodeLensAction, DiffContext, DiffReviewConfig } from './edit_codelens_types';
+import { getUriKey } from './utils';
 
 export class DiffReviewAgent {
   private config: DiffReviewConfig;
@@ -21,27 +22,26 @@ export class DiffReviewAgent {
   // --- Diff Mode ---
 
   async compareWithTemp(
-    originalFilePath: string,
-    tempEditPath: string,
+    originalUri: vscode.Uri,
+    tempEditUri: vscode.Uri,
     actions: DiffCodeLensAction[]
   ): Promise<void> {
     // 1. Register CodeLens actions for the temp file (diff editor right side)
-    // Use temp file path as key so CodeLens only shows on the right side
-    this.codeLensProvider.registerActions(tempEditPath, actions, [], originalFilePath);
+    // Use temp file URI as key so CodeLens only shows on the right side
+    this.codeLensProvider.registerActions(tempEditUri, actions, [], originalUri);
 
     // 2. Open Diff Editor
-    await this.openDiffEditor(originalFilePath, tempEditPath);
+    await this.openDiffEditor(originalUri, tempEditUri);
   }
 
-  private async openDiffEditor(originalPath: string, modifiedPath: string) {
-    const originalUri = vscode.Uri.file(originalPath);
-    const modifiedUri = vscode.Uri.file(modifiedPath);
-
+  private async openDiffEditor(originalUri: vscode.Uri, modifiedUri: vscode.Uri) {
+    const originalName = path.posix.basename(originalUri.path);
+    
     await vscode.commands.executeCommand(
       'vscode.diff',
       originalUri,
       modifiedUri,
-      `Diff: ${path.basename(originalPath)}`,
+      `Diff: ${originalName}`,
       { preview: false }
     );
 
@@ -57,31 +57,52 @@ export class DiffReviewAgent {
 }
 
 class CustomCodeLensProvider implements vscode.CodeLensProvider<any> {
+  // Map<UriKey, Actions[]>
   private actionMap = new Map<string, DiffCodeLensAction[]>();
-  private tempFileToOriginalMap = new Map<string, string>(); // Map temp file path to original file path
+  // Map<TempUriKey, OriginalUriKey>
+  private tempFileToOriginalMap = new Map<string, string>(); 
+  
   private onChangeEmitter = new vscode.EventEmitter<void>();
   readonly onDidChange = this.onChangeEmitter.event;
 
   constructor(private config: DiffReviewConfig) {}
 
-  registerActions(filePath: string, actions: DiffCodeLensAction[], diffPositions?: number[], originalFilePath?: string): void {
-    this.actionMap.set(filePath, actions);
-    // If original file path is provided, create mapping from temp file to original file
-    // (for looking up session later)
-    if (originalFilePath !== undefined) {
-      this.tempFileToOriginalMap.set(filePath, originalFilePath);
+  registerActions(tempUri: vscode.Uri, actions: DiffCodeLensAction[], diffPositions?: number[], originalUri?: vscode.Uri): void {
+    const tempKey = getUriKey(tempUri);
+    this.actionMap.set(tempKey, actions);
+    
+    if (originalUri) {
+      this.tempFileToOriginalMap.set(tempKey, getUriKey(originalUri));
     }
     this.onChangeEmitter.fire();
   }
 
-  clearActions(filePath: string): void {
-    this.actionMap.delete(filePath);
-    // Also clean up any temp file mappings pointing to this file
-    for (const [tempPath, origPath] of this.tempFileToOriginalMap.entries()) {
-      if (origPath === filePath) {
-        this.tempFileToOriginalMap.delete(tempPath);
+  clearActions(uri: vscode.Uri): void {
+    const key = getUriKey(uri);
+    // Note: The actions are registered on the TEMP uri, but we might call clearActions with the ORIGINAL uri from the transaction.
+    // However, the DiffEditorController.clearCodeLens is called with originalUri? 
+    // Let's check EditTransaction.cleanup: it calls clearCodeLens(this.targetUri).
+    // BUT actions are registered on tempEditUri.
+    
+    // So we need to find all temp URIs that map to this original URI and clear them.
+    const keysToRemove: string[] = [];
+    
+    for (const [tempKey, origKey] of this.tempFileToOriginalMap.entries()) {
+      if (origKey === key) {
+        keysToRemove.push(tempKey);
       }
     }
+    
+    // Also remove if the key itself matches (in case we passed temp uri)
+    if (this.actionMap.has(key)) {
+        keysToRemove.push(key);
+    }
+
+    keysToRemove.forEach(k => {
+        this.actionMap.delete(k);
+        this.tempFileToOriginalMap.delete(k);
+    });
+
     this.onChangeEmitter.fire();
   }
 
@@ -89,30 +110,33 @@ class CustomCodeLensProvider implements vscode.CodeLensProvider<any> {
     document: vscode.TextDocument,
     token: vscode.CancellationToken
   ): vscode.ProviderResult<any[]> {
-    // Check if this is the original file that has a corresponding temp file
-    // (i.e., it's the left side of a diff editor - don't show CodeLens there)
-    const isOriginalWithTempFile = Array.from(this.tempFileToOriginalMap.values()).includes(document.fileName);
+    const docKey = getUriKey(document.uri);
+
+    // Check if this document is an original file that has a corresponding temp file active
+    // We don't want to show CodeLens on the left side of the diff (the original file)
+    const isOriginalWithTempFile = Array.from(this.tempFileToOriginalMap.values()).includes(docKey);
     if (isOriginalWithTempFile) {
       return [];
     }
 
-    // Look up actions by document.fileName
-    let actions = this.actionMap.get(document.fileName);
-    
+    // Look up actions
+    let actions = this.actionMap.get(docKey);
     if (!actions) {
       return [];
     }
 
-    // Determine the original file path for command arguments
-    // If this is a temp file, use the mapped original path; otherwise use document's path
-    const originalFilePath = this.tempFileToOriginalMap.get(document.fileName) || document.fileName;
-    const codeLenses: vscode.CodeLens[] = [];
+    // Determine the original URI for command arguments
+    // If this is a temp file, use the mapped original URI; otherwise use document's URI
+    // The command handler expects the URI of the file being edited (the "Subject" of the transaction)
+    // In our transaction model, the subject is the ORIGINAL uri.
+    const originalKey = this.tempFileToOriginalMap.get(docKey) || docKey;
+    const originalUri = vscode.Uri.parse(originalKey); // This works because getUriKey uses toString()
 
+    const codeLenses: vscode.CodeLens[] = [];
     if (actions.length === 0) {
       return codeLenses;
     }
 
-    // Place CodeLens at the top of the file
     const range = new vscode.Range(0, 0, 0, 0);
     actions.forEach((action) => {
       const codeLens = new vscode.CodeLens(range);
@@ -120,8 +144,8 @@ class CustomCodeLensProvider implements vscode.CodeLensProvider<any> {
         title: action.label,
         command: `diffReview.action.${action.id}`,
         tooltip: action.tooltip,
-        // Use originalFilePath for session lookup
-        arguments: [originalFilePath, action]
+        // Pass originalUri to command so it can look up the transaction
+        arguments: [originalUri, action]
       };
       codeLenses.push(codeLens);
     });

@@ -29,7 +29,25 @@ export const shellExecTool: ITool = {
             if (!uriInput || !cmd) return 'Error: Missing "uri" or "cmd" argument.';
 
             const uri = resolveUri(uriInput);
-            const cwd = uri.fsPath;
+
+            // Check capability: Shell execution is only possible if the URI maps to a file system
+            // capable of spawning processes via child_process.
+            // Locally: 'file' scheme -> OK.
+            // Remote: 'vscode-remote' scheme -> The extension host runs remotely, so 'file' scheme there is fine.
+            // But if we are in a virtual fs (e.g. 'memfs', 'ftp', 'github'), child_process won't work on that path.
+            
+            // Note: resolveUri might return a URI with a custom scheme.
+            // If scheme is NOT 'file' (and not 'vscode-remote' which usually appears as 'file' inside the ext host?),
+            // we should warn or block.
+            // Actually, in remote dev, workspace URI is 'file://' BUT it maps to remote OS. 
+            // So check generally passes. 
+            // If it is 'ssh://...' or 'ftp://...' handled by FileSystemProvider, child_process cannot set CWD to it.
+            
+            if (uri.scheme !== 'file') {
+                return `Error: shell_exec only supports 'file' scheme (local or remote OS file system). Current scheme: '${uri.scheme}'. virtual file systems do not support shell execution.`;
+            }
+
+            const cwd = uri.fsPath; // Safe to use fsPath here because we confirmed scheme is file
             const shellName = shellPath ? path.basename(shellPath) : 'System Default Shell';
 
             // User Approval via sidebar

@@ -84,15 +84,12 @@ export const createNewFileTool: ITool = {
                 return 'User rejected the operation.';
             }
 
-            // 如果经过的路径不存在，工具调用失败
-            // This implies we do NOT do mkdir -p for the file parent. 
-            // We just try to write.
             const encoded = new TextEncoder().encode(content);
             await vscode.workspace.fs.writeFile(uri, encoded);
 
             return `File created successfully: ${uriInput}`;
         } catch (err: any) {
-            return `Error creating file (Parent dir might not exist): ${err.message}`;
+            return `Error creating file: ${err.message}`;
         }
     },
     prettyPrint: (args: any) => {
