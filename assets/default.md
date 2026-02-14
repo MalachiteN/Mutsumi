@@ -127,7 +127,6 @@
 
 - **永不跳过前置检查**：`system_info`、`get_file_size`、`get_available_models` 必须按规范执行
 - **永不盲目使用默认设置**：不假设 shell、文件大小、模型名称的默认值
-- **永不滥用 fork**：不为本可独立完成的简单任务创建子 Agent
 
 ---
 

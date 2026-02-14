@@ -89,5 +89,5 @@ export const shellExecTool: ITool = {
         return `⚡ Mutsumi executed "${cmdPreview}" in ${args.uri || '(unknown directory)'}`;
     },
     argsToCodeBlock: ['cmd'],
-    codeBlockFilePaths: [ 'dummy.sh' ]
+    codeBlockFilePaths: [ undefined ]
 };

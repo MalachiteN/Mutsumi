@@ -90,7 +90,9 @@ export const selfForkTool: ITool = {
     prettyPrint: (args: any) => {
         const agentCount = args.sub_agents?.length || 0;
         return `🍴 Mutsumi forked into ${agentCount} sub-agent${agentCount !== 1 ? 's' : ''}`;
-    }
+    },
+    argsToCodeBlock: [ 'sub_agents' ],
+    codeBlockFilePaths: [ undefined ]
 };
 
 export const taskFinishTool: ITool = {
@@ -125,7 +127,9 @@ export const taskFinishTool: ITool = {
     },
     prettyPrint: (_args: any) => {
         return `✅ Mutsumi finished task`;
-    }
+    },
+    argsToCodeBlock: [ 'context_summary' ],
+    codeBlockFilePaths: [ undefined ]
 };
 
 export const getAvailableModelsTool: ITool = {
