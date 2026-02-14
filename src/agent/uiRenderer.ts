@@ -5,6 +5,8 @@
 
 import * as vscode from 'vscode';
 import { wrapInThemedContainer, getLanguageIdentifier } from '../utils';
+import { tryParsePartialJson } from './utils';
+import { ToolManager } from '../tools.d/toolManager';
 
 /**
  * Handles UI rendering and output management for agent execution.
@@ -106,6 +108,40 @@ export class UIRenderer {
     ): Promise<void> {
         this.committedUiHtml += `\n\n${message}\n\n`;
         await this.updateOutput(execution);
+    }
+
+    /**
+     * Formats pending (streaming) tool calls as an HTML string.
+     * @description Iterates through partial tool calls, parses their arguments,
+     * retrieves pretty print summaries and rendering configs, and generates
+     * HTML for each pending tool call.
+     * @param {any[]} partialToolCalls - Array of partial tool call objects
+     * @param {ToolManager} tools - Tool manager instance for looking up tool metadata
+     * @param {boolean} isSubAgent - Whether the caller is a sub-agent
+     * @returns {string} Formatted HTML string containing all pending tool calls
+     */
+    public formatPendingToolCalls(
+        partialToolCalls: any[] | undefined,
+        tools: ToolManager,
+        isSubAgent: boolean
+    ): string {
+        if (!partialToolCalls || partialToolCalls.length === 0) {
+            return '';
+        }
+
+        let pendingToolsHtml = '';
+        for (const ptc of partialToolCalls) {
+            const toolName = ptc.function?.name;
+            if (!toolName) { continue; }
+
+            const args = tryParsePartialJson(ptc.function?.arguments);
+            const summary = tools.getPrettyPrint(toolName, args, isSubAgent);
+            const config = tools.getToolRenderingConfig(toolName, isSubAgent);
+
+            pendingToolsHtml += this.formatToolCall(args, summary, true, undefined, config);
+        }
+
+        return pendingToolsHtml;
     }
 
     /**

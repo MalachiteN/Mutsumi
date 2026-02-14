@@ -11,7 +11,6 @@ import { LLMStreamHandler } from './llmStream';
 import { ToolExecutor } from './toolExecutor';
 import { TitleGenerator } from './titleGenerator';
 import { LLMClient } from './llmClient';
-import { tryParsePartialJson } from './utils';
 
 /**
  * Options for configuring the agent runner.
@@ -121,19 +120,11 @@ export class AgentRunner {
                             return;
                         }
 
-                        let pendingToolsHtml = '';
-                        if (partialToolCalls && partialToolCalls.length > 0) {
-                            for (const ptc of partialToolCalls) {
-                                const toolName = ptc.function?.name;
-                                if (toolName) {
-                                    const rawArgs = ptc.function?.arguments || '';
-                                    const args = tryParsePartialJson(rawArgs);
-                                    const summary = this.tools.getPrettyPrint(toolName, args, this.isSubAgent);
-                                    const config = this.tools.getToolRenderingConfig(toolName, this.isSubAgent);
-                                    pendingToolsHtml += this.uiRenderer.formatToolCall(args, summary, true, undefined, config);
-                                }
-                            }
-                        }
+                        const pendingToolsHtml = this.uiRenderer.formatPendingToolCalls(
+                            partialToolCalls,
+                            this.tools,
+                            this.isSubAgent
+                        );
 
                         void this.uiRenderer.renderUI(execution, content, reasoning, pendingToolsHtml);
                     }
