@@ -2,13 +2,13 @@ import * as vscode from 'vscode';
 import { AgentMessage, AgentMetadata, MessageContent, ContextItem } from '../types';
 import { getSystemPrompt, getRulesContext } from './prompts';
 import { ContextAssembler } from './contextAssembler';
-import { MacroContext, extractMacroDefinitions } from './preprocessor';
 import {
     getLanguageIdentifier,
     readImageAsBase64,
     parseUserMessageWithImages,
     stripGhostBlock,
-    GHOST_BLOCK_MARKER
+    GHOST_BLOCK_MARKER,
+    extractMacroDefinitions
 } from './utils';
 
 /**
@@ -27,24 +27,6 @@ export async function buildInteractionHistory(
     const isSubAgent = !!metadata.parent_agent_id;
     const wsUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : notebook.uri;
     
-    
-
-    // Extract macro definitions from current user prompt
-    const userDefinedMacros = extractMacroDefinitions(currentPrompt);
-
-    // Create shared MacroContext and populate with persisted macros
-    const sharedMacroContext = new MacroContext();
-
-    // Load persisted macros from notebook metadata (if any)
-    if (metadata.macroContext) {
-        sharedMacroContext.setMacros(metadata.macroContext);
-    }
-
-    // Override/add with user-defined macros from current prompt
-    userDefinedMacros.forEach((value, key) => {
-        sharedMacroContext.define(key, value);
-    });
-
     // 1. Static System Prompt
     const systemPromptContent = await getSystemPrompt(wsUri, allowedUris, isSubAgent);
     messages.push({
@@ -68,6 +50,9 @@ export async function buildInteractionHistory(
         }
     };
 
+    // Extract macros from current prompt
+    const macros = extractMacroDefinitions(currentPrompt);
+
     // Note: Rules are NOT stored in contextMap and NOT persisted.
     // They will be fetched dynamically at runtime when assembling the ghost block.
 
@@ -80,12 +65,13 @@ export async function buildInteractionHistory(
         // We only persist files. Rules and tools are not persisted.
         if (item.type === 'file') {
             try {
-                // Re-resolve to get fresh content, passing shared macro context
+                // Re-resolve to get fresh content
+                // Pass current macros to ensure file is preprocessed correctly according to current context
                 const freshItems = await ContextAssembler.resolveContext(
                     `@[${item.key}]`,
                     wsUri,
                     allowedUris,
-                    sharedMacroContext
+                    macros
                 );
                 if (freshItems.length > 0) {
                     // Update content in map
@@ -105,12 +91,12 @@ export async function buildInteractionHistory(
 
     // 2b. Parse Current Prompt for NEW Context
     // This adds any new file references or tool calls from the current user message
-    // Pass shared macro context so user-defined macros are available in included files
+    // We pass macros explicitly, although resolveContext would extract them anyway from currentPrompt.
     const currentContext = await ContextAssembler.resolveContext(
         currentPrompt,
         wsUri,
         allowedUris,
-        sharedMacroContext
+        macros
     );
     mergeItems(currentContext);
 
@@ -126,8 +112,7 @@ export async function buildInteractionHistory(
     const edit = new vscode.WorkspaceEdit();
     const newMetadata = {
         ...metadata,
-        contextItems: newContextItems,
-        macroContext: sharedMacroContext.getMacrosObject()
+        contextItems: newContextItems
     };
     const notebookEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
     edit.set(notebook.uri, [notebookEdit]);
@@ -166,7 +151,7 @@ export async function buildInteractionHistory(
     
     // Fetch rules dynamically at runtime (not persisted, not in contextMap)
     const activeRules = metadata.activeRules;
-    const rulesItems = await getRulesContext(wsUri, allowedUris, activeRules);
+    const rulesItems = await getRulesContext(wsUri, allowedUris, activeRules, macros);
     
     if (contextList.length > 0 || rulesItems.length > 0) {
         // Build Markdown formatted context block

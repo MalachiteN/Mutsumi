@@ -47,12 +47,14 @@ Current Allowed URIs: ${JSON.stringify(allowedUris)}`;
  * @param workspaceUri - Workspace root URI (must be file:// scheme)
  * @param allowedUris - List of allowed URIs for security
  * @param activeRules - Optional list of rule filenames to include. If undefined, all rules are included.
+ * @param context - Optional context object for macro definitions
  * @returns Array of context items representing rules
  */
 export async function getRulesContext(
     workspaceUri: vscode.Uri, 
     allowedUris: string[],
-    activeRules?: string[]
+    activeRules?: string[],
+    context?: Record<string, any>
 ): Promise<ContextItem[]> {
     // Rules are stored in local file system, ensure we have a valid path
     if (workspaceUri.scheme !== 'file') {
@@ -85,7 +87,8 @@ export async function getRulesContext(
                         workspaceUri,
                         allowedUris,
                         ParseMode.INLINE,
-                        undefined  // collector (not used here)
+                        undefined, // collector
+                        context    // pass macros
                     )
                 );
 

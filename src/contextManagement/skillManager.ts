@@ -4,9 +4,7 @@ const matter = require('gray-matter');
 import { ITool, ToolContext } from '../tools.d/interface';
 import { ContextAssembler } from './contextAssembler';
 import { TextDecoder, TextEncoder } from 'util';
-
-// Import new Preprocessor and MacroScope (assumed to be implemented by Sub-Agent 1)
-import { Preprocessor, MacroScope } from './preprocessor';
+import * as pp from 'preprocess';
 
 export class SkillManager {
     private static instance: SkillManager;
@@ -141,13 +139,13 @@ export class SkillManager {
                 description = parsed.data?.Description || '';
                 params = parsed.data?.Params || [];
 
-                // Create cache file with front-matter and @[source_file_uri] reference
+                // Create cache file with front-matter and @[...] reference
                 const cacheData = {
                     Description: description,
                     Params: params
                 };
                 
-                // Cache content: front-matter + @[source_file_uri]
+                // Cache content: front-matter + @[...]
                 const cacheContent = `@[${sourceFileUri.toString()}]`;
                 const cacheFileContent = matter.stringify(cacheContent, cacheData);
                 
@@ -195,9 +193,9 @@ export class SkillManager {
                     }
                 }
             },
-            execute: async (args: any, context: ToolContext) => {
+            execute: async (args: any, contextData: ToolContext) => {
                 try {
-                    // 1. Read cache file, extract @[source_file_uri] to get source file path
+                    // 1. Read cache file, extract @[...] to get source file path
                     const bytes = await vscode.workspace.fs.readFile(cacheUri);
                     const cacheContent = new TextDecoder().decode(bytes);
                     const parsedCache = matter(cacheContent);
@@ -217,35 +215,29 @@ export class SkillManager {
                     const parsedSource = matter(sourceContent);
                     const body = parsedSource.content;
 
-                    // 3. Build Global Scope and inject parameters
-                    const defines: string[] = [];
+                    // 3. Build context object with parameters for preprocess library
+                    const context: Record<string, any> = {};
                     for (const param of params) {
                         const val = args[param] !== undefined ? args[param] : '';
-                        const escapedVal = String(val).replace(/"/g, '\\"');
-                        defines.push(`@{define ${param}, "${escapedVal}"}`);
+                        context[param] = String(val);
                     }
-                    const definesText = defines.join('\n');
 
-                    // 4. Create readFile function for Preprocessor
-                    const readFile = async (uri: vscode.Uri): Promise<string> => {
-                        const bytes = await vscode.workspace.fs.readFile(uri);
-                        return new TextDecoder().decode(bytes);
-                    };
+                    // 4. Call preprocess.preprocess(source, context, options)
+                    const result = pp.preprocess(body, context, { type: 'js' });
 
-                    // 5. Call new async Preprocessor
-                    const rootUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : sourceFileUri;
-                    const preprocessor = new Preprocessor(
-                        readFile,
-                        rootUri,
-                        sourceFileUri,
-                        undefined  // Global Scope has no parent scope
-                    );
-                    const { result } = await preprocessor.process(definesText + '\n' + body);
-
-                    // 6. Call ContextAssembler.resolveDynamicTools(result)
+                    // 5. Call ContextAssembler.assembleDocument(result) to resolve nested tools AND file references
                     const workspaceFolders = vscode.workspace.workspaceFolders;
+                    const rootUri = workspaceFolders ? workspaceFolders[0].uri : vscode.Uri.file('/');
                     const allowedUris = workspaceFolders ? [workspaceFolders[0].uri.fsPath] : [];
-                    const finalResult = await ContextAssembler.resolveDynamicTools(result, allowedUris);
+                    
+                    const finalResult = await ContextAssembler.assembleDocument(
+                        result,
+                        rootUri,
+                        allowedUris,
+                        undefined, // Default ParseMode.INLINE
+                        undefined, // No collector
+                        context    // Pass context for macros
+                    );
 
                     return finalResult.trim();
                 } catch (e: any) {
