@@ -1,12 +1,11 @@
 import * as vscode from 'vscode';
 const matter = require('gray-matter');
-import { Preprocessor, MacroContext } from './preprocessor';
+import { Preprocessor, MacroScope } from './preprocessor';
 import {
     extractBracketContent,
     parseReference,
     readResource,
     isMarkdownFile,
-    shouldRecurseFile,
     executeToolCall
 } from './utils';
 
@@ -21,33 +20,8 @@ export enum ParseMode {
     APPEND = 'APPEND'
 }
 
-// ContextItem is now defined in types.ts
 import { ContextItem } from '../types';
 export { ContextItem };
-
-/**
- * Result of parsing static includes
- * @description Contains the parsed content and collected front matter params
- */
-interface StaticIncludeResult {
-    /** Parsed content with includes resolved */
-    content: string;
-    /** Collected Params from all Markdown files' front matter */
-    params: string[];
-}
-
-/**
- * Result of prepareSkill
- * @description Contains the final content, description from top-level file, and merged params
- */
-interface PrepareSkillResult {
-    /** Assembled content */
-    content: string;
-    /** Description from the top-level Markdown file's front matter (empty string if not found) */
-    description: string;
-    /** All collected and deduplicated Params from all levels */
-    params: string[];
-}
 
 /**
  * Context Assembler Class
@@ -56,91 +30,13 @@ interface PrepareSkillResult {
 export class ContextAssembler {
 
     /**
-     * @description Run preprocessor to process @{...} syntax
-     * @param text - Text to preprocess
-     * @param macroContext - Optional external MacroContext to use (for sharing macros across files)
-     */
-    static preprocess(text: string, macroContext?: MacroContext): string {
-        if (!text.includes('@{')) {
-            return text;
-        }
-        const preprocessor = new Preprocessor(macroContext);
-        const { result: preprocessedText } = preprocessor.process(text);
-        return preprocessedText;
-    }
-
-    /**
-     * @description Parse and resolve static file references @[path] and dynamic tool calls @[tool]
-     */
-    static async prepareSkill(
-        text: string,
-        workspaceRoot: vscode.Uri,
-        allowedUris: string[],
-        mode: ParseMode = ParseMode.INLINE,
-        collector?: ContextItem[]
-    ): Promise<PrepareSkillResult> {
-        // Step 0: Parse top-level front matter
-        let content = text;
-        let description = '';
-        let topLevelParams: string[] = [];
-
-        try {
-            if (text.startsWith('---')) {
-                const parsed = matter(text);
-                content = parsed.content;
-                if (parsed.data) {
-                    if (typeof parsed.data.Description === 'string') {
-                        description = parsed.data.Description;
-                    }
-                    if (Array.isArray(parsed.data.Params)) {
-                        topLevelParams = parsed.data.Params.filter((p: any) => typeof p === 'string');
-                    }
-                }
-            }
-        } catch (e) {
-            console.error('Error parsing top-level front matter:', e);
-        }
-
-        if (!content.includes('@[')) {
-            return { content: content, description, params: topLevelParams };
-        }
-
-        // Step 1: Recursively resolve all static file references (flatten)
-        const staticResult = await this.resolveStaticIncludes(
-            content,
-            workspaceRoot,
-            allowedUris,
-            0,
-            mode,
-            collector
-        );
-
-        // Step 2: Resolve all dynamic tool calls in the flattened text
-        const resolvedText = await this.resolveDynamicTools(
-            staticResult.content,
-            allowedUris,
-            mode,
-            collector
-        );
-
-        // Merge and deduplicate params
-        const allParams = [...topLevelParams, ...staticResult.params];
-        const uniqueParams = [...new Set(allParams)];
-
-        if (mode === ParseMode.APPEND) {
-            return { content: text, description, params: uniqueParams };
-        }
-        return { content: resolvedText, description, params: uniqueParams };
-    }
-
-    /**
      * @description Assemble document with full pipeline
      * @param text - Document text to process
      * @param workspaceRoot - Workspace root URI
      * @param allowedUris - Allowed URIs for security
      * @param mode - Parse mode (INLINE or APPEND)
      * @param collector - Optional context item collector
-     * @param macroContext - Optional shared MacroContext for cross-file macro definitions
+     * @param scope - Optional macro scope for passing macro definitions
      */
     static async assembleDocument(
         text: string,
@@ -148,69 +44,46 @@ export class ContextAssembler {
         allowedUris: string[],
         mode: ParseMode = ParseMode.INLINE,
         collector?: ContextItem[],
-        macroContext?: MacroContext
+        scope?: MacroScope
     ): Promise<string> {
-        // Step 1: Run preprocessor
-        text = this.preprocess(text, macroContext);
+        // Step 1: Resolve static includes (@[path] without {args})
+        // This now calls Preprocessor which handles recursive processing
+        let result = await this.resolveStaticIncludes(text, workspaceRoot, allowedUris, mode, collector, scope);
 
-        // Step 2: Run prepareSkill
-        const result = await this.prepareSkill(text, workspaceRoot, allowedUris, mode, collector);
+        // Step 2: Resolve dynamic tools (@[tool{...}])
+        result = await this.resolveDynamicTools(result, allowedUris, mode, collector);
         
-        return result.content;
+        return result;
     }
 
     /**
      * @description Parse references in user prompt, collect context items
+     * @param text - User prompt text
+     * @param workspaceRoot - Workspace root URI
+     * @param allowedUris - Allowed URIs for security
+     * @param scope - Optional macro scope for passing macro definitions
      * @returns {Promise<ContextItem[]>} Collected context items
      */
     static async resolveContext(
         text: string,
         workspaceRoot: vscode.Uri,
-        allowedUris: string[]
-    ): Promise<ContextItem[]> {
-        const collector: ContextItem[] = [];
-        await this.assembleDocument(text, workspaceRoot, allowedUris, ParseMode.APPEND, collector);
-        return collector;
-    }
-
-    /**
-     * @description Parse references in user prompt, collect context items with macro support
-     * @param text - User prompt text
-     * @param workspaceRoot - Workspace root URI
-     * @param allowedUris - Allowed URIs for security
-     * @param macroContext - Optional shared MacroContext
-     * @returns Collected context items
-     */
-    static async resolveContextWithMacros(
-        text: string,
-        workspaceRoot: vscode.Uri,
         allowedUris: string[],
-        macroContext?: MacroContext
+        scope?: MacroScope
     ): Promise<ContextItem[]> {
         const collector: ContextItem[] = [];
-        await this.assembleDocument(
-            text,
-            workspaceRoot,
-            allowedUris,
-            ParseMode.APPEND,
-            collector,
-            macroContext
-        );
+        await this.assembleDocument(text, workspaceRoot, allowedUris, ParseMode.APPEND, collector, scope);
         return collector;
     }
 
-    // Deprecated: Kept for compatibility if needed, but logic moved to resolveContext
+    // Deprecated: Kept for compatibility if needed
     static async resolveUserPromptReferences(
         text: string,
         workspaceRoot: vscode.Uri,
         allowedUris: string[]
     ): Promise<string> {
-        // This function is deprecated in favor of manual context assembly in history.ts
-        // But to keep signature valid:
         const collector = await this.resolveContext(text, workspaceRoot, allowedUris);
         if (collector.length === 0) return '';
         
-        // Convert collector back to string format (legacy behavior)
         return ['### User Provided Context References:', '', ...collector.map(item => {
             if (item.type === 'file') {
                 return `#### Source: ${item.key}\n\n\`\`\`\n${item.content}\n\`\`\``;
@@ -221,21 +94,31 @@ export class ContextAssembler {
         })].join('\n');
     }
 
-    private static async resolveStaticIncludes(
+    /**
+     * @description Resolve static file references @[path]
+     * Called at User Prompt level. When it encounters @[path] (without {), it:
+     * 1. Reads the file
+     * 2. Uses that file as root to call Preprocessor.process
+     * Recursive resolution is now handled by Preprocessor
+     */
+    static async resolveStaticIncludes(
         text: string,
         rootUri: vscode.Uri,
         allowedUris: string[],
-        depth: number,
         mode: ParseMode,
-        collector?: ContextItem[]
-    ): Promise<StaticIncludeResult> {
-        if (depth > 20) return { content: text, params: [] };
-        if (!text.includes('@[')) return { content: text, params: [] };
+        collector?: ContextItem[],
+        scope?: MacroScope
+    ): Promise<string> {
+        if (!text.includes('@[')) return text;
 
         let result = '';
         let lastIndex = 0;
-        let hasChanges = false;
-        const allParams: string[] = [];
+
+        // Create readFile function for Preprocessor
+        const readFile = async (uri: vscode.Uri): Promise<string> => {
+            const bytes = await vscode.workspace.fs.readFile(uri);
+            return new TextDecoder().decode(bytes);
+        };
 
         let i = 0;
         while (i < text.length) {
@@ -256,68 +139,68 @@ export class ContextAssembler {
             const braceStart = content.indexOf('{');
 
             if (braceStart !== -1) {
-                // Tool call, preserve for dynamic parsing
-                result += text.substring(start, endIdx + 1);
+                // This might be a tool call, but we need to preprocess it first
+                // to expand any @{recall ...} or other macro commands in the arguments
+                const preprocessor = new Preprocessor(readFile, rootUri, rootUri, scope); // tool call context has no specific file, use root
+                const { result: processedContent } = await preprocessor.process(content);
+                
+                // After preprocessing, if it still looks like a tool call (contains {), preserve it
+                // Otherwise, it might have been transformed into something else
+                if (processedContent.includes('{')) {
+                    result += '@[' + processedContent + ']';
+                } else {
+                    // It was transformed into a file path or something else, treat as include
+                    try {
+                        const { uri, startLine, endLine } = parseReference(processedContent, rootUri);
+                        const rawContent = await readResource(uri, startLine, endLine);
+                        const childPreprocessor = new Preprocessor(readFile, rootUri, uri, scope);
+                        const { result: rawProcessed } = await childPreprocessor.process(rawContent);
+                        // Resolve dynamic tools within the file content
+                        const finalContent = await this.resolveDynamicTools(rawProcessed, allowedUris, ParseMode.INLINE, undefined);
+                        
+                        if (mode === ParseMode.INLINE) {
+                            result += finalContent;
+                        } else {
+                            if (collector) {
+                                collector.push({ type: 'file', key: processedContent, content: finalContent });
+                            }
+                            result += '@[' + processedContent + ']';
+                        }
+                    } catch (e) {
+                        result += `> Error including ${processedContent}: ${(e as Error).message}`;
+                    }
+                }
             } else {
-                // Static file reference
+                // Static file reference @[path]
                 try {
                     const { uri, startLine, endLine } = parseReference(content, rootUri);
+                    
+                    // Read file content
                     const rawContent = await readResource(uri, startLine, endLine);
-                    
-                    const isMd = isMarkdownFile(uri);
-                    let fileParams: string[] = [];
-                    let processedContent = rawContent;
 
-                    if (isMd) {
-                        const parsed = matter(rawContent);
-                        processedContent = parsed.content;
-                        if (parsed.data && Array.isArray(parsed.data.Params)) {
-                            fileParams = parsed.data.Params.filter((p: any) => typeof p === 'string');
-                        }
-                    }
+                    // Create Preprocessor with this file as root
+                    // The Preprocessor will handle recursive includes and macro processing
+                    // Pass the scope to inherit macro definitions from parent context
+                    const preprocessor = new Preprocessor(readFile, rootUri, uri, scope);
+                    const { result: rawProcessed, warnings } = await preprocessor.process(rawContent);
 
-                    const shouldRecurse = shouldRecurseFile(uri);
-                    let flattenedContent: string;
-                    let childParams: string[] = [];
-                    
-                    if (shouldRecurse) {
-                        const childResult = await this.resolveStaticIncludes(
-                            processedContent,
-                            rootUri,
-                            allowedUris,
-                            depth + 1,
-                            ParseMode.INLINE, // Always inline children for the content
-                            undefined
-                        );
-                        flattenedContent = childResult.content;
-                        childParams = childResult.params;
-                    } else {
-                        flattenedContent = processedContent;
-                    }
-
-                    const mergedParams = [...fileParams, ...childParams];
-                    allParams.push(...mergedParams);
-
-                    // When appending, we want the FULL resolved content of the file
-                    // which means any tools inside it should also be resolved.
-                    const resolvedContent = await this.resolveDynamicTools(flattenedContent, allowedUris, ParseMode.INLINE);
+                    // Resolve dynamic tools within the file content
+                    const finalContent = await this.resolveDynamicTools(rawProcessed, allowedUris, ParseMode.INLINE, undefined);
 
                     if (mode === ParseMode.INLINE) {
-                        result += resolvedContent;
+                        result += finalContent;
                     } else {
                         // Append to collector
                         if (collector) {
                             collector.push({
                                 type: 'file',
                                 key: content,
-                                content: resolvedContent
+                                content: finalContent
                             });
                         }
                         // Keep original tag in text
                         result += text.substring(start, endIdx + 1);
                     }
-
-                    hasChanges = true;
                 } catch (e) {
                     const errorMessage = `> Error including ${content}: ${(e as Error).message}`;
                     if (mode === ParseMode.INLINE) {
@@ -339,22 +222,17 @@ export class ContextAssembler {
             i = lastIndex;
         }
 
-        const uniqueParams = [...new Set(allParams)];
-
-        if (mode === ParseMode.APPEND) {
-            return { content: text, params: uniqueParams };
-        }
-
-        return { 
-            content: hasChanges ? result : text, 
-            params: uniqueParams
-        };
+        return result;
     }
 
-    private static async resolveDynamicTools(
+    /**
+     * @description Resolve dynamic tool calls @[tool{...}]
+     * Called as the final step in the processing pipeline
+     */
+    static async resolveDynamicTools(
         text: string,
         allowedUris: string[],
-        mode: ParseMode,
+        mode: ParseMode = ParseMode.INLINE,
         collector?: ContextItem[]
     ): Promise<string> {
         if (!text.includes('@[')) return text;
@@ -382,6 +260,7 @@ export class ContextAssembler {
             const braceEnd = content.lastIndexOf('}');
 
             if (braceStart !== -1 && braceEnd !== -1 && braceStart < braceEnd) {
+                // This is a dynamic tool call @[tool{...}]
                 const toolName = content.substring(0, braceStart).trim();
                 const jsonArgs = content.substring(braceStart, braceEnd + 1);
 
@@ -419,6 +298,7 @@ export class ContextAssembler {
                     }
                 }
             } else {
+                // Not a dynamic tool call, preserve as-is
                 result += text.substring(start, endIdx + 1);
             }
 
@@ -426,6 +306,6 @@ export class ContextAssembler {
             i = lastIndex;
         }
 
-        return mode === ParseMode.APPEND ? text : result;
+        return result;
     }
 }

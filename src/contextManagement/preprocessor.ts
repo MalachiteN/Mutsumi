@@ -1,3 +1,5 @@
+import * as vscode from 'vscode';
+
 /**
  * @description Regex pattern for matching define commands. Format: define MACRO_NAME, "value"
  */
@@ -30,10 +32,70 @@ const ELSE_REGEX = /^else\s*$/;
 const IF_REGEX = /^if\s+([A-Za-z_][A-Za-z0-9_]*)\s+(IS|CONTAINS|MATCHES|ISNT|DOESNT_CONTAIN|DOESNT_MATCH)\s+([A-Za-z_][A-Za-z0-9_]*|"[^"]*")\s*$/;
 
 /**
+ * @description Regex pattern for matching recall commands. Format: recall MACRO_NAME
+ */
+const RECALL_REGEX = /^recall\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/;
+
+/**
  * @description Regex pattern for extracting define commands from text blocks.
  * Format: @{define MACRO_NAME, "value"}
  */
 const DEFINE_BLOCK_REGEX = /@\{define\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*"([^"]*)"\s*\}/g;
+
+/**
+ * @description Maximum recursion depth for file includes
+ */
+const MAX_INCLUDE_DEPTH = 20;
+
+/**
+ * @description Interface for macro scope supporting parent-child chain
+ */
+export interface MacroScope {
+    /** @description Get the value of a macro */
+    get(name: string): string | undefined;
+    /** @description Set a macro value in current scope */
+    set(name: string, value: string): void;
+    /** @description Check if a macro exists in current or parent scopes */
+    has(name: string): boolean;
+    /** @description Create a child scope */
+    createChild(): MacroScope;
+}
+
+/**
+ * @description Implementation of MacroScope with parent-child chain support
+ */
+class MacroScopeImpl implements MacroScope {
+    private macros: Map<string, string>;
+    private parent?: MacroScope;
+
+    constructor(parent?: MacroScope) {
+        this.macros = new Map();
+        this.parent = parent;
+    }
+
+    get(name: string): string | undefined {
+        const value = this.macros.get(name);
+        if (value !== undefined) {
+            return value;
+        }
+        if (this.parent) {
+            return this.parent.get(name);
+        }
+        return undefined;
+    }
+
+    set(name: string, value: string): void {
+        this.macros.set(name, value);
+    }
+
+    has(name: string): boolean {
+        return this.macros.has(name) || (this.parent?.has(name) ?? false);
+    }
+
+    createChild(): MacroScope {
+        return new MacroScopeImpl(this);
+    }
+}
 
 /**
  * @description Represents a frame in the conditional processing stack.
@@ -74,77 +136,6 @@ export function extractMacroDefinitions(text: string): Map<string, string> {
 }
 
 /**
- * @description Manages macro definitions and their values.
- * Provides methods to define macros, check if they exist, and retrieve their values.
- */
-export class MacroContext {
-    private macros: Map<string, string>;
-
-    /**
-     * @description Creates a new MacroContext instance with an empty macro map.
-     */
-    constructor() {
-        this.macros = new Map();
-    }
-
-    /**
-     * @description Define a macro, map its name to a string value.
-     * @param {string} name - Name of the macro, must consist of upper case letters, numbers and underscores.
-     * @param {string} value - The string value to associate with the macro.
-     */
-    define(name: string, value: string): void {
-        this.macros.set(name, value);
-    }
-
-    /**
-     * @description Check if a macro is defined.
-     * @param {string} name - The name of the macro to check.
-     * @returns {boolean} True if the macro exists, false otherwise.
-     */
-    isDefined(name: string): boolean {
-        return this.macros.has(name);
-    }
-
-    /**
-     * @description Get the value of a defined macro.
-     * @param {string} name - The name of the macro to retrieve.
-     * @returns {string | undefined} The macro value if defined, undefined otherwise.
-     */
-    getValue(name: string): string | undefined {
-        return this.macros.get(name);
-    }
-
-    /**
-     * @description Set multiple macros from a plain object (for deserialization)
-     * @param {Record<string, string>} macros - Record of macro names to values
-     */
-    setMacros(macros: Record<string, string>): void {
-        for (const [name, value] of Object.entries(macros)) {
-            this.macros.set(name, value);
-        }
-    }
-
-    /**
-     * @description Get all macros as a plain object (for serialization)
-     * @returns {Record<string, string>} Record of macro names to values
-     */
-    getMacrosObject(): Record<string, string> {
-        const result: Record<string, string> = {};
-        for (const [name, value] of this.macros.entries()) {
-            result[name] = value;
-        }
-        return result;
-    }
-
-    /**
-     * @description Clear all macro definitions
-     */
-    clear(): void {
-        this.macros.clear();
-    }
-}
-
-/**
  * @description Result of preprocessing a text, containing the processed content and any warnings.
  */
 export interface PreprocessorResult {
@@ -156,56 +147,132 @@ export interface PreprocessorResult {
 
 /**
  * @description A preprocessor that handles conditional compilation directives.
- * Supports define, ifdef, ifndef, if, else, and endif commands within @{...} blocks.
+ * Supports define, ifdef, ifndef, if, else, endif, recall commands within @{...} blocks,
+ * and file includes via @[...] syntax.
  * Allows conditional inclusion/exclusion of text based on macro definitions.
  */
 export class Preprocessor {
-    private context: MacroContext;
+    private scope: MacroScope;
+    private readFile: (uri: vscode.Uri) => Promise<string>;
+    private rootUri: vscode.Uri;
+    private currentFileUri: vscode.Uri;
+    private includeDepth: number;
 
     /**
      * @description Creates a new Preprocessor instance.
-     * @param {MacroContext} [externalContext] - Optional external MacroContext to use instead of creating a new one.
-     * If not provided, a new MacroContext will be created.
+     * @param {function} readFile - Function to read file content for includes
+     * @param {vscode.Uri} rootUri - Workspace root URI for absolute path resolution
+     * @param {vscode.Uri} currentFileUri - Current file URI for relative path resolution
+     * @param {MacroScope} [scope] - Optional parent macro scope
+     * @param {number} [includeDepth] - Current include depth for recursion tracking
      */
-    constructor(externalContext?: MacroContext) {
-        this.context = externalContext || new MacroContext();
+    constructor(
+        readFile: (uri: vscode.Uri) => Promise<string>,
+        rootUri: vscode.Uri,
+        currentFileUri: vscode.Uri,
+        scope?: MacroScope,
+        includeDepth: number = 0
+    ) {
+        this.readFile = readFile;
+        this.rootUri = rootUri;
+        this.currentFileUri = currentFileUri;
+        this.scope = scope ? scope.createChild() : new MacroScopeImpl();
+        this.includeDepth = includeDepth;
     }
 
     /**
-     * @description Get the internal MacroContext (useful for sharing context)
-     * @returns {MacroContext} The MacroContext used by this preprocessor
+     * @description Get the internal MacroScope (useful for sharing context)
+     * @returns {MacroScope} The MacroScope used by this preprocessor
      */
-    getContext(): MacroContext {
-        return this.context;
+    getScope(): MacroScope {
+        return this.scope;
+    }
+
+    /**
+     * @description Find the matching closing bracket using stack-based matching.
+     * Handles nested braces for both {} and [].
+     * @param text - The text to search
+     * @param start - Start position (after the opening bracket)
+     * @param openChar - Opening bracket character ('{' or '[')
+     * @param closeChar - Closing bracket character ('}' or ']')
+     * @returns Position of closing bracket, or -1 if not found
+     */
+    private findMatchingBracket(text: string, start: number, openChar: string, closeChar: string): number {
+        let depth = 0;
+        for (let i = start; i < text.length; i++) {
+            if (text[i] === openChar) {
+                depth++;
+            } else if (text[i] === closeChar) {
+                if (depth === 0) {
+                    return i;
+                }
+                depth--;
+            }
+        }
+        return -1;
     }
 
     /**
      * @description Process a text containing conditional directives.
      * Parses @{...} command blocks and applies conditional logic based on macro definitions.
+     * Also handles @[filepath] for file includes and @[tool{...}] is preserved as-is.
+     * Uses stack-based matching for nested brackets.
      * @param {string} text - The input text to process.
-     * @returns {PreprocessorResult} The result containing processed text and any warnings.
+     * @returns {Promise<PreprocessorResult>} The result containing processed text and any warnings.
      */
-    process(text: string): PreprocessorResult {
+    async process(text: string): Promise<PreprocessorResult> {
         const warnings: string[] = [];
         const stack: ConditionFrame[] = [];
         let result = '';
         let index = 0;
 
         while (index < text.length) {
-            const start = text.indexOf('@{', index);
+            // Check for @{ command
+            const cmdStart = text.indexOf('@{', index);
+            // Check for @[ include/tool
+            const includeStart = text.indexOf('@[', index);
+
+            // Find the closest occurrence
+            let start = -1;
+            let isInclude = false;
+
+            if (cmdStart !== -1 && includeStart !== -1) {
+                if (cmdStart < includeStart) {
+                    start = cmdStart;
+                    isInclude = false;
+                } else {
+                    start = includeStart;
+                    isInclude = true;
+                }
+            } else if (cmdStart !== -1) {
+                start = cmdStart;
+                isInclude = false;
+            } else if (includeStart !== -1) {
+                start = includeStart;
+                isInclude = true;
+            }
+
             if (start === -1) {
+                // No more commands, add remaining text if active
                 if (this.isActive(stack)) {
                     result += text.substring(index);
                 }
                 break;
             }
 
+            // Add text between last position and this command
             if (this.isActive(stack)) {
                 result += text.substring(index, start);
             }
 
-            const end = text.indexOf('}', start + 2);
+            // Find the matching closing bracket using stack-based matching
+            // For @{} use '{' and '}', for @[] use '[' and ']'
+            const openChar = isInclude ? '[' : '{';
+            const closeChar = isInclude ? ']' : '}';
+            const end = this.findMatchingBracket(text, start + 2, openChar, closeChar);
+            
             if (end === -1) {
+                warnings.push(`Unclosed ${isInclude ? '@[' : '@{'} block`);
                 if (this.isActive(stack)) {
                     result += text.substring(start);
                 }
@@ -213,20 +280,58 @@ export class Preprocessor {
             }
 
             const content = text.substring(start + 2, end);
-            const handled = this.handleCommand(content, stack, warnings);
 
-            if (!handled && this.isActive(stack)) {
-                result += text.substring(start, end + 1);
+            if (isInclude) {
+                // Handle @[...] syntax
+                // First, preprocess the content to expand any @{recall ...} or other commands
+                let processedContent = content;
+                if (content.includes('@{') && this.isActive(stack)) {
+                    // Create a temporary preprocessor with current scope to expand nested commands
+                    const tempPreprocessor = new Preprocessor(
+                        this.readFile,
+                        this.rootUri,
+                        this.currentFileUri,
+                        this.scope,
+                        this.includeDepth // Don't increase depth for content preprocessing
+                    );
+                    const tempResult = await tempPreprocessor.process(content);
+                    processedContent = tempResult.result;
+                }
+
+                // After preprocessing, check if it's a tool call or file include
+                if (processedContent.includes('{')) {
+                    // Contains { - this is a tool call, preserve as-is (with expanded content)
+                    if (this.isActive(stack)) {
+                        result += '@[' + processedContent + ']';
+                    }
+                } else {
+                    // No { - this is a file include
+                    if (this.isActive(stack)) {
+                        const includeResult = await this.handleInclude(processedContent, warnings);
+                        result += includeResult;
+                    }
+                }
+            } else {
+                // Handle @{...} command
+                const { handled, output } = this.handleCommand(content, stack, warnings);
+
+                if (output !== undefined && this.isActive(stack)) {
+                    result += output;
+                }
+
+                if (!handled && this.isActive(stack)) {
+                    result += text.substring(start, end + 1);
+                }
+
+                // If this was a define command and there's a newline right after it, skip it
+                // to prevent leading empty lines in the result
+                if (handled && content.startsWith('define') && end + 1 < text.length && text[end + 1] === '\n') {
+                    index = end + 2;
+                    continue;
+                }
             }
 
-            // Move index past the closing brace
             index = end + 1;
-            
-            // If this was a define command and there's a newline right after it, skip it
-            // to prevent leading empty lines in the result
-            if (handled && content.startsWith('define') && index < text.length && text[index] === '\n') {
-                index++;
-            }
         }
 
         if (stack.length > 0) {
@@ -237,45 +342,123 @@ export class Preprocessor {
     }
 
     /**
+     * @description Handle a file include @[filepath] command.
+     * @param {string} filepath - The file path (may be relative)
+     * @param {string[]} warnings - Array to collect warning messages.
+     * @returns {Promise<string>} The processed content of the included file.
+     */
+    private async handleInclude(filepath: string, warnings: string[]): Promise<string> {
+        // Check recursion depth
+        if (this.includeDepth >= MAX_INCLUDE_DEPTH) {
+            warnings.push(`Maximum include depth (${MAX_INCLUDE_DEPTH}) exceeded for: ${filepath}`);
+            return '';
+        }
+
+        // Trim whitespace from filepath
+        filepath = filepath.trim();
+
+        if (!filepath) {
+            warnings.push('Empty include path');
+            return '';
+        }
+
+        const tryInclude = async (uri: vscode.Uri): Promise<string | null> => {
+            try {
+                const content = await this.readFile(uri);
+                const childPreprocessor = new Preprocessor(
+                    this.readFile,
+                    this.rootUri,
+                    uri,
+                    this.scope,
+                    this.includeDepth + 1
+                );
+                const childResult = await childPreprocessor.process(content);
+                warnings.push(...childResult.warnings);
+                return childResult.result;
+            } catch (e) {
+                return null;
+            }
+        };
+
+        let result: string | null = null;
+        let errors: string[] = [];
+
+        // Strategy 1: If starts with / or ~, relative to root
+        if (filepath.startsWith('/') || filepath.startsWith('~/')) {
+            const cleanPath = filepath.startsWith('~/') ? filepath.substring(2) : filepath.substring(1);
+            const targetUri = vscode.Uri.joinPath(this.rootUri, cleanPath);
+            result = await tryInclude(targetUri);
+            if (result === null) errors.push(`Root relative: ${targetUri.toString()}`);
+        }
+        // Strategy 2: If starts with ./ or ../, relative to current file
+        else if (filepath.startsWith('./') || filepath.startsWith('../')) {
+            const targetUri = vscode.Uri.joinPath(this.currentFileUri, '..', filepath);
+            result = await tryInclude(targetUri);
+            if (result === null) errors.push(`Relative: ${targetUri.toString()}`);
+        }
+        // Strategy 3: Bare path - try relative to current, then relative to root
+        else {
+            // 3a. Relative to current file
+            const relativeUri = vscode.Uri.joinPath(this.currentFileUri, '..', filepath);
+            result = await tryInclude(relativeUri);
+            
+            // 3b. If failed, try relative to root
+            if (result === null) {
+                errors.push(`Relative: ${relativeUri.toString()}`);
+                const rootUri = vscode.Uri.joinPath(this.rootUri, filepath);
+                result = await tryInclude(rootUri);
+                if (result === null) errors.push(`Root: ${rootUri.toString()}`);
+            }
+        }
+
+        if (result !== null) {
+            return result;
+        }
+
+        warnings.push(`Failed to include file '${filepath}': ${errors.join(', ')}`);
+        return '';
+    }
+
+    /**
      * @description Handle a single preprocessor command from within a @{...} block.
      * @param {string} content - The command content (without @{ and }).
      * @param {ConditionFrame[]} stack - The current condition stack.
      * @param {string[]} warnings - Array to collect warning messages.
-     * @returns {boolean} True if the command was recognized and handled, false otherwise.
+     * @returns {{handled: boolean; output?: string}} Object indicating if command was handled and any output to append.
      */
-    private handleCommand(content: string, stack: ConditionFrame[], warnings: string[]): boolean {
+    private handleCommand(content: string, stack: ConditionFrame[], warnings: string[]): { handled: boolean; output?: string } {
         if (DEFINE_REGEX.test(content)) {
             const match = content.match(DEFINE_REGEX);
-            if (!match) return true;
+            if (!match) return { handled: true };
             if (this.isActive(stack)) {
                 const name = match[1];
                 const value = match[2];
-                this.context.define(name, value);
+                this.scope.set(name, value);
             }
-            return true;
+            return { handled: true };
         }
 
         if (IFDEF_REGEX.test(content)) {
             const match = content.match(IFDEF_REGEX);
-            if (!match) return true;
+            if (!match) return { handled: true };
             const name = match[1];
-            const conditionMet = this.context.isDefined(name);
+            const conditionMet = this.scope.has(name);
             this.pushFrame(stack, 'ifdef', conditionMet);
-            return true;
+            return { handled: true };
         }
 
         if (IFNDEF_REGEX.test(content)) {
             const match = content.match(IFNDEF_REGEX);
-            if (!match) return true;
+            if (!match) return { handled: true };
             const name = match[1];
-            const conditionMet = !this.context.isDefined(name);
+            const conditionMet = !this.scope.has(name);
             this.pushFrame(stack, 'ifndef', conditionMet);
-            return true;
+            return { handled: true };
         }
 
         if (IF_REGEX.test(content)) {
             const match = content.match(IF_REGEX);
-            if (!match) return true;
+            if (!match) return { handled: true };
             const leftName = match[1];
             const test = match[2];
             const rightRaw = match[3];
@@ -285,38 +468,54 @@ export class Preprocessor {
 
             const conditionMet = this.evaluateCondition(leftValue, test, rightValue, warnings);
             this.pushFrame(stack, 'if', conditionMet);
-            return true;
+            return { handled: true };
+        }
+
+        if (RECALL_REGEX.test(content)) {
+            const match = content.match(RECALL_REGEX);
+            if (!match) return { handled: true };
+            if (this.isActive(stack)) {
+                const name = match[1];
+                const value = this.scope.get(name);
+                if (value !== undefined) {
+                    // recall 应该将宏值输出到结果中
+                    return { handled: true, output: value };
+                } else {
+                    warnings.push(`Macro '${name}' not defined for recall.`);
+                }
+            }
+            return { handled: true };
         }
 
         if (ELSE_REGEX.test(content)) {
             if (stack.length === 0) {
                 warnings.push('Unmatched else encountered.');
-                return true;
+                return { handled: true };
             }
 
             const frame = stack[stack.length - 1];
             if (frame.hasElse) {
                 warnings.push('Duplicate else encountered in the same conditional block.');
-                return true;
+                return { handled: true };
             }
 
             frame.hasElse = true;
             const parentActive = stack.length > 1 ? stack[stack.length - 2].currentlyActive : true;
             frame.currentlyActive = parentActive && !frame.conditionMet;
-            return true;
+            return { handled: true };
         }
 
         if (ENDIF_REGEX.test(content)) {
             if (stack.length === 0) {
                 warnings.push('Unmatched endif encountered.');
-                return true;
+                return { handled: true };
             }
             stack.pop();
-            return true;
+            return { handled: true };
         }
 
         warnings.push(`Invalid command syntax: @\{${content}}`);
-        return false;
+        return { handled: false };
     }
 
     /**
@@ -363,9 +562,9 @@ export class Preprocessor {
      * @returns {string} The macro value, or empty string if not defined.
      */
     private getMacroValue(name: string, warnings: string[]): string {
-        const value = this.context.getValue(name);
+        const value = this.scope.get(name);
         if (value === undefined) {
-            warnings.push(`Macro \${name} is not defined.`);
+            warnings.push(`Macro '${name}' is not defined.`);
             return '';
         }
         return value;
@@ -423,8 +622,101 @@ export class Preprocessor {
             const regex = new RegExp(pattern);
             return regex.test(value);
         } catch (error) {
-            warnings.push(`Regex error: \${(error as Error).message}`);
+            warnings.push(`Regex error: ${(error as Error).message}`);
             return false;
         }
+    }
+}
+
+/**
+ * @description Legacy MacroContext class for backward compatibility.
+ * Also implements MacroScope interface for direct use in preprocessor pipeline.
+ */
+export class MacroContext implements MacroScope {
+    private scope: MacroScope;
+    private localMacros: Map<string, string>; // Track macros for getMacrosObject
+
+    /**
+     * @description Creates a new MacroContext instance with an empty macro map.
+     */
+    constructor() {
+        this.scope = new MacroScopeImpl();
+        this.localMacros = new Map();
+    }
+
+    // MacroScope interface implementation
+    get(name: string): string | undefined {
+        return this.scope.get(name);
+    }
+
+    set(name: string, value: string): void {
+        this.scope.set(name, value);
+        this.localMacros.set(name, value);
+    }
+
+    has(name: string): boolean {
+        return this.scope.has(name);
+    }
+
+    createChild(): MacroScope {
+        return this.scope.createChild();
+    }
+
+    /**
+     * @description Define a macro, map its name to a string value.
+     * @param {string} name - Name of the macro, must consist of upper case letters, numbers and underscores.
+     * @param {string} value - The string value to associate with the macro.
+     */
+    define(name: string, value: string): void {
+        this.set(name, value);
+    }
+
+    /**
+     * @description Check if a macro is defined.
+     * @param {string} name - The name of the macro to check.
+     * @returns {boolean} True if the macro exists, false otherwise.
+     */
+    isDefined(name: string): boolean {
+        return this.has(name);
+    }
+
+    /**
+     * @description Get the value of a defined macro.
+     * @param {string} name - The name of the macro to retrieve.
+     * @returns {string | undefined} The macro value if defined, undefined otherwise.
+     */
+    getValue(name: string): string | undefined {
+        return this.get(name);
+    }
+
+    /**
+     * @description Set multiple macros from a plain object (for deserialization)
+     * @param {Record<string, string>} macros - Record of macro names to values
+     */
+    setMacros(macros: Record<string, string>): void {
+        for (const [name, value] of Object.entries(macros)) {
+            this.set(name, value);
+        }
+    }
+
+    /**
+     * @description Get all macros as a plain object (for serialization)
+     * @returns {Record<string, string>} Record of macro names to values
+     */
+    getMacrosObject(): Record<string, string> {
+        const result: Record<string, string> = {};
+        for (const [name, value] of this.localMacros.entries()) {
+            result[name] = value;
+        }
+        return result;
+    }
+
+    /**
+     * @description Clear all macro definitions
+     */
+    clear(): void {
+        // Create a new scope to clear
+        this.scope = new MacroScopeImpl();
+        this.localMacros.clear();
     }
 }

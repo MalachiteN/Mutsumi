@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
 import { ContextItem } from '../types';
 import { ContextAssembler, ParseMode } from './contextAssembler';
-import { MacroContext } from './preprocessor';
 import { withRuleParsingMode } from '../tools.d/permission';
 
 /**
@@ -47,14 +46,12 @@ Current Allowed URIs: ${JSON.stringify(allowedUris)}`;
  * @description Get rules content as structured context items
  * @param workspaceUri - Workspace root URI (must be file:// scheme)
  * @param allowedUris - List of allowed URIs for security
- * @param macroContext - Optional shared MacroContext for processing rules with user-defined macros
  * @param activeRules - Optional list of rule filenames to include. If undefined, all rules are included.
  * @returns Array of context items representing rules
  */
 export async function getRulesContext(
     workspaceUri: vscode.Uri, 
     allowedUris: string[],
-    macroContext?: MacroContext,
     activeRules?: string[]
 ): Promise<ContextItem[]> {
     // Rules are stored in local file system, ensure we have a valid path
@@ -88,8 +85,7 @@ export async function getRulesContext(
                         workspaceUri,
                         allowedUris,
                         ParseMode.INLINE,
-                        undefined,  // collector (not used here)
-                        macroContext  // Pass macro context for preprocessing
+                        undefined  // collector (not used here)
                     )
                 );
 
