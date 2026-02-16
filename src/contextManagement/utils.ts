@@ -150,7 +150,7 @@ export function extractBracketContent(text: string, start: number): { content: s
  * @param ref - Reference string, e.g., "path/to/file.ts:10:20" or "hv-paste/README.md"
  * @param defaultUri - Default base URI for resolving relative paths (typically workspaceFolders[0].uri)
  */
-export function parseReference(ref: string, defaultUri: vscode.Uri): { uri: vscode.Uri, startLine?: number, endLine?: number } {
+export function parseReference(ref: string, defaultUri: vscode.Uri): { uri: vscode.Uri, startLine?: number, endLine?: number } { //这个地方加逗号是语法错误！我给你改回来了，以后别再这样了
     // Parse line numbers from the end, handling Windows paths like "C:/path" vs "path:10:20"
     let filePath = ref;
     let startLine: number | undefined;
@@ -240,4 +240,36 @@ export async function executeToolCall(name: string, args: any, allowedUris: stri
         allowedUris: allowedUris,
     };
     return await tm.executeTool(name, args, context, false);
+}
+
+/**
+ * Extract macro definitions from text
+ * Supports two formats:
+ * 1. HTML comments: <!-- @def KEY=VALUE -->
+ * 2. Explicit definition: @{define KEY, VALUE} (Value can be quoted or unquoted)
+ * Returns a map of macros found
+ */
+export function extractMacroDefinitions(text: string): Record<string, string> {
+    const macros: Record<string, string> = {};
+    
+    // Format 1: <!-- @def KEY=VALUE --> (HTML/Markdown comment style)
+    const regexHtml = /<!--\s*@def\s+(\w+)\s*=\s*(.*?)\s*-->/g;
+    let match;
+    while ((match = regexHtml.exec(text)) !== null) {
+        macros[match[1]] = match[2];
+    }
+    
+    // Format 2: @{define KEY, VALUE}
+    // Value can be quoted or unquoted. 
+    const regexCustom = /@\{define\s+(\w+)\s*,\s*(.*?)\}/g;
+    while ((match = regexCustom.exec(text)) !== null) {
+        let val = match[2].trim();
+        // Remove surrounding quotes if present
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.substring(1, val.length - 1);
+        }
+        macros[match[1]] = val;
+    }
+
+    return macros;
 }
