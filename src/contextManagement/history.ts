@@ -80,8 +80,8 @@ export async function buildInteractionHistory(
         // We only persist files. Rules and tools are not persisted.
         if (item.type === 'file') {
             try {
-                // Re-resolve to get fresh content
-                const freshItems = await ContextAssembler.resolveContextWithMacros(
+                // Re-resolve to get fresh content, passing shared macro context
+                const freshItems = await ContextAssembler.resolveContext(
                     `@[${item.key}]`,
                     wsUri,
                     allowedUris,
@@ -105,7 +105,8 @@ export async function buildInteractionHistory(
 
     // 2b. Parse Current Prompt for NEW Context
     // This adds any new file references or tool calls from the current user message
-    const currentContext = await ContextAssembler.resolveContextWithMacros(
+    // Pass shared macro context so user-defined macros are available in included files
+    const currentContext = await ContextAssembler.resolveContext(
         currentPrompt,
         wsUri,
         allowedUris,
@@ -165,7 +166,7 @@ export async function buildInteractionHistory(
     
     // Fetch rules dynamically at runtime (not persisted, not in contextMap)
     const activeRules = metadata.activeRules;
-    const rulesItems = await getRulesContext(wsUri, allowedUris, sharedMacroContext, activeRules);
+    const rulesItems = await getRulesContext(wsUri, allowedUris, activeRules);
     
     if (contextList.length > 0 || rulesItems.length > 0) {
         // Build Markdown formatted context block

@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-// Use require to ensure we get the function correctly in CommonJS env without esModuleInterop
-const matter = require('gray-matter'); 
+const matter = require('gray-matter');
 import { ITool, ToolContext } from '../tools.d/interface';
-import { ContextAssembler, ParseMode } from './contextAssembler';
-import { Preprocessor } from './preprocessor';
+import { ContextAssembler } from './contextAssembler';
 import { TextDecoder, TextEncoder } from 'util';
+
+// Import new Preprocessor and MacroScope (assumed to be implemented by Sub-Agent 1)
+import { Preprocessor, MacroScope } from './preprocessor';
 
 export class SkillManager {
     private static instance: SkillManager;
@@ -38,7 +39,6 @@ export class SkillManager {
         this.isLoading = true;
         
         try {
-            // Temporary map to hold new skills, swap at the end to minimize downtime
             const newSkills = new Map<string, ITool>();
             
             const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -48,18 +48,15 @@ export class SkillManager {
             const rootPath = workspaceFolders[0].uri.fsPath;
             const rootUri = workspaceFolders[0].uri;
 
-            // Use Uri.joinPath for better cross-platform compatibility
             const skillDirUri = vscode.Uri.joinPath(rootUri, this.skillDir);
             const cacheDirUri = vscode.Uri.joinPath(rootUri, this.cacheDir);
 
-            // Check if skill directory exists
             try {
                 await vscode.workspace.fs.stat(skillDirUri);
             } catch {
                 return; 
             }
 
-            // Ensure cache directory exists
             try {
                 await vscode.workspace.fs.stat(cacheDirUri);
             } catch {
@@ -74,7 +71,6 @@ export class SkillManager {
                 }
             }
             
-            // Swap
             this.skills = newSkills;
             this.log(`Loaded ${this.skills.size} skills.`);
 
@@ -95,7 +91,6 @@ export class SkillManager {
         const rootUri = workspaceFolders[0].uri;
         const cacheDirUri = vscode.Uri.joinPath(rootUri, this.cacheDir);
 
-        // Clear cache directory
         try {
             const entries = await vscode.workspace.fs.readDirectory(cacheDirUri);
             for (const [name, type] of entries) {
@@ -107,7 +102,6 @@ export class SkillManager {
             // Cache directory may not exist
         }
 
-        // Reload all skills (will recompile since cache is cleared)
         await this.loadSkills();
     }
 
@@ -118,7 +112,6 @@ export class SkillManager {
         rootUri: vscode.Uri,
         targetMap: Map<string, ITool>
     ) {
-        const rootPath = rootUri.fsPath;
         const skillName = filename.replace('.skill.md', '');
         const cacheFileUri = vscode.Uri.joinPath(cacheDirUri, filename);
         const sourceFileUri = vscode.Uri.joinPath(skillDirUri, filename);
@@ -127,12 +120,11 @@ export class SkillManager {
         let params: string[] = [];
 
         try {
-            // 1. Check if cache is valid (exists and newer than source)
+            // 1. Check if cache is valid
             let cacheValid = false;
             try {
                 const cacheStat = await vscode.workspace.fs.stat(cacheFileUri);
                 const sourceStat = await vscode.workspace.fs.stat(sourceFileUri);
-                // Simple timestamp check
                 if (cacheStat.mtime > sourceStat.mtime) {
                     cacheValid = true;
                 }
@@ -140,49 +132,36 @@ export class SkillManager {
                 // Cache missing or stat failed
             }
 
-            if (cacheValid) {
-                 try {
-                     const cacheContentBytes = await vscode.workspace.fs.readFile(cacheFileUri);
-                     const cacheContent = new TextDecoder().decode(cacheContentBytes);
-                     const parsed = matter(cacheContent);
-                     description = parsed.data.Description || '';
-                     params = parsed.data.Params || [];
-                 } catch (e) {
-                     cacheValid = false;
-                 }
-            }
-
             if (!cacheValid) {
+                // Read source file to extract front matter
                 const sourceBytes = await vscode.workspace.fs.readFile(sourceFileUri);
                 const sourceContent = new TextDecoder().decode(sourceBytes);
 
-                // Assuming references are relative to workspace root
-                const prepared = await ContextAssembler.prepareSkill(
-                    sourceContent,
-                    rootUri,
-                    [rootPath], // Allowed URIs (still use fsPath for allowed URIs as they are compared against fsPath elsewhere)
-                    ParseMode.INLINE
-                );
+                const parsed = matter(sourceContent);
+                description = parsed.data?.Description || '';
+                params = parsed.data?.Params || [];
 
-                description = prepared.description;
-                params = prepared.params;
-
-                // Step 3: Assemble cache file
+                // Create cache file with front-matter and @[source_file_uri] reference
                 const cacheData = {
                     Description: description,
                     Params: params
                 };
                 
-                // Trim content to prevent leading/trailing empty lines from accumulating
-                const trimmedContent = prepared.content.trim();
-                
-                // Using matter.stringify to create content with front matter
-                const cacheFileContent = matter.stringify(trimmedContent, cacheData);
+                // Cache content: front-matter + @[source_file_uri]
+                const cacheContent = `@[${sourceFileUri.toString()}]`;
+                const cacheFileContent = matter.stringify(cacheContent, cacheData);
                 
                 await vscode.workspace.fs.writeFile(cacheFileUri, new TextEncoder().encode(cacheFileContent));
+            } else {
+                // Read from cache to get description and params
+                const cacheContentBytes = await vscode.workspace.fs.readFile(cacheFileUri);
+                const cacheContent = new TextDecoder().decode(cacheContentBytes);
+                const parsed = matter(cacheContent);
+                description = parsed.data?.Description || '';
+                params = parsed.data?.Params || [];
             }
 
-            // Step 5: Register tool
+            // Register skill tool
             this.registerSkillTool(skillName, description, params, cacheFileUri, targetMap);
 
         } catch (e) {
@@ -218,36 +197,57 @@ export class SkillManager {
             },
             execute: async (args: any, context: ToolContext) => {
                 try {
-                    // 1. Read cache file
+                    // 1. Read cache file, extract @[source_file_uri] to get source file path
                     const bytes = await vscode.workspace.fs.readFile(cacheUri);
-                    const content = new TextDecoder().decode(bytes);
+                    const cacheContent = new TextDecoder().decode(bytes);
+                    const parsedCache = matter(cacheContent);
                     
-                    // remove front matter
-                    const parsed = matter(content);
-                    // Trim to remove leading/trailing newlines that gray-matter may leave
-                    const body = parsed.content.trim();
+                    // Extract source file URI from @[...] syntax
+                    const contentBody = parsedCache.content.trim();
+                    const match = contentBody.match(/@\[([^\]]+)\]/);
+                    if (!match) {
+                        throw new Error('Source file URI not found in cache');
+                    }
+                    const sourceFileUriStr = match[1];
+                    const sourceFileUri = vscode.Uri.parse(sourceFileUriStr);
 
-                    // 2. Prepend defines
-                    let defines = '';
+                    // 2. Read source file content, extract front matter
+                    const sourceBytes = await vscode.workspace.fs.readFile(sourceFileUri);
+                    const sourceContent = new TextDecoder().decode(sourceBytes);
+                    const parsedSource = matter(sourceContent);
+                    const body = parsedSource.content;
+
+                    // 3. Build Global Scope and inject parameters
+                    const defines: string[] = [];
                     for (const param of params) {
                         const val = args[param] !== undefined ? args[param] : '';
-                        // Simple escaping: replace " with \" to avoid breaking the define syntax
                         const escapedVal = String(val).replace(/"/g, '\\"');
-                        defines += `@{define ${param}, "${escapedVal}"}\n`;
+                        defines.push(`@{define ${param}, "${escapedVal}"}`);
                     }
-                    
-                    const textToProcess = defines + body;
+                    const definesText = defines.join('\n');
 
-                    // 3. Preprocess
-                    const preprocessor = new Preprocessor();
-                    const { result, warnings } = preprocessor.process(textToProcess);
+                    // 4. Create readFile function for Preprocessor
+                    const readFile = async (uri: vscode.Uri): Promise<string> => {
+                        const bytes = await vscode.workspace.fs.readFile(uri);
+                        return new TextDecoder().decode(bytes);
+                    };
 
-                    if (warnings.length > 0) {
-                        this.log(`Skill ${name} warnings: ${warnings.join(', ')}`);
-                    }
+                    // 5. Call new async Preprocessor
+                    const rootUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : sourceFileUri;
+                    const preprocessor = new Preprocessor(
+                        readFile,
+                        rootUri,
+                        sourceFileUri,
+                        undefined  // Global Scope has no parent scope
+                    );
+                    const { result } = await preprocessor.process(definesText + '\n' + body);
 
-                    // 4. Return (trim to remove any leading/trailing newlines from defines or matter parsing)
-                    return result.trim();
+                    // 6. Call ContextAssembler.resolveDynamicTools(result)
+                    const workspaceFolders = vscode.workspace.workspaceFolders;
+                    const allowedUris = workspaceFolders ? [workspaceFolders[0].uri.fsPath] : [];
+                    const finalResult = await ContextAssembler.resolveDynamicTools(result, allowedUris);
+
+                    return finalResult.trim();
                 } catch (e: any) {
                     const msg = `Error executing skill ${name}: ${e.message}`;
                     this.log(msg);
