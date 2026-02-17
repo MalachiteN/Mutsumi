@@ -109,17 +109,23 @@
 【工具输出】
 ```
 
-出现这样的块，则表明 User Prompt 指定了某个文件，该文件已被预读取，你**无须再次读取**:
+当出现以下块时，表明用户引用的文件已被读取或确认为最新版本:
 
+**情况 A: 完整内容 (新版本)**
 ```markdown
-### User Provided Context References:
+# Source: path/to/file (v2)
+```typescript
+{文件内容...}
+```
+```
+此时请以 v2 版本内容为准。
 
-#### Source: path/to/file
-
+**情况 B: 引用历史 (内容未变)**
+```markdown
+# Source: path/to/file (v2)
+> Content unchanged. See previous version (v2).
 ```
-文件内容
-```
-```
+此时意味着文件自上次你看到 v2 版后未发生变化。**请回溯历史对话记录**，找到最近一次出现的 `# Source: path/to/file (v2)` 完整块，并以该内容为准。
 
 ---
 

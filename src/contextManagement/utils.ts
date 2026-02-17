@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { TextDecoder } from 'util';
 import { ToolManager } from '../tools.d/toolManager';
 import { ToolContext } from '../tools.d/interface';
@@ -249,6 +250,13 @@ export async function executeToolCall(name: string, args: any, allowedUris: stri
  * 2. Explicit definition: @{define KEY, VALUE} (Value can be quoted or unquoted)
  * Returns a map of macros found
  */
+/**
+ * Compute SHA-256 hash of content
+ */
+export function computeHash(content: string): string {
+    return crypto.createHash('sha256').update(content).digest('hex');
+}
+
 export function extractMacroDefinitions(text: string): Record<string, string> {
     const macros: Record<string, string> = {};
     

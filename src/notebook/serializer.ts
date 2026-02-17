@@ -67,6 +67,11 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                     'markdown'
                 );
                 cell.metadata = { role: 'user' };
+                
+                // Restore metadata (e.g. ghost block state)
+                if (msg.metadata) {
+                    cell.metadata = { ...cell.metadata, ...msg.metadata };
+                }
 
                 // Look ahead for associated assistant/tool messages
                 const group: AgentMessage[] = [];
@@ -84,6 +89,9 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                     i = j - 1;
 
                     // Store interaction info in metadata for serialization
+                    if (!cell.metadata) {
+                        cell.metadata = {};
+                    }
                     cell.metadata.mutsumi_interaction = group;
 
                     // Render interaction group as Markdown for cell output
@@ -207,10 +215,25 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 // User cells store raw string content
                 // Strip ghost block if present (it should only exist in metadata, not in persisted content)
                 const cleanContent = this.stripGhostBlockFromCell(cell.value);
-                context.push({ role: 'user', content: cleanContent });
+                
+                const userMsg: AgentMessage = { 
+                    role: 'user', 
+                    content: cleanContent 
+                };
+
+                // Preserve metadata (especially ghost block state)
+                // Filter out internal metadata if needed, but for now we keep everything not undefined
+                if (cell.metadata) {
+                    const { mutsumi_interaction, role, ...rest } = cell.metadata;
+                    if (Object.keys(rest).length > 0) {
+                        userMsg.metadata = rest;
+                    }
+                }
+
+                context.push(userMsg);
 
                 // Check if interaction metadata exists
-                if (cell.metadata?.mutsumi_interaction) {
+                if (cell.metadata && cell.metadata.mutsumi_interaction) {
                     context.push(...(cell.metadata.mutsumi_interaction as AgentMessage[]));
                 }
             }

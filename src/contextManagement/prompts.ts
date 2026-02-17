@@ -28,15 +28,27 @@ export async function initializeRules(extensionUri: vscode.Uri, workspaceUri: vs
 }
 
 /**
- * @description Get static system prompt (identity, sub-agent info)
+ * @description Get system prompt (identity, sub-agent info, and rules)
  */
-export async function getSystemPrompt(workspaceUri: vscode.Uri, allowedUris: string[], isSubAgent?: boolean): Promise<string> {
+export async function getSystemPrompt(
+    workspaceUri: vscode.Uri, 
+    allowedUris: string[], 
+    rulesItems: ContextItem[], 
+    isSubAgent?: boolean
+): Promise<string> {
     // Only return static identity and runtime context
     let prompt = `### Runtime Context
 Current Allowed URIs: ${JSON.stringify(allowedUris)}`;
 
     if (isSubAgent) {
         prompt += `\n\n## Sub-Agent Identity\nYou are a Sub-Agent. When finishing a task, you must use the \`task_finish\` tool to report completion status to the Parent Agent.`;
+    }
+
+    if (rulesItems.length > 0) {
+        prompt += '\n\n### System Rules\n以下是你必须遵守的规则：\n';
+        for (const rule of rulesItems) {
+            prompt += `\n# Rule: ${rule.key}\n\n${rule.content}\n`;
+        }
     }
 
     return prompt;
