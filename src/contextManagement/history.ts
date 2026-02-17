@@ -1,13 +1,11 @@
 import * as vscode from 'vscode';
 import { AgentMessage, AgentMetadata, MessageContent, ContextItem } from '../types';
 import { getSystemPrompt, getRulesContext } from './prompts';
-import { ContextAssembler } from './contextAssembler';
+import { TemplateEngine } from './templateEngine';
+import { ContextPresenter } from './contextPresenter';
 import {
-    getLanguageIdentifier,
-    readImageAsBase64,
     parseUserMessageWithImages,
     stripGhostBlock,
-    GHOST_BLOCK_MARKER,
     extractMacroDefinitions
 } from './utils';
 
@@ -35,7 +33,6 @@ export async function buildInteractionHistory(
     });
 
     // 2. Prepare Context Map (Accumulate all contexts here)
-    // Map key is context item key (e.g. file path or tool call signature)
     const contextMap = new Map<string, ContextItem>();
 
     // Helper to merge items into map
@@ -43,7 +40,6 @@ export async function buildInteractionHistory(
         for (const item of items) {
             let uniqueKey = item.key;
             if (item.type === 'tool') {
-                // Tools are unique by execution (args)
                 uniqueKey = `${item.key}:${JSON.stringify(item.metadata)}`;
             }
             contextMap.set(uniqueKey, item);
@@ -53,62 +49,30 @@ export async function buildInteractionHistory(
     // Extract macros from current prompt
     const macros = extractMacroDefinitions(currentPrompt);
 
-    // Note: Rules are NOT stored in contextMap and NOT persisted.
-    // They will be fetched dynamically at runtime when assembling the ghost block.
-
-    // 2a. Load Persisted Context (Files from Notebook Metadata)
-    // This represents the "long-term memory" of file references across the session
+    // 2a. Load Persisted Context (Files from Notebook Metadata) - Note: We don't need to "refresh" content here
+    //      because we'll reconstruct the context anyway when building the final message.
+    //      We'll just load the existing items for metadata update later.
     const persistedItems: ContextItem[] = metadata.contextItems || [];
     
-    // Refresh persisted files to ensure we have latest content
     for (const item of persistedItems) {
-        // We only persist files. Rules and tools are not persisted.
         if (item.type === 'file') {
-            try {
-                // Re-resolve to get fresh content
-                // Pass current macros to ensure file is preprocessed correctly according to current context
-                const freshItems = await ContextAssembler.resolveContext(
-                    `@[${item.key}]`,
-                    wsUri,
-                    allowedUris,
-                    macros
-                );
-                if (freshItems.length > 0) {
-                    // Update content in map
-                    mergeItems(freshItems);
-                } else {
-                    // Fallback to old content if resolution returns nothing (e.g. file deleted? but we should warn)
-                    contextMap.set(item.key, item);
-                }
-            } catch (e) {
-                console.warn(`Failed to refresh file context ${item.key}:`, e);
-                // Keep old content if refresh fails
-                contextMap.set(item.key, item);
-            }
+            contextMap.set(item.key, item);
         }
-        // Implicitly drop rules and tools from persisted history if they somehow got there
     }
 
-    // 2b. Parse Current Prompt for NEW Context
-    // This adds any new file references or tool calls from the current user message
-    // We pass macros explicitly, although resolveContext would extract them anyway from currentPrompt.
-    const currentContext = await ContextAssembler.resolveContext(
+    // 2b. Parse Current Prompt using TemplateEngine (APPEND mode)
+    const { renderedText: processedPrompt, collectedItems: currentContext } = await TemplateEngine.render(
         currentPrompt,
+        macros,
         wsUri,
         allowedUris,
-        macros
+        'APPEND'
     );
     mergeItems(currentContext);
 
-    // 2c. Update Notebook Metadata (Persist File Contexts for future turns)
-    // We take only files from the map and save to metadata.
-    // Rules are fetched dynamically at runtime, tools are current-turn only.
-    const newContextItems = Array.from(contextMap.values())
-        .filter(item => item.type === 'file');  // Only persist files
+    // 2c. Update Notebook Metadata (Persist only file contexts)
+    const newContextItems = Array.from(contextMap.values()).filter(item => item.type === 'file');
     
-    // Check if we need to update metadata (shallow comparison to avoid dirtying if unchanged?)
-    // Since file content changes often, we assume update is needed if there are any items.
-    // We use WorkspaceEdit to be safe.
     const edit = new vscode.WorkspaceEdit();
     const newMetadata = {
         ...metadata,
@@ -118,8 +82,7 @@ export async function buildInteractionHistory(
     edit.set(notebook.uri, [notebookEdit]);
     await vscode.workspace.applyEdit(edit);
 
-    // 3. Build Message History (Standard, no ghost blocks in history)
-    // We iterate through previous cells to build the conversation history string
+    // 3. Build Message History
     for (let i = 0; i < currentCellIndex; i++) {
         const prevCell = notebook.cellAt(i);
         const role = prevCell.metadata?.role || 'user';
@@ -127,9 +90,7 @@ export async function buildInteractionHistory(
         
         if (content.trim()) {
             if (role === 'user') {
-                // Add message to history (Clean, without ghost block)
                 const multiModalContent = await parseUserMessageWithImages(content);
-                // Filter out ghost block if it was accidentally included
                 const cleanContent = stripGhostBlock(multiModalContent);
                 messages.push({ role: 'user', content: cleanContent });
             } else {
@@ -143,56 +104,21 @@ export async function buildInteractionHistory(
         }
     }
 
-    // 4. Assemble Final User Message with Ghost Block (Runtime only)
-    // This includes ALL context: Rules (fetched dynamically), Files (refreshed), and Tools (current only)
-    const currentMultiModalContent = await parseUserMessageWithImages(currentPrompt);
+    // 4. Assemble Final User Message with Ghost Block using ContextPresenter.format
+    const currentMultiModalContent = await parseUserMessageWithImages(processedPrompt);
     
     const contextList = Array.from(contextMap.values());
-    
-    // Fetch rules dynamically at runtime (not persisted, not in contextMap)
     const activeRules = metadata.activeRules;
     const rulesItems = await getRulesContext(wsUri, allowedUris, activeRules, macros);
     
-    if (contextList.length > 0 || rulesItems.length > 0) {
-        // Build Markdown formatted context block
-        let contextMarkdown = '\n<content_reference>\n';
+    const ghostBlock = ContextPresenter.format(rulesItems, contextList);
 
-        // Add Rules (fetched dynamically at runtime)
-        if (rulesItems.length > 0) {
-            contextMarkdown += '\n以下是你必须遵守的规则：\n';
-        }
-        for (const rule of rulesItems) {
-            contextMarkdown += `\n# Rule: ${rule.key}\n\n${rule.content}\n`;
-        }
-
-        // Add Files (as Markdown code blocks)
-        const files = contextList.filter(i => i.type === 'file');
-        if (files.length > 0) {
-            contextMarkdown += '\n以下是用户使用@引用的文件，预插入到此处：\n';
-        }
-        for (const file of files) {
-            const ext = file.key.split('.').pop() || '';
-            const lang = getLanguageIdentifier(ext);
-            contextMarkdown += `\n# Source: ${file.key}\n\n\`\`\`${lang}\n${file.content}\n\`\`\`\n`;
-        }
-
-        // Add Tools
-        const tools = contextList.filter(i => i.type === 'tool');
-        if (tools.length > 0) {
-            contextMarkdown += '\n下面是用户使用@指定的工具调用，预执行结果如下：\n';
-        }
-        for (const tool of tools) {
-            contextMarkdown += `\n# Tool Call: ${tool.key}\n> Args: ${JSON.stringify(tool.metadata)}\n\n${tool.content}\n`;
-        }
-
-        contextMarkdown += '\n上述规则展开、文件读取、工具调用均已预执行且保证结果最新。请直接使用其结果，无需重复\n</content_reference>';
-
-        // Append ghost block to content (runtime only, not persisted)
+    if (ghostBlock) {
         if (Array.isArray(currentMultiModalContent)) {
-            currentMultiModalContent.push({ type: 'text', text: contextMarkdown });
+            currentMultiModalContent.push({ type: 'text', text: ghostBlock });
             messages.push({ role: 'user', content: currentMultiModalContent });
         } else {
-            messages.push({ role: 'user', content: currentMultiModalContent + contextMarkdown });
+            messages.push({ role: 'user', content: currentMultiModalContent + ghostBlock });
         }
     } else {
         messages.push({ role: 'user', content: currentMultiModalContent });

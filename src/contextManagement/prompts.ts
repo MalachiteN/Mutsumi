@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
 import { ContextItem } from '../types';
-import { ContextAssembler, ParseMode } from './contextAssembler';
+import { TemplateEngine } from './templateEngine';
 import { withRuleParsingMode } from '../tools.d/permission';
 
 /**
@@ -56,7 +56,6 @@ export async function getRulesContext(
     activeRules?: string[],
     context?: Record<string, any>
 ): Promise<ContextItem[]> {
-    // Rules are stored in local file system, ensure we have a valid path
     if (workspaceUri.scheme !== 'file') {
         console.warn('Rules context requires a file:// workspace URI');
         return [];
@@ -66,7 +65,6 @@ export async function getRulesContext(
 
     try {
         const files = await vscode.workspace.fs.readDirectory(rulesDir);
-        // Sort files to ensure deterministic order
         files.sort((a, b) => a[0].localeCompare(b[0]));
 
         for (const [name, type] of files) {
@@ -78,25 +76,22 @@ export async function getRulesContext(
                 const content = await vscode.workspace.fs.readFile(fileUri);
                 const decodedContent = new TextDecoder().decode(content);
 
-                // We process the rule content to resolve any nested @[...] references (INLINE)
-                // Rules should be fully expanded when presented
-                // Use withRuleParsingMode to auto-approve tool calls during rule parsing
-                const expandedContent = await withRuleParsingMode(() =>
-                    ContextAssembler.assembleDocument(
+                // Use TemplateEngine.render with INLINE mode to expand rules
+                const { renderedText: expandedContent } = await withRuleParsingMode(() =>
+                    TemplateEngine.render(
                         decodedContent,
+                        context || {},
                         workspaceUri,
                         allowedUris,
-                        ParseMode.INLINE,
-                        undefined, // collector
-                        context    // pass macros
+                        'INLINE'
                     )
                 );
 
                 items.push({
-                    type: 'rule', // Treating rules as a special type of context
+                    type: 'rule',
                     key: name,
                     content: expandedContent
-                } as any); // cast to any to allow 'rule' type if strict check fails, or update ContextItem type definition if needed
+                });
             }
         }
     } catch (e) {
