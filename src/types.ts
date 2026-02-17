@@ -72,6 +72,8 @@ export interface AgentMessage {
     name?: string;
     /** Reasoning/thinking content from the model */
     reasoning_content?: string;
+    /** Additional metadata for the message (e.g. ghost block state) */
+    metadata?: any;
 }
 
 /**
@@ -158,4 +160,8 @@ export interface ContextItem {
     content: string;
     /** Additional metadata (e.g., tool arguments) */
     metadata?: any;
+    /** Content hash for change detection (SHA-256) */
+    lastHash?: string;
+    /** Version number for file history tracking (starts at 1) */
+    version?: number;
 }

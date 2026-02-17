@@ -58,12 +58,20 @@ export class ContextPresenter {
         // Add Files
         const files = items.filter(i => i.type === 'file');
         if (files.length > 0) {
-            contextMarkdown += '\n以下是用户使用@引用的文件，预插入到此处：\n';
+            contextMarkdown += '\n以下是用户使用@引用的文件（或其最新版本状态）：\n';
         }
         for (const file of files) {
+            const versionStr = file.version ? ` (v${file.version})` : '';
+            
+            // Check if this is a reference to a previous version (content omitted)
+            if (file.metadata?.isReference) {
+                contextMarkdown += `\n# Source: ${file.key}${versionStr}\n> Content unchanged. See previous version ${versionStr}.\n`;
+                continue;
+            }
+
             const ext = file.key.split('.').pop() || '';
             const lang = getLanguageIdentifier(ext);
-            contextMarkdown += `\n# Source: ${file.key}\n\n\`\`\`${lang}\n${file.content}\n\`\`\`\n`;
+            contextMarkdown += `\n# Source: ${file.key}${versionStr}\n\n\`\`\`${lang}\n${file.content}\n\`\`\`\n`;
         }
 
         // Add Tools

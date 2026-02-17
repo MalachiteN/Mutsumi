@@ -113,12 +113,6 @@
                 "icon": "$(list-unordered)"
             },
             {
-                "command": "mutsumi.selectRules",
-                "title": "Select Active Rules",
-                "category": "Mutsumi",
-                "icon": "$(checklist)"
-            },
-            {
                 "command": "mutsumi.reopenEditDiff",
                 "title": "Reopen Diff Editor",
                 "category": "Mutsumi",
@@ -180,7 +174,7 @@
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.selectRules",
+                    "command": "mutsumi.viewContext",
                     "group": "navigation@2",
                     "when": "notebookType == mutsumi-notebook"
                 },
@@ -190,28 +184,23 @@
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.viewContext",
+                    "command": "mutsumi.recompileSkills",
                     "group": "navigation@4",
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.recompileSkills",
+                    "command": "mutsumi.debugContext",
                     "group": "navigation@5",
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.debugContext",
-                    "group": "navigation@6",
-                    "when": "notebookType == mutsumi-notebook"
-                },
-                {
                     "command": "mutsumi.toggleAutoApprove",
-                    "group": "navigation@7",
+                    "group": "navigation@6",
                     "when": "notebookType == mutsumi-notebook && !mutsumi:autoApproveEnabled"
                 },
                 {
                     "command": "mutsumi.toggleAutoApproveOn",
-                    "group": "navigation@7",
+                    "group": "navigation@6",
                     "when": "notebookType == mutsumi-notebook && mutsumi:autoApproveEnabled"
                 }
             ]
