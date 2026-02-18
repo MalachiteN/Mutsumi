@@ -17,6 +17,7 @@ import { initializeRules } from './contextManagement/prompts';
 import { ImagePasteProvider } from './contextManagement/imagePasteProvider';
 import { sanitizeFileName } from './utils';
 import { registerToolbarCommands } from './notebook/toolbar';
+import { SkillManager } from './contextManagement/skillManager';
 
 /**
  * Checks if a file exists at the given URI.
@@ -211,6 +212,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // 5. Commands
     registerCommands(context);
 
+    SkillManager.getInstance().registerSkillWatcher(context);
+
     activateEditSupport(context);
 }
 
@@ -324,8 +327,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
             let refPath: string;
             if (isMultiRoot) {
                 // In multi-root workspace, prefix with workspace folder name
-                const folderName = path.basename(workspaceFolder.uri.path);
-                refPath = `${folderName}/${relativePath}`;
+                refPath = `${workspaceFolder.name}/${relativePath}`;
             } else {
                 // In single-root workspace, use relative path only
                 refPath = relativePath;

@@ -176,14 +176,14 @@ export function parseReference(ref: string, defaultUri: vscode.Uri): { uri: vsco
     // Resolve relative path (references are always workspace-relative)
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const firstSegment = filePath.split(/[\\/]/)[0];
-    
-    // Check for multi-root workspace format "folderName/rest/of/path"
-    const matchingFolder = workspaceFolders?.find(wf => {
-        const folderName = path.basename(wf.uri.path);
-        return folderName === firstSegment;
-    });
+    const isMultiRoot = workspaceFolders && workspaceFolders.length > 1;
 
-    const uri = matchingFolder && workspaceFolders && workspaceFolders.length > 1
+    // Check for multi-root workspace format "folderName/rest/of/path"
+    const matchingFolder = isMultiRoot
+        ? workspaceFolders?.find(wf => wf.name === firstSegment)
+        : undefined;
+
+    const uri = matchingFolder
         ? vscode.Uri.joinPath(matchingFolder.uri, filePath.substring(firstSegment.length + 1))
         : vscode.Uri.joinPath(defaultUri, filePath);
 

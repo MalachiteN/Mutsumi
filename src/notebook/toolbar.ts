@@ -7,7 +7,6 @@ import * as vscode from 'vscode';
 import { regenerateTitleForNotebook } from '../agent/titleGenerator';
 import { buildInteractionHistory } from '../contextManagement/history';
 import { toggleAutoApprove, isAutoApproveEnabled } from '../tools.d/permission';
-import { SkillManager } from '../contextManagement/skillManager';
 
 /**
  * Registers all toolbar-related commands for Mutsumi notebooks.
@@ -454,20 +453,6 @@ export function registerToolbarCommands(context: vscode.ExtensionContext): void 
 
             quickPick.onDidHide(() => quickPick.dispose());
             quickPick.show();
-        })
-    );
-
-    // Recompile all skills command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('mutsumi.recompileSkills', async () => {
-            try {
-                const skillManager = SkillManager.getInstance();
-                await skillManager.recompileAllSkills();
-                vscode.window.showInformationMessage('All skills recompiled successfully.');
-            } catch (error) {
-                console.error('Failed to recompile skills:', error);
-                vscode.window.showErrorMessage(`Failed to recompile skills: ${error}`);
-            }
         })
     );
 
