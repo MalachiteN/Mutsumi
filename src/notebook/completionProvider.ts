@@ -39,7 +39,7 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
         for (const file of files) {
             if (token.isCancellationRequested) break;
 
-            const relPath = vscode.workspace.asRelativePath(file);
+            const relPath = vscode.workspace.asRelativePath(file, workspaceFolders.length > 1);
 
             if (relPath.split(/[/\\]/).some(part => isCommonIgnored(part))) {
                 continue;

@@ -18,6 +18,8 @@ export class SkillManager {
     private skillDir = '.mutsumi/skills';
     private outputChannel: vscode.OutputChannel;
     private isLoading = false;
+    private skillWatcher?: vscode.FileSystemWatcher;
+    private pendingReload = false;
 
     public static getInstance(): SkillManager {
         if (!SkillManager.instance) {
@@ -32,6 +34,35 @@ export class SkillManager {
 
     private log(message: string) {
         this.outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ${message}`);
+    }
+
+    public registerSkillWatcher(context: vscode.ExtensionContext): void {
+        if (this.skillWatcher) {
+            return;
+        }
+
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const rootUri = workspaceFolders[0].uri;
+        const pattern = new vscode.RelativePattern(rootUri, '.mutsumi/skills/*.skill.md');
+        const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+        this.skillWatcher = watcher;
+
+        const reload = () => {
+            void this.recompileAllSkills().catch(error => {
+                this.log(`Failed to reload skills after change: ${error}`);
+            });
+        };
+
+        context.subscriptions.push(
+            watcher,
+            watcher.onDidCreate(reload),
+            watcher.onDidChange(reload),
+            watcher.onDidDelete(reload)
+        );
     }
 
     public async loadSkills(): Promise<void> {
@@ -74,10 +105,19 @@ export class SkillManager {
             console.error('Error loading skills:', error);
         } finally {
             this.isLoading = false;
+            if (this.pendingReload) {
+                this.pendingReload = false;
+                await this.recompileAllSkills();
+            }
         }
     }
 
     public async recompileAllSkills(): Promise<void> {
+        if (this.isLoading) {
+            this.pendingReload = true;
+            return;
+        }
+
         this.skillCache.clear();
         await this.loadSkills();
     }
