@@ -206,7 +206,7 @@ export class UIRenderer {
                         }
                     }
                     
-                    codeBlocksContent.push(`\n**${argName}:**\n\`\`\`${lang}\n${val}\n\`\`\``);
+                    codeBlocksContent.push(`\n**${argName}:**\n\`\`\`\`${lang}\n${val}\n\`\`\`\``);
                 }
             }
 
@@ -232,9 +232,9 @@ export class UIRenderer {
         if (toolResult !== undefined) {
             resultBlock = `
 **Result:**
-\`\`\`
+\`\`\`\`
 ${toolResult}
-\`\`\`
+\`\`\`\`
 `;
         }
 
