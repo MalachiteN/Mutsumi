@@ -1,10 +1,14 @@
 import * as vscode from 'vscode';
 import OpenAI from 'openai';
+import { IAgentSession } from '../adapters/interfaces';
 
 export interface ToolContext {
     allowedUris: string[];
+    /** @deprecated Use `session` instead. Will be removed in future versions. */
     notebook?: vscode.NotebookDocument;
+    /** @deprecated Use `session` instead. Will be removed in future versions. */
     execution?: vscode.NotebookCellExecution;
+    session: IAgentSession;
     appendOutput?: (content: string) => Promise<void>;
     abortSignal?: AbortSignal;
     /**

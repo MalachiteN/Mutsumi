@@ -3,7 +3,6 @@
  * @module uiRenderer
  */
 
-import * as vscode from 'vscode';
 import { wrapInThemedContainer, getLanguageIdentifier } from '../utils';
 import { tryParsePartialJson } from './utils';
 import { ToolManager } from '../tools.d/toolManager';
@@ -16,7 +15,7 @@ import { ToolManager } from '../tools.d/toolManager';
  * @example
  * const renderer = new UIRenderer();
  * renderer.commitRoundUI(content, reasoning);
- * await renderer.renderUI(execution, currentContent, currentReasoning);
+ * const html = renderer.generateDisplayHtml(currentContent, currentReasoning);
  */
 export class UIRenderer {
     /** Accumulated HTML content for committed UI rounds */
@@ -47,22 +46,20 @@ export class UIRenderer {
     }
 
     /**
-     * Renders the current UI state to the cell output.
+     * Generates the display HTML by combining committed content with current state.
      * @description Combines committed HTML with current content, reasoning, and optional pending tools,
-     * then updates the notebook cell output. Current reasoning is displayed
+     * and returns the resulting HTML string. Current reasoning is displayed
      * in an open (expanded) details element.
-     * @param {vscode.NotebookCellExecution} execution - Cell execution context
      * @param {string} currentContent - Current content to display
      * @param {string} currentReasoning - Current reasoning to display
      * @param {string} [pendingToolsHtml] - Optional HTML for pending (streaming) tool calls
-     * @returns {Promise<void>}
+     * @returns {string} The generated HTML string
      */
-    async renderUI(
-        execution: vscode.NotebookCellExecution,
+    generateDisplayHtml(
         currentContent: string,
         currentReasoning: string,
         pendingToolsHtml?: string
-    ): Promise<void> {
+    ): string {
         let display = this.committedUiHtml;
         if (currentReasoning) {
             const thinkingContent = `<details open><summary>💭 Thinking Process</summary>\n\n${currentReasoning}\n\n</details>\n\n`;
@@ -74,40 +71,7 @@ export class UIRenderer {
             display += pendingToolsHtml;
         }
 
-        await execution.replaceOutput([
-            new vscode.NotebookCellOutput([
-                vscode.NotebookCellOutputItem.text(display, 'text/markdown')
-            ])
-        ]);
-    }
-
-    /**
-     * Updates the cell output with committed UI content.
-     * @description Replaces the cell output with the current committed HTML content.
-     * @param {vscode.NotebookCellExecution} execution - Cell execution context
-     * @returns {Promise<void>}
-     */
-    async updateOutput(execution: vscode.NotebookCellExecution): Promise<void> {
-        await execution.replaceOutput([
-            new vscode.NotebookCellOutput([
-                vscode.NotebookCellOutputItem.text(this.committedUiHtml, 'text/markdown')
-            ])
-        ]);
-    }
-
-    /**
-     * Appends an error message to the UI.
-     * @description Adds an error message to the committed HTML and updates the output.
-     * @param {vscode.NotebookCellExecution} execution - Cell execution context
-     * @param {string} message - Error message to display
-     * @returns {Promise<void>}
-     */
-    async appendErrorUI(
-        execution: vscode.NotebookCellExecution,
-        message: string
-    ): Promise<void> {
-        this.committedUiHtml += `\n\n${message}\n\n`;
-        await this.updateOutput(execution);
+        return display;
     }
 
     /**
@@ -262,7 +226,7 @@ ${resultBlock}
     /**
      * Appends HTML content to the committed buffer.
      * @description Adds raw HTML content to the committed HTML buffer without
-     * updating the cell output. Use updateOutput() to display the changes.
+     * updating the cell output. Use generateDisplayHtml() to get the current display.
      * @param {string} content - HTML content to append
      */
     appendHtml(content: string): void {

@@ -85,6 +85,11 @@
                 "icon": "$(x)"
             },
             {
+                "command": "mutsumi.customRequestAction",
+                "title": "Inspect",
+                "icon": "$(search)"
+            },
+            {
                 "command": "mutsumi.selectModel",
                 "title": "Select Model",
                 "category": "Mutsumi",
@@ -136,13 +141,18 @@
                 },
                 {
                     "command": "mutsumi.approveRequest",
-                    "when": "viewItem == pendingApproval",
+                    "when": "viewItem == pendingApproval || viewItem == pendingApprovalWithCustom",
                     "group": "inline@1"
                 },
                 {
                     "command": "mutsumi.rejectRequest",
-                    "when": "viewItem == pendingApproval",
+                    "when": "viewItem == pendingApproval || viewItem == pendingApprovalWithCustom",
                     "group": "inline@2"
+                },
+                {
+                    "command": "mutsumi.customRequestAction",
+                    "when": "viewItem == pendingApprovalWithCustom",
+                    "group": "inline@0"
                 }
             ],
             "editor/context": [
@@ -258,8 +268,11 @@
     },
     "dependencies": {
         "@types/diff": "^8.0.0",
+        "@types/express": "^5.0.6",
         "@types/vscode": "^1.108.1",
+        "body-parser": "^2.2.2",
         "diff": "^8.0.3",
+        "express": "^5.2.1",
         "gray-matter": "^4.0.3",
         "openai": "^6.17.0",
         "preprocess": "^3.2.0",

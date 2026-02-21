@@ -11,6 +11,7 @@ import { LLMStreamHandler } from './llmStream';
 import { ToolExecutor } from './toolExecutor';
 import { TitleGenerator } from './titleGenerator';
 import { LLMClient } from './llmClient';
+import { IAgentSession, AgentSessionConfig } from '../adapters/interfaces';
 
 /**
  * Options for configuring the agent runner.
@@ -33,8 +34,8 @@ export interface AgentRunOptions {
  * tool calls, and UI updates. Implements the core agent execution logic.
  * @class AgentRunner
  * @example
- * const runner = new AgentRunner(options, tools, notebook, allowedUris, isSubAgent);
- * const newMessages = await runner.run(execution, abortController, initialMessages);
+ * const runner = new AgentRunner(options, tools, session);
+ * const newMessages = await runner.run(abortController, initialMessages);
  */
 export class AgentRunner {
     /** Maximum number of tool interaction loops */
@@ -44,28 +45,27 @@ export class AgentRunner {
     /** LLM streaming handler */
     private llmStreamHandler: LLMStreamHandler;
     /** Tool executor for handling tool calls */
-    private toolExecutor: ToolExecutor;
+    private toolExecutor: ToolExecutor | undefined;
     /** Title generator for notebook titles */
     private titleGenerator: TitleGenerator;
     /** LLM client for API communication */
     private llmClient: LLMClient;
+    /** Agent session for UI interactions */
+    private session: IAgentSession;
 
     /**
      * Creates a new AgentRunner instance.
      * @constructor
      * @param {AgentRunOptions} options - Configuration options
      * @param {ToolManager} tools - Tool manager for executing tools
-     * @param {vscode.NotebookDocument} notebook - The notebook document
-     * @param {string[]} allowedUris - List of allowed URIs for the agent
-     * @param {boolean} isSubAgent - Whether this is a sub-agent
+     * @param {IAgentSession} session - The agent session
      */
     constructor(
         private options: AgentRunOptions,
         private tools: ToolManager,
-        private notebook: vscode.NotebookDocument,
-        private allowedUris: string[],
-        private isSubAgent: boolean
+        session: IAgentSession
     ) {
+        this.session = session;
         this.maxLoops = options.maxLoops || 30;
         this.llmClient = new LLMClient({
             apiKey: options.apiKey,
@@ -75,7 +75,7 @@ export class AgentRunner {
         });
         this.uiRenderer = new UIRenderer();
         this.llmStreamHandler = new LLMStreamHandler(this.llmClient);
-        this.toolExecutor = new ToolExecutor(this.tools, this.allowedUris, this.notebook, this.isSubAgent, this.uiRenderer);
+        // ToolExecutor will be initialized in run() after we can await getConfig()
         this.titleGenerator = new TitleGenerator();
     }
 
@@ -83,25 +83,39 @@ export class AgentRunner {
      * Executes the main agent loop.
      * @description Runs the conversation loop with the LLM, handling streaming,
      * tool calls, and termination conditions.
-     * @param {vscode.NotebookCellExecution} execution - Cell execution context
      * @param {AbortController} abortController - Controller for cancellation
      * @param {AgentMessage[]} initialMessages - Initial message history
      * @returns {Promise<AgentMessage[]>} New messages generated during this run
      * @throws {TerminationError} If task_finish tool is called
      * @example
-     * const newMessages = await runner.run(execution, abortController, messages);
+     * const newMessages = await runner.run(abortController, messages);
      */
     async run(
-        execution: vscode.NotebookCellExecution,
         abortController: AbortController,
         initialMessages: AgentMessage[]
     ): Promise<AgentMessage[]> {
+        // Get config from session at the start of run
+        const config = await this.session.getConfig();
+        const allowedUris = config.allowedUris || [];
+        const isSubAgent = config.isSubAgent || false;
+
+        // Initialize ToolExecutor here since we needed async config
+        if (!this.toolExecutor) {
+            this.toolExecutor = new ToolExecutor(
+                this.tools,
+                allowedUris,
+                this.session,
+                isSubAgent,
+                this.uiRenderer
+            );
+        }
+
         const messages = [...initialMessages];
         const newMessages: AgentMessage[] = [];
         let loopCount = 0;
 
         while (loopCount < this.maxLoops) {
-            if (execution.token.isCancellationRequested) {
+            if (this.session.token.isCancellationRequested) {
                 break;
             }
             loopCount++;
@@ -113,20 +127,21 @@ export class AgentRunner {
             try {
                 const result = await this.llmStreamHandler.streamResponse(
                     messages,
-                    this.tools.getToolsDefinitions(this.isSubAgent),
+                    this.tools.getToolsDefinitions(isSubAgent),
                     abortController.signal,
-                    (content, reasoning, partialToolCalls) => {
-                        if (execution.token.isCancellationRequested) {
+                    async (content, reasoning, partialToolCalls) => {
+                        if (this.session.token.isCancellationRequested) {
                             return;
                         }
 
                         const pendingToolsHtml = this.uiRenderer.formatPendingToolCalls(
                             partialToolCalls,
                             this.tools,
-                            this.isSubAgent
+                            isSubAgent
                         );
 
-                        void this.uiRenderer.renderUI(execution, content, reasoning, pendingToolsHtml);
+                        const display = this.uiRenderer.generateDisplayHtml(content, reasoning, pendingToolsHtml);
+                        await this.session.replaceOutput(display, { isMarkdown: true });
                     }
                 );
                 roundContent = result.roundContent;
@@ -158,20 +173,16 @@ export class AgentRunner {
                     }
                 });
 
-                // Preserve committed UI history and add error indicator
-                await this.uiRenderer.appendErrorUI(
-                    execution,
-                    `\n\n> ⚠️ **Error**: ${errorMessage.replace(/\n/g, ' ')}\n\n*Execution stopped due to network error. Previous output is preserved above.*`
-                );
+                const errorHtml = `\n\n> ⚠️ **Error**: ${errorMessage.replace(/\n/g, ' ')}\n\n*Execution stopped due to network error. Previous output is preserved above.*`;
+                this.uiRenderer.appendHtml(errorHtml);
+                await this.session.replaceOutput(this.uiRenderer.getCommittedHtml(), { isMarkdown: true });
 
                 break;
             }
 
             if (!toolCalls.length && !roundContent && !roundReasoning) {
-                await this.uiRenderer.appendErrorUI(
-                    execution,
-                    "_Mutsumi Debug: No content, reasoning, or tool calls received from API._"
-                );
+                this.uiRenderer.appendHtml("_Mutsumi Debug: No content, reasoning, or tool calls received from API._");
+                await this.session.replaceOutput(this.uiRenderer.getCommittedHtml(), { isMarkdown: true });
                 const msg: AgentMessage = { role: 'assistant', content: roundContent };
                 if (roundReasoning) {
                     msg.reasoning_content = roundReasoning;
@@ -205,13 +216,12 @@ export class AgentRunner {
             this.uiRenderer.commitRoundUI(roundContent, roundReasoning);
 
             const result = await this.toolExecutor.executeTools(
-                execution,
                 toolCalls,
                 abortController.signal,
                 {
                     appendOutput: async (content: string) => {
                         this.uiRenderer.appendHtml(content);
-                        await this.uiRenderer.updateOutput(execution);
+                        await this.session.replaceOutput(this.uiRenderer.getCommittedHtml(), {isMarkdown: true});
                     },
                     signalTermination: () => {
                         // Termination handled via return values
@@ -224,7 +234,7 @@ export class AgentRunner {
 
             // Handle task completion (e.g., from task_finish tool)
             if (result.isTaskComplete) {
-                await this.markNotebookAsFinished();
+                await this.markSessionAsFinished();
                 break;
             }
 
@@ -234,37 +244,38 @@ export class AgentRunner {
             }
         }
 
-        if (this.isFirstCell(execution)) {
-            void this.generateTitleIfNeeded(messages);
+        // Generate title after first user message (only once)
+        const userMessageCount = messages.filter(m => m.role === 'user').length;
+        if (userMessageCount === 1) {
+            void this.generateTitleIfNeeded(this.session, messages, config);
         }
 
         return newMessages;
     }
 
     /**
-     * Checks if the current cell is the first cell in the notebook.
+     * Generates a title for the session after first user message.
      * @private
-     * @param {vscode.NotebookCellExecution} execution - Cell execution context
-     * @returns {boolean} True if this is the first cell
-     */
-    private isFirstCell(execution: vscode.NotebookCellExecution): boolean {
-        const cells = this.notebook.getCells();
-        return cells.indexOf(execution.cell) === 0;
-    }
-
-    /**
-     * Generates a title for the notebook if configured.
-     * @private
+     * @param {IAgentSession} session - The agent session
      * @param {AgentMessage[]} allMessages - Complete message history
+     * @param {AgentSessionConfig} sessionConfig - Session configuration
      * @returns {Promise<void>}
      */
-    private async generateTitleIfNeeded(allMessages: AgentMessage[]): Promise<void> {
+    private async generateTitleIfNeeded(
+        session: IAgentSession,
+        allMessages: AgentMessage[],
+        sessionConfig: AgentSessionConfig // 问题 找不到名称“AgentSessionConfig”。你是否指的是“IAgentSession”?
+    ): Promise<void> {
         const config = vscode.workspace.getConfiguration('mutsumi');
-        const titleGeneratorModel = config.get<string>('titleGeneratorModel');
+        const titleGeneratorModel = config.get<string>('titleGeneratorModel') || sessionConfig.model;
         const apiKey = config.get<string>('apiKey');
-        const baseUrl = config.get<string>('baseUrl');
+        const baseUrl = config.get<string>('baseUrl') || sessionConfig.baseUrl;
 
-        await this.titleGenerator.generateTitleForNotebook(this.notebook, allMessages, {
+        if (!titleGeneratorModel || !apiKey) {
+            return;
+        }
+
+        await this.titleGenerator.generateTitleForSession(session, allMessages, {
             titleGeneratorModel,
             apiKey,
             baseUrl
@@ -272,18 +283,17 @@ export class AgentRunner {
     }
 
     /**
-     * Marks the notebook as finished in its metadata.
+     * Marks the session as finished.
      * @private
      * @returns {Promise<void>}
      */
-    private async markNotebookAsFinished(): Promise<void> {
-        const edit = new vscode.WorkspaceEdit();
-        const newMetadata = {
-            ...this.notebook.metadata,
-            is_task_finished: true
-        };
-        const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
-        (edit as any).set(this.notebook.uri, [nbEdit]);
-        await vscode.workspace.applyEdit(edit);
+    private async markSessionAsFinished(): Promise<void> {
+        // Persist the finished state via the session
+        // The session adapter will handle the actual persistence (e.g., notebook metadata, file, etc.)
+        const config = await this.session.getConfig();
+        if (config.metadata) {
+            config.metadata.is_task_finished = true;
+        }
+        await this.session.save();
     }
 }

@@ -5,6 +5,45 @@ import { TextDecoder } from 'util';
 import { ToolManager } from '../tools.d/toolManager';
 import { ToolContext } from '../tools.d/interface';
 import { MessageContent, ContentPartText, ContentPartImage, ContextItem } from '../types';
+import { IAgentSession, AgentSessionConfig } from '../adapters/interfaces';
+
+/**
+ * Stub implementation of IAgentSession for tool execution outside of a real session context.
+ * Used by executeToolCall for pre-execution of tools during template rendering.
+ */
+class StubAgentSession implements IAgentSession {
+    id = 'stub';
+    token = new vscode.CancellationTokenSource().token;
+    supportsUI = false;
+    
+    async getInput(): Promise<string> {
+        return '';
+    }
+    
+    async getHistory() {
+        return [];
+    }
+    
+    async appendOutput(): Promise<void> {
+        // No-op for stub
+    }
+    
+    async replaceOutput(): Promise<void> {
+        // No-op for stub
+    }
+    
+    async save(): Promise<void> {
+        // No-op for stub
+    }
+    
+    async getConfig(): Promise<AgentSessionConfig> {
+        return {};
+    }
+    
+    async updateTitle(): Promise<void> {
+        // No-op for stub
+    }
+}
 
 // Ghost block marker for filtering during serialization
 export const GHOST_BLOCK_MARKER = '<content_reference>';
@@ -239,6 +278,7 @@ export async function executeToolCall(name: string, args: any, allowedUris: stri
     const tm = ToolManager.getInstance();
     const context: ToolContext = {
         allowedUris: allowedUris,
+        session: new StubAgentSession(),
     };
     return await tm.executeTool(name, args, context, false);
 }

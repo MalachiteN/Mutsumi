@@ -18,6 +18,8 @@ import { ImagePasteProvider } from './contextManagement/imagePasteProvider';
 import { sanitizeFileName } from './utils';
 import { registerToolbarCommands } from './notebook/toolbar';
 import { SkillManager } from './contextManagement/skillManager';
+import { HeadlessAdapter } from './adapters/headlessAdapter';
+import { HttpServer } from './adapters/httpServer';
 
 /**
  * Checks if a file exists at the given URI.
@@ -52,6 +54,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // 0. Initialize Agent Registry from disk
     // This is the first step to ensure registry is populated before any UI logic runs
     await AgentOrchestrator.getInstance().initialize();
+
+    // Initialize HeadlessAdapter and HttpServer
+    const headlessAdapter = new HeadlessAdapter();
+    const httpServer = new HttpServer(headlessAdapter, { port: 3000 });
+    httpServer.start();
+    context.subscriptions.push({
+        dispose: () => {
+            httpServer.stop();
+            headlessAdapter.dispose();
+        }
+    });
 
     // 1. Notebook Serializer
     context.subscriptions.push(

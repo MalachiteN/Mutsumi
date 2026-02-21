@@ -1,21 +1,17 @@
 import * as vscode from 'vscode';
-import { ApprovalTreeItem, EditFileTreeItem } from './approvalTreeItem';
+import { ApprovalTreeItem } from './approvalTreeItem';
 import { approvalManager } from '../tools.d/permission';
-import { editFileSessionManager } from '../tools.d/edit_file';
 
 /**
  * Union type for tree items in the approval sidebar
  */
-export type ApprovalSidebarItem = ApprovalTreeItem | EditFileTreeItem;
+export type ApprovalSidebarItem = ApprovalTreeItem;
 
 /**
  * @description Approval request tree data provider, implements VSCode TreeDataProvider interface
- * Responsible for managing the list of approval requests and edit file sessions, works with approvalManager and editFileSessionManager
+ * Responsible for managing the list of approval requests
  * @class ApprovalTreeDataProvider
  * @implements {vscode.TreeDataProvider<ApprovalSidebarItem>}
- * @example
- * const provider = new ApprovalTreeDataProvider();
- * vscode.window.createTreeView('mutsumi.approvalSidebar', { treeDataProvider: provider });
  */
 export class ApprovalTreeDataProvider implements vscode.TreeDataProvider<ApprovalSidebarItem> {
     /** @description Tree data change event emitter for triggering view refresh */
@@ -26,13 +22,10 @@ export class ApprovalTreeDataProvider implements vscode.TreeDataProvider<Approva
 
     /**
      * @description Creates approval request data provider instance
-     * Automatically subscribes to approvalManager's and editFileSessionManager's change events to maintain data synchronization
+     * Automatically subscribes to approvalManager's change events to maintain data synchronization
      */
     constructor() {
         approvalManager.onDidChangeRequests(() => {
-            this.refresh();
-        });
-        editFileSessionManager.onDidChangeSessions(() => {
             this.refresh();
         });
     }
@@ -50,16 +43,11 @@ export class ApprovalTreeDataProvider implements vscode.TreeDataProvider<Approva
      * @description Gets child nodes of the specified element
      * @param {ApprovalSidebarItem} [element] - Parent node, this is a flat list, always returns empty array for children
      * @returns {Thenable<ApprovalSidebarItem[]>} Promise of child node array
-     * @example
-     * const children = await provider.getChildren(item); // Returns []
-     * const allItems = await provider.getChildren();  // Returns all approval requests and edit file sessions
      */
     getChildren(element?: ApprovalSidebarItem): Thenable<ApprovalSidebarItem[]> {
         if (element) {
             return Promise.resolve([]);
         }
-
-        const items: ApprovalSidebarItem[] = [];
 
         // Get all approval requests
         const requests = approvalManager.getAllRequests();
@@ -70,11 +58,8 @@ export class ApprovalTreeDataProvider implements vscode.TreeDataProvider<Approva
             // Under the same status, newer requests are listed first
             return b.timestamp.getTime() - a.timestamp.getTime();
         });
-        items.push(...requests.map(r => new ApprovalTreeItem(r)));
-
-        // Get all active edit file sessions
-        const sessions = editFileSessionManager.getActiveSessions();
-        items.push(...sessions.map(s => new EditFileTreeItem(s)));
+        
+        const items = requests.map(r => new ApprovalTreeItem(r));
 
         return Promise.resolve(items);
     }
@@ -83,8 +68,6 @@ export class ApprovalTreeDataProvider implements vscode.TreeDataProvider<Approva
      * @description Refreshes the approval request tree view
      * Triggers onDidChangeTreeData event to notify VSCode to re-render the view
      * @returns {void}
-     * @example
-     * provider.refresh(); // Refresh and re-render the approval request list
      */
     public refresh(): void {
         this._onDidChangeTreeData.fire(null);

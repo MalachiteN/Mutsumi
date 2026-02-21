@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { AgentMessage } from '../types';
 import { LLMClient, LLMClientConfig } from './llmClient';
 import { AgentOrchestrator } from './agentOrchestrator';
+import { IAgentSession } from '../adapters/interfaces';
 
 /**
  * Configuration interface for title generation.
@@ -179,14 +180,14 @@ export class TitleGenerator {
     }
 
     /**
-     * Generates a title for the notebook and updates its metadata.
-     * @param {vscode.NotebookDocument} notebook - The notebook document
+     * Generates a title for the session using the adapter-compatible interface.
+     * @param {IAgentSession} session - The agent session
      * @param {AgentMessage[]} messages - Conversation message history
      * @param {TitleGeneratorConfig} config - Configuration for title generation
      * @returns {Promise<string | undefined>} The generated title or undefined if failed/not configured
      */
-    async generateTitleForNotebook(
-        notebook: vscode.NotebookDocument,
+    async generateTitleForSession(
+        session: IAgentSession,
         messages: AgentMessage[],
         config: TitleGeneratorConfig
     ): Promise<string | undefined> {
@@ -201,27 +202,29 @@ export class TitleGenerator {
                 model: config.titleGeneratorModel!
             });
 
-            await updateNotebookMetadataWithSync(notebook, title);
+            await session.updateTitle(title);
             return title;
         } catch (error) {
-            console.error('Failed to generate notebook title:', error);
+            console.error('Failed to generate session title:', error);
             return undefined;
         }
     }
 }
 
 /**
- * Regenerates the title for a notebook manually (used by command 'mutsumi.regenerateTitle').
+ * Regenerates the title for a session using the adapter-compatible interface.
  * @description Manually triggers title generation with strict validation.
- * @param {vscode.NotebookDocument} notebook - The notebook document
+ * @param {IAgentSession} session - The agent session
+ * @param {AgentMessage[]} messages - Conversation message history
+ * @param {TitleGeneratorConfig} config - Configuration for title generation
  * @returns {Promise<string>} The generated title
  * @throws {Error} If configuration is missing or no messages found
  */
-export async function regenerateTitleForNotebook(
-    notebook: vscode.NotebookDocument
+export async function regenerateTitleForSession(
+    session: IAgentSession,
+    messages: AgentMessage[],
+    config: TitleGeneratorConfig
 ): Promise<string> {
-    const config = getTitleGeneratorConfig();
-    
     if (!config.apiKey) {
         throw new Error('Please set mutsumi.apiKey in VSCode Settings.');
     }
@@ -229,7 +232,6 @@ export async function regenerateTitleForNotebook(
         throw new Error('Please set mutsumi.titleGeneratorModel or mutsumi.defaultModel in VSCode Settings.');
     }
 
-    const messages = extractMessagesFromNotebook(notebook);
     if (messages.length === 0) {
         throw new Error('No conversation context found.');
     }
@@ -240,6 +242,6 @@ export async function regenerateTitleForNotebook(
         model: config.titleGeneratorModel
     });
 
-    await updateNotebookMetadataWithSync(notebook, title);
+    await session.updateTitle(title);
     return title;
 }
