@@ -101,6 +101,15 @@ export async function withRuleParsingMode<T>(fn: () => Promise<T>): Promise<T> {
 
 // ====== Approval Request System ======
 
+export interface ApprovalRequestHandlers {
+    onApprove: () => Promise<void>;
+    onReject: () => Promise<void>;
+    customAction?: {
+        label: string;
+        handler: () => Promise<void>;
+    };
+}
+
 export interface ApprovalRequest {
     id: string;
     actionDescription: string;
@@ -109,7 +118,14 @@ export interface ApprovalRequest {
     timestamp: Date;
     status: 'pending' | 'approved' | 'rejected';
     autoApproved: boolean;
-    resolve: (approved: boolean) => void;
+    
+    // Handlers
+    onApprove: () => Promise<void>;
+    onReject: () => Promise<void>;
+    customAction?: {
+        label: string;
+        handler: () => Promise<void>;
+    };
 }
 
 class ApprovalRequestManager {
@@ -128,17 +144,17 @@ class ApprovalRequestManager {
     }
 
     /**
-     * Create a request and return both the ID and the promise.
-     * This allows the caller to set up additional handling (e.g., notification buttons)
-     * before awaiting the result.
+     * Create a generic request with custom handlers.
      */
-    public createRequest(actionDescription: string, targetUri: string, details?: string, autoApproved: boolean = false): { id: string; promise: Promise<boolean> } {
-        let resolveFn: (approved: boolean) => void;
-        const promise = new Promise<boolean>((resolve) => {
-            resolveFn = resolve;
-        });
-
+    public createRequest(
+        actionDescription: string, 
+        targetUri: string, 
+        handlers: ApprovalRequestHandlers,
+        details?: string, 
+        autoApproved: boolean = false
+    ): string {
         const id = uuidv4();
+        
         const request: ApprovalRequest = {
             id,
             actionDescription,
@@ -147,47 +163,101 @@ class ApprovalRequestManager {
             timestamp: new Date(),
             status: autoApproved ? 'approved' : 'pending',
             autoApproved,
-            resolve: (approved: boolean) => {
-                request.status = approved ? 'approved' : 'rejected';
-                // 短暂延迟后移除，让用户看到状态变化
-                setTimeout(() => {
-                    this.requests.delete(id);
-                    this._onDidChangeRequests.fire();
-                }, 1000);
-                resolveFn(approved);
-            }
+            onApprove: async () => {
+                if (request.status !== 'pending' && !request.autoApproved) return;
+                try {
+                    await handlers.onApprove();
+                } finally {
+                    this.finalizeRequest(id, 'approved');
+                }
+            },
+            onReject: async () => {
+                if (request.status !== 'pending') return;
+                try {
+                    await handlers.onReject();
+                } finally {
+                    this.finalizeRequest(id, 'rejected');
+                }
+            },
+            customAction: handlers.customAction
         };
+
         this.requests.set(id, request);
         this._onDidChangeRequests.fire();
 
-        // If auto-approved, resolve immediately
         if (autoApproved) {
-            request.resolve(true);
+            request.onApprove();
         }
+
+        return id;
+    }
+
+    private finalizeRequest(id: string, status: 'approved' | 'rejected') {
+        const req = this.requests.get(id);
+        if (req) {
+            req.status = status;
+            this._onDidChangeRequests.fire();
+            // Remove after delay
+            setTimeout(() => {
+                this.requests.delete(id);
+                this._onDidChangeRequests.fire();
+            }, 1000);
+        }
+    }
+
+    /**
+     * Create a standard request and return both the ID and the promise.
+     * Compatible with old createRequest signature but used internally or for simple cases.
+     */
+    public createStandardRequest(
+        actionDescription: string, 
+        targetUri: string, 
+        details?: string, 
+        autoApproved: boolean = false
+    ): { id: string; promise: Promise<boolean> } { // DO NOT PLACE A COMMA BETWEEN THE FUNCTION BODY AND THE JSON RETURN TYPE! OR IT WILL CAUSE "应为 "{" 或 ";"。意外的标记。应为构造函数、方法、访问器或属性。"
+        let resolveFn: (approved: boolean) => void;
+        const promise = new Promise<boolean>((resolve) => {
+            resolveFn = resolve;
+        });
+
+        const id = this.createRequest(
+            actionDescription,
+            targetUri,
+            {
+                onApprove: async () => resolveFn(true),
+                onReject: async () => resolveFn(false)
+            },
+            details,
+            autoApproved
+        );
 
         return { id, promise };
     }
 
-    /**
-     * Add a request and return only the promise.
-     * This is a convenience wrapper around createRequest.
-     */
+    // Deprecated wrapper for backward compatibility if any direct calls exist
     public addRequest(actionDescription: string, targetUri: string, details?: string, autoApproved: boolean = false): Promise<boolean> {
-        const { promise } = this.createRequest(actionDescription, targetUri, details, autoApproved);
+        const { promise } = this.createStandardRequest(actionDescription, targetUri, details, autoApproved);
         return promise;
     }
 
-    public approveRequest(id: string): void {
+    public async approveRequest(id: string): Promise<void> {
         const request = this.requests.get(id);
         if (request && request.status === 'pending') {
-            request.resolve(true);
+            await request.onApprove();
         }
     }
 
-    public rejectRequest(id: string): void {
+    public async rejectRequest(id: string): Promise<void> {
         const request = this.requests.get(id);
         if (request && request.status === 'pending') {
-            request.resolve(false);
+            await request.onReject();
+        }
+    }
+
+    public async handleCustomAction(id: string): Promise<void> {
+        const request = this.requests.get(id);
+        if (request && request.status === 'pending' && request.customAction) {
+            await request.customAction.handler();
         }
     }
 
@@ -248,12 +318,12 @@ export async function requestApproval(
         vscode.window.showInformationMessage(
             `⚡ Auto Approved${modeText}: ${actionDescription} - ${targetUri}`
         );
-        approvalManager.createRequest(actionDescription, targetUri, details, true);
+        approvalManager.createStandardRequest(actionDescription, targetUri, details, true);
         return true;
     }
 
-    // 创建请求并获取 ID 和 Promise
-    const { id, promise: requestPromise } = approvalManager.createRequest(actionDescription, targetUri, details, false);
+    // 创建标准请求
+    const { id, promise: requestPromise } = approvalManager.createStandardRequest(actionDescription, targetUri, details, false);
 
     // 显示带有快速批准/拒绝按钮的通知
     vscode.window.showInformationMessage(

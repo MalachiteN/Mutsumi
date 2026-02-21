@@ -75,6 +75,15 @@ export class AgentSidebarProvider {
                 }
             })
         );
+
+        // Register custom request action command
+        context.subscriptions.push(
+            vscode.commands.registerCommand('mutsumi.customRequestAction', (item: any) => {
+                if (item && item.request && item.request.id) {
+                    approvalManager.handleCustomAction(item.request.id);
+                }
+            })
+        );
     }
 
     /**

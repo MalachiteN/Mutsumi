@@ -8,6 +8,7 @@ import { ToolManager } from '../tools.d/toolManager';
 import { ToolContext } from '../tools.d/interface';
 import { AgentMessage } from '../types';
 import { UIRenderer } from './uiRenderer';
+import { IAgentSession } from '../adapters/interfaces';
 
 /**
  * Callbacks for UI updates and termination signaling.
@@ -39,8 +40,8 @@ export interface ToolExecutionResult {
  * error handling, and result collection.
  * @class ToolExecutor
  * @example
- * const executor = new ToolExecutor(tools, allowedUris, notebook, isSubAgent);
- * const result = await executor.executeTools(execution, toolCalls, abortSignal, callbacks);
+ * const executor = new ToolExecutor(tools, allowedUris, session, isSubAgent, uiRenderer);
+ * const result = await executor.executeTools(toolCalls, abortSignal, callbacks);
  */
 export class ToolExecutor {
     /**
@@ -48,13 +49,14 @@ export class ToolExecutor {
      * @constructor
      * @param {ToolManager} tools - Tool manager for executing tools
      * @param {string[]} allowedUris - List of allowed URIs for the agent
-     * @param {vscode.NotebookDocument} notebook - The notebook document
+     * @param {IAgentSession} session - The agent session
      * @param {boolean} isSubAgent - Whether this is a sub-agent
+     * @param {UIRenderer} uiRenderer - UI renderer for formatting tool calls
      */
     constructor(
         private tools: ToolManager,
         private allowedUris: string[],
-        private notebook: vscode.NotebookDocument,
+        private session: IAgentSession,
         private isSubAgent: boolean,
         private uiRenderer: UIRenderer
     ) {}
@@ -63,20 +65,18 @@ export class ToolExecutor {
      * Executes a list of tool calls and returns the results.
      * @description Iterates through each tool call, builds the tool context,
      * executes the tool, collects results, and notifies callbacks for UI updates.
-     * @param {vscode.NotebookCellExecution} execution - Cell execution context
      * @param {any[]} toolCalls - Tool calls to execute
      * @param {AbortSignal} abortSignal - Signal for cancellation
      * @param {ToolExecutorCallbacks} callbacks - Callbacks for UI updates and termination
      * @returns {Promise<{messages: AgentMessage[], shouldTerminate: boolean}>} Tool execution results
      * @throws {TerminationError} If a termination tool signals task completion
      * @example
-     * const result = await executor.executeTools(execution, toolCalls, abortSignal, {
-     *     appendOutput: async (content) => { / * update UI * / },
+     * const result = await executor.executeTools(toolCalls, abortSignal, {
+     *     appendOutput: async (content) => { /* update UI * / },
      *     signalTermination: () => { /* handle termination * / }
      * });
      */
     async executeTools(
-        execution: vscode.NotebookCellExecution,
         toolCalls: any[],
         abortSignal: AbortSignal,
         callbacks: ToolExecutorCallbacks
@@ -86,7 +86,7 @@ export class ToolExecutor {
         let isTaskComplete = false;
 
         for (const tc of toolCalls) {
-            if (execution.token.isCancellationRequested) {
+            if (this.session.token.isCancellationRequested) {
                 break;
             }
 
@@ -96,8 +96,9 @@ export class ToolExecutor {
 
             const context: ToolContext = {
                 allowedUris: this.allowedUris,
-                notebook: this.notebook,
-                execution: execution,
+                notebook: undefined,
+                execution: undefined,
+                session: this.session,
                 abortSignal: abortSignal,
                 appendOutput: callbacks.appendOutput,
                 signalTermination: (taskComplete = false) => {

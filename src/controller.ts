@@ -6,8 +6,8 @@
 import * as vscode from 'vscode';
 import { ToolManager } from './tools.d/toolManager';
 import { AgentRunner } from './agent/agentRunner';
-import { buildInteractionHistory } from './contextManagement/history';
 import { AgentOrchestrator } from './agent/agentOrchestrator';
+import { NotebookAdapter } from './adapters/notebookAdapter';
 
 /**
  * Controls the execution of agent notebooks.
@@ -64,7 +64,7 @@ export class AgentController {
 
     /**
      * Processes a single notebook cell.
-     * @description Loads configuration, initializes execution, builds context history,
+     * @description Loads configuration, initializes execution, creates adapter session,
      * runs the agent loop, and saves interaction metadata.
      * @private
      * @param {vscode.NotebookCell} cell - The cell to process
@@ -84,43 +84,33 @@ export class AgentController {
         const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
         const model = notebook.metadata?.model || defaultModel;
 
-        const execution = controller.createNotebookCellExecution(cell);
-        execution.executionOrder = ++this.executionOrder;
-        execution.start(Date.now());
+        // Create adapter and session
+        const adapter = new NotebookAdapter(controller);
+        const session = await adapter.createSession({ 
+            resourceUri: cell.document.uri, 
+            config: { model, apiKey, baseUrl } 
+        });
 
         if (!apiKey) {
-            execution.replaceOutput([
-                new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.error(
-                        new Error('Please set mutsumi.apiKey in VSCode Settings.')
-                    )
-                ])
-            ]);
-            execution.end(false, Date.now());
+            await session.replaceOutput('Error: Please set mutsumi.apiKey in VSCode Settings.');
+            (session as any).end(false);
             return;
         }
 
         const abortController = new AbortController();
-        const tokenDisposable = execution.token.onCancellationRequested(() => {
+        const tokenDisposable = session.token.onCancellationRequested(() => {
             abortController.abort();
         });
 
         try {
-            const { messages, allowedUris, isSubAgent } = await buildInteractionHistory(
-                notebook,
-                cell.index,
-                cell.document.getText()
-            );
-
             const runner = new AgentRunner(
                 { apiKey, baseUrl, model },
                 this.tools,
-                notebook,
-                allowedUris,
-                isSubAgent
+                session
             );
 
-            const newMessages = await runner.run(execution, abortController, messages);
+            const history = await session.getHistory();
+            const newMessages = await runner.run(abortController, history);
 
             if (newMessages.length > 0) {
                 const newMetadata = {
@@ -133,15 +123,15 @@ export class AgentController {
                 await vscode.workspace.applyEdit(workspaceEdit);
             }
 
-            execution.end(true, Date.now());
+            (session as any).end(true);
         } catch (err: any) {
             const isCancellation = 
                 err.name === 'APIUserAbortError' ||
                 err.name === 'AbortError' || 
-                execution.token.isCancellationRequested;
+                session.token.isCancellationRequested;
 
             if (isCancellation) {
-                execution.end(false, Date.now()); 
+                (session as any).end(false); 
                 return;
             }
 
@@ -161,7 +151,7 @@ export class AgentController {
 
             // Do NOT replace output - preserve any streamed content that was displayed
             // The AgentRunner should have already appended an error indicator to the UI
-            execution.end(false, Date.now());
+            (session as any).end(false);
         } finally {
             tokenDisposable.dispose();
         }

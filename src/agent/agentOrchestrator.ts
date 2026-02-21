@@ -95,6 +95,14 @@ export class AgentOrchestrator {
     }
 
     /**
+     * Gets the notebook controller instance.
+     * @returns {vscode.NotebookController | undefined} The notebook controller if registered
+     */
+    public getNotebookController(): vscode.NotebookController | undefined {
+        return this.notebookController;
+    }
+
+    /**
      * Computes and returns nodes for TreeView display.
      * @description Delegates to AgentTreeUtils.getAgentTreeNodes which builds
      * the tree based on current Registry state (specifically isWindowOpen flags).

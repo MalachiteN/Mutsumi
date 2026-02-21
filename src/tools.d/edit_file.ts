@@ -6,30 +6,18 @@ import { ToolContext } from './interface';
 import { resolveUri, checkAccess, getUriKey } from './utils';
 import { DiffReviewAgent } from './edit_codelens_provider';
 import { DiffCodeLensAction } from './edit_codelens_types';
+import { approvalManager, isAutoApproveEnabled, isInRuleParsingMode } from './permission';
 
 // ============================================================================
 // Types and Interfaces
 // ============================================================================
 
 /**
- * Public session interface for sidebar display
- */
-export interface EditFileSession {
-    id: string;
-    // filePath: string; // Deprecated, use displayPath or uri
-    uri: vscode.Uri;
-    originalUri: vscode.Uri;
-    tempUri: vscode.Uri;
-    toolName: string;
-    timestamp: Date;
-    status: 'pending' | 'partially_accepted' | 'resolved';
-}
-
-/**
  * Internal transaction state
  */
 interface EditTransactionState {
-    id: string;
+    id: string; // Internal Transaction ID
+    approvalRequestId?: string; // Linked Approval Request ID
     resolve: (value: string) => void;
     reject: (reason: any) => void;
     originalUri: vscode.Uri;
@@ -185,85 +173,11 @@ class DiffEditorController {
 }
 
 // ============================================================================
-// EditFileSessionManager - Sidebar UI state management
-// ============================================================================
-
-class EditFileSessionManager {
-    private static instance: EditFileSessionManager;
-    private sessions: Map<string, EditFileSession> = new Map();
-    private _onDidChangeSessions = new vscode.EventEmitter<void>();
-    public readonly onDidChangeSessions = this._onDidChangeSessions.event;
-
-    private constructor() {}
-
-    public static getInstance(): EditFileSessionManager {
-        if (!EditFileSessionManager.instance) {
-            EditFileSessionManager.instance = new EditFileSessionManager();
-        }
-        return EditFileSessionManager.instance;
-    }
-
-    public addSession(session: Omit<EditFileSession, 'id' | 'timestamp' | 'status'>, id?: string): string {
-        const sessionId = id || uuidv4();
-        const fullSession: EditFileSession = {
-            ...session,
-            id: sessionId,
-            timestamp: new Date(),
-            status: 'pending'
-        };
-        this.sessions.set(sessionId, fullSession);
-        this._onDidChangeSessions.fire();
-        return sessionId;
-    }
-
-    public markPartiallyAccepted(id: string): void {
-        const session = this.sessions.get(id);
-        if (session) {
-            session.status = 'partially_accepted';
-            this._onDidChangeSessions.fire();
-        }
-    }
-
-    public resolveSession(id: string): void {
-        const session = this.sessions.get(id);
-        if (session) {
-            session.status = 'resolved';
-            setTimeout(() => {
-                this.sessions.delete(id);
-                this._onDidChangeSessions.fire();
-            }, 1000);
-        }
-    }
-
-    public getSession(id: string): EditFileSession | undefined {
-        return this.sessions.get(id);
-    }
-
-    public getActiveSessions(): EditFileSession[] {
-        return Array.from(this.sessions.values())
-            .filter(s => s.status !== 'resolved')
-            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-    }
-
-    public getAllSessions(): EditFileSession[] {
-        return Array.from(this.sessions.values())
-            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-    }
-
-    public removeSession(id: string): void {
-        this.sessions.delete(id);
-        this._onDidChangeSessions.fire();
-    }
-}
-
-export const editFileSessionManager = EditFileSessionManager.getInstance();
-
-// ============================================================================
 // EditTransaction - Represents a single edit transaction with its lifecycle
 // ============================================================================
 
 class EditTransaction {
-    private readonly state: EditTransactionState;
+    public readonly state: EditTransactionState; // Changed to public to access approvalRequestId
     private readonly tempFileHandler: TempFileHandler;
     private readonly targetUri: vscode.Uri;
     private resolved = false;
@@ -303,18 +217,10 @@ class EditTransaction {
     }
 
     /**
-     * Initialize temp files and register with session manager
+     * Initialize temp files
      */
     async initialize(newContent: string): Promise<void> {
         await this.tempFileHandler.initialize(newContent);
-
-        // Register with sidebar manager, using the transaction's id
-        editFileSessionManager.addSession({
-            uri: this.state.originalUri,
-            originalUri: this.state.originalUri,
-            tempUri: this.state.editUri,
-            toolName: this.state.toolName
-        }, this.state.id);
     }
 
     /**
@@ -398,7 +304,7 @@ class EditTransaction {
     /**
      * Clean up resources and mark as resolved
      */
-    async cleanup(diffController: DiffEditorController, resolveManagerSession: boolean = true): Promise<void> {
+    async cleanup(diffController: DiffEditorController): Promise<void> {
         if (this.resolved) {
             return;
         }
@@ -406,11 +312,6 @@ class EditTransaction {
 
         // Clear CodeLens
         diffController.clearCodeLens(this.targetUri);
-
-        // Mark session as resolved in sidebar
-        if (resolveManagerSession) {
-            editFileSessionManager.resolveSession(this.state.id);
-        }
 
         // Close diff editor and clean up temp files
         try {
@@ -506,13 +407,7 @@ class EditService {
             if (arg instanceof vscode.Uri) {
                 return this.transactions.get(getUriKey(arg));
             } else if (typeof arg === 'string') {
-                // Try resolving as URI first, or check if it matches a key
                 try {
-                     // In CodeLens arguments, we pass the originalUri as string (if json serialized) or Uri
-                     // The command argument usually comes as URI object from CodeLens if not serialized?
-                     // Actually CodeLens arguments are preserved.
-                     // But if invoked from command palette?
-                     // Let's assume it's a URI or a string path.
                      const uri = resolveUri(arg);
                      return this.transactions.get(getUriKey(uri));
                 } catch {
@@ -522,76 +417,38 @@ class EditService {
             return undefined;
         };
 
-        // Command: Accept
+        // Command: Accept (from CodeLens)
         context.subscriptions.push(
             vscode.commands.registerCommand('diffReview.action.accept', async (uriArg: vscode.Uri | string, _action: DiffCodeLensAction) => {
                 const transaction = getTransaction(uriArg);
-                if (!transaction) {
-                    return;
-                }
-
-                try {
-                    const feedbackMsg = await transaction.accept();
-                    transaction.resolve(feedbackMsg);
-                    await transaction.cleanup(this.diffController, true);
-                    this.transactions.delete(getUriKey(transaction.getUri()));
-                    vscode.window.showInformationMessage('Changes applied successfully.');
-                } catch (e: any) {
-                    vscode.window.showErrorMessage(e.message);
+                if (transaction && transaction.state.approvalRequestId) {
+                    await approvalManager.approveRequest(transaction.state.approvalRequestId);
                 }
             })
         );
 
-        // Command: Reject
+        // Command: Reject (from CodeLens)
         context.subscriptions.push(
             vscode.commands.registerCommand('diffReview.action.reject', async (uriArg: vscode.Uri | string, _action: DiffCodeLensAction) => {
                 const transaction = getTransaction(uriArg);
-                if (!transaction) {
-                    return;
-                }
-
-                const reason = await vscode.window.showInputBox({
-                    placeHolder: 'Enter rejection reason (optional, press ESC to reject without reason)',
-                    prompt: 'Why are you rejecting these changes?'
-                });
-
-                const feedbackMsg = await transaction.handleReject(reason);
-                transaction.resolve(feedbackMsg);
-                await transaction.cleanup(this.diffController, true);
-                this.transactions.delete(getUriKey(transaction.getUri()));
-
-                if (reason === undefined || reason.trim() === '') {
-                    vscode.window.showInformationMessage('Changes rejected.');
-                } else {
-                    vscode.window.showInformationMessage('Changes rejected with reason. Agent will continue generating.');
+                if (transaction && transaction.state.approvalRequestId) {
+                    await approvalManager.rejectRequest(transaction.state.approvalRequestId);
                 }
             })
         );
-
-        // Command: Reopen Diff Editor from sidebar
+        
+        // Command: Reopen Diff Editor (from Sidebar - now handled via approvalManager custom action, but kept for safety/logic reuse)
         context.subscriptions.push(
             vscode.commands.registerCommand('mutsumi.reopenEditDiff', async (sessionId: string) => {
-                let transaction: EditTransaction | undefined;
-
-                // Find by Session ID
-                for (const tx of this.transactions.values()) {
-                    if (tx.getId() === sessionId) {
-                        transaction = tx;
-                        break;
-                    }
-                }
-
-                if (!transaction) {
-                    vscode.window.showWarningMessage('Edit session not found or has already been resolved.');
-                    return;
-                }
-
-                try {
-                    await this.diffController.openDiff(transaction.getUri(), transaction.getEditUri(), transaction.getActions());
-                    vscode.window.showInformationMessage('Reopened diff editor for review.');
-                } catch (e: any) {
-                    vscode.window.showErrorMessage(`Failed to reopen editor: ${e.message}`);
-                }
+                // sessionId here corresponds to the approval request ID usually if we map it?
+                // Or we can find transaction by other means. 
+                // In new architecture, permission module calls custom handler.
+                // So this command might be redundant if the sidebar button calls mutsumi.customRequestAction.
+                // But let's keep logic available.
+                
+                // Note: The sessionId passed here might be the Approval ID if we changed sidebar.
+                // But we are removing EditFileSessionManager, so old sidebar items are gone.
+                // The new sidebar uses ApprovalTreeItem which calls `mutsumi.customRequestAction`.
             })
         );
     }
@@ -612,10 +469,6 @@ class EditService {
         const uri = resolveUri(uriInput);
         if (!checkAccess(uri, context.allowedUris)) {
             throw new Error(`Access Denied: Agent is not allowed to edit ${uri.toString()}`);
-        }
-
-        if (!context.notebook || !context.execution) {
-            return "Error: Tool requires notebook context (interactive mode).";
         }
 
         const uriKey = getUriKey(uri);
@@ -639,21 +492,92 @@ class EditService {
                 // Register transaction
                 this.transactions.set(uriKey, transaction);
 
-                // Handle cancellation
-                if (context.abortSignal) {
-                    context.abortSignal.addEventListener('abort', () => {
-                        this.handleCancellation(uriKey);
-                    });
-                }
-
                 // Open diff editor
                 await this.diffController.openDiff(uri, transaction.getEditUri(), transaction.getActions());
 
+                // Determine auto-approve status
+                const shouldAutoApprove = isAutoApproveEnabled() || isInRuleParsingMode();
+
+                // Register with Permission Manager
+                const requestId = approvalManager.createRequest(
+                    `Edit File: ${path.basename(uri.path)}`,
+                    uri.toString(),
+                    {
+                        onApprove: async () => {
+                            try {
+                                const feedbackMsg = await transaction.accept();
+                                transaction.resolve(feedbackMsg);
+                                await transaction.cleanup(this.diffController);
+                                this.transactions.delete(uriKey);
+                                vscode.window.showInformationMessage('Changes applied successfully.');
+                            } catch (e: any) {
+                                vscode.window.showErrorMessage(e.message);
+                                throw e;
+                            }
+                        },
+                        onReject: async () => {
+                            const reason = await vscode.window.showInputBox({
+                                placeHolder: 'Enter rejection reason (optional, press ESC to reject without reason)',
+                                prompt: 'Why are you rejecting these changes?'
+                            });
+                            
+                            const feedbackMsg = await transaction.handleReject(reason);
+                            transaction.resolve(feedbackMsg);
+                            await transaction.cleanup(this.diffController);
+                            this.transactions.delete(uriKey);
+
+                            if (reason === undefined || reason.trim() === '') {
+                                vscode.window.showInformationMessage('Changes rejected.');
+                            } else {
+                                vscode.window.showInformationMessage('Changes rejected with reason.');
+                            }
+                        },
+                        customAction: {
+                            label: 'Review Diff',
+                            handler: async () => {
+                                try {
+                                    await this.diffController.openDiff(uri, transaction.getEditUri(), transaction.getActions());
+                                    // Focus?
+                                } catch (e: any) {
+                                    vscode.window.showErrorMessage(`Failed to reopen editor: ${e.message}`);
+                                }
+                            }
+                        }
+                    },
+                    "Review changes in Diff Editor. You can edit the right side (User Final) manually.",
+                    shouldAutoApprove
+                );
+                
+                transaction.state.approvalRequestId = requestId;
+
+                // Handle cancellation (from LLM side / user aborting generation)
+                if (context.abortSignal) {
+                    context.abortSignal.addEventListener('abort', () => {
+                        this.handleCancellation(uriKey, requestId);
+                    });
+                }
+
+                // Show notification for quick access only if not auto-approved
+                if (!shouldAutoApprove) {
+                    vscode.window.showInformationMessage(
+                        `Agent wants to edit ${path.basename(uri.path)}`,
+                        'Show Diff'
+                    ).then(selection => {
+                        if (selection === 'Show Diff') {
+                            approvalManager.handleCustomAction(requestId);
+                        }
+                    });
+                } else {
+                    const modeText = isInRuleParsingMode() ? ' (Rule Parsing)' : '';
+                    vscode.window.showInformationMessage(
+                        `⚡ Auto Approved Edit${modeText}: ${path.basename(uri.path)}`
+                    );
+                }
+
             } catch (e) {
                 // Cleanup on error
-                editFileSessionManager.resolveSession(transaction.getId());
                 this.transactions.delete(uriKey);
-                await transaction.cleanup(this.diffController, false);
+                await transaction.cleanup(this.diffController);
                 reject(e);
             }
         });
@@ -665,23 +589,31 @@ class EditService {
     private async cancelExistingTransaction(uriKey: string): Promise<void> {
         const existingTx = this.transactions.get(uriKey);
         if (existingTx) {
-            editFileSessionManager.resolveSession(existingTx.getId());
-            existingTx.reject(new Error("New edit session started for this file, overriding previous request."));
-            await existingTx.cleanup(this.diffController, false);
-            this.transactions.delete(uriKey);
+            if (existingTx.state.approvalRequestId) {
+                // Rejecting the permission request will trigger onReject which cleans up
+                await approvalManager.rejectRequest(existingTx.state.approvalRequestId);
+            } else {
+                // Fallback cleanup if not registered
+                existingTx.reject(new Error("New edit session started for this file, overriding previous request."));
+                await existingTx.cleanup(this.diffController);
+                this.transactions.delete(uriKey);
+            }
         }
     }
 
     /**
      * Handle transaction cancellation
      */
-    private async handleCancellation(uriKey: string): Promise<void> {
+    private async handleCancellation(uriKey: string, requestId: string): Promise<void> {
         const transaction = this.transactions.get(uriKey);
         if (transaction && !transaction.isResolved()) {
-            const msg = transaction.cancel();
-            transaction.resolve(msg);
-            await transaction.cleanup(this.diffController, true);
-            this.transactions.delete(uriKey);
+            // Rejecting via manager to ensure UI sync
+             await approvalManager.rejectRequest(requestId);
+             // Override resolve message if needed? 
+             // onReject will set it to "rejected by user", but here it's cancellation.
+             // But onReject logic is generic. 
+             // Actually, if we want specific cancellation message, we might need to modify transaction state before rejecting,
+             // or just let it be rejected.
         }
     }
 }
