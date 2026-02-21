@@ -101,4 +101,10 @@ export interface IAgentSession {
      * @param title - The new title for the session
      */
     updateTitle(title: string): Promise<void>;
+
+    /**
+     * Get the current output content.
+     * Used for streaming responses in headless/HTTP mode.
+     */
+    getCurrentOutput?(): Promise<string>;
 }

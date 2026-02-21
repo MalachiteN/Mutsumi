@@ -14,7 +14,6 @@ import { partiallyReadByRangeTool, partiallyReadAroundKeywordTool } from './tool
 import { searchFileContainsKeywordTool, searchFileNameIncludesTool } from './tools/search_fs';
 import { getFileSizeTool, getEnvVarTool, systemInfoTool } from './tools/system_info';
 import { mkdirTool, createNewFileTool } from './tools/fs_write_ops';
-import { gitCmdTool } from './tools/git_cmd';
 import { selfForkTool, taskFinishTool, getAvailableModelsTool } from './tools/agent_control';
 import { projectOutlineTool } from './tools/project_outline';
 import { getWarningErrorTool } from './tools/get_warning_error';
@@ -97,7 +96,6 @@ export class ToolManager {
         this.registerCommon(mkdirTool);
         this.registerCommon(createNewFileTool);
 
-        this.registerCommon(gitCmdTool);
         this.registerCommon(projectOutlineTool);
         this.registerCommon(getWarningErrorTool);
 
