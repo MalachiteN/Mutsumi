@@ -57,7 +57,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Initialize HeadlessAdapter and HttpServer
     const headlessAdapter = new HeadlessAdapter();
-    const httpServer = new HttpServer(headlessAdapter, { port: 3000 });
+    const httpServer = new HttpServer(headlessAdapter, context.extensionUri, { port: 3000 });
     httpServer.start();
     context.subscriptions.push({
         dispose: () => {

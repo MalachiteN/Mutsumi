@@ -6,12 +6,12 @@ import * as cp from 'child_process';
 import * as path from 'path';
 
 export const shellExecTool: ITool = {
-    name: 'shell_exec',
+    name: 'shell',
     definition: {
         type: 'function',
         function: {
-            name: 'shell_exec',
-            description: 'Execute a shell command. Requires user approval. **IMPORTANT**: Run `system_info` first to find available shells and their paths.',
+            name: 'shell',
+            description: 'Execute a shell command. Requires user approval.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -44,7 +44,7 @@ export const shellExecTool: ITool = {
             // If it is 'ssh://...' or 'ftp://...' handled by FileSystemProvider, child_process cannot set CWD to it.
             
             if (uri.scheme !== 'file') {
-                return `Error: shell_exec only supports 'file' scheme (local or remote OS file system). Current scheme: '${uri.scheme}'. virtual file systems do not support shell execution.`;
+                return `Error: shell only supports 'file' scheme (local or remote OS file system). Current scheme: '${uri.scheme}'. virtual file systems do not support shell execution.`;
             }
 
             const cwd = uri.fsPath; // Safe to use fsPath here because we confirmed scheme is file

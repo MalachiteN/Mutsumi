@@ -10,8 +10,9 @@ import { approvalManager } from '../tools.d/permission';
 import { AgentRunner } from '../agent/agentRunner';
 import { ToolManager } from '../tools.d/toolManager';
 import { HeadlessAdapter } from './headlessAdapter';
+import { initializeRules } from '../contextManagement/prompts';
 import type { AgentSessionConfig, IAgentSession } from './interfaces';
-import type { AgentMessage, AgentMetadata, AgentContext } from '../types';
+import type { AgentMessage, AgentMetadata, AgentContext, AgentStateInfo } from '../types';
 
 export interface HttpServerOptions {
     port?: number;
@@ -24,9 +25,11 @@ export class HttpServer {
     private readonly adapter: HeadlessAdapter;
     private readonly toolManager: ToolManager;
     private readonly abortControllers = new Map<string, AbortController>();
+    private readonly extensionUri: vscode.Uri;
 
-    constructor(adapter: HeadlessAdapter, options?: HttpServerOptions) {
+    constructor(adapter: HeadlessAdapter, extensionUri: vscode.Uri, options?: HttpServerOptions) {
         this.adapter = adapter;
+        this.extensionUri = extensionUri;
         this.port = options?.port ?? 3000;
         this.toolManager = ToolManager.getInstance();
     }
@@ -44,6 +47,15 @@ export class HttpServer {
         if (!this.server) return;
         this.server.close();
         this.server = undefined;
+    }
+
+    /**
+     * Retrieves an agent from the registry by UUID.
+     * This is the single source of truth for agent lookups.
+     */
+    private getAgentFromRegistry(uuid: string): AgentStateInfo | undefined {
+        const registry = AgentRegistry.getInstance();
+        return registry.getAgent(uuid);
     }
 
     private configureServer(): void {
@@ -138,7 +150,8 @@ export class HttpServer {
     private async handleChat(req: express.Request, res: express.Response): Promise<void> {
         const uuidParam = req.params.uuid;
         const uuid = Array.isArray(uuidParam) ? uuidParam[0] : uuidParam;
-        const { prompt, model } = req.body ?? {};
+        const { prompt, model, stream } = req.body ?? {};
+        const isStreamMode = stream === true;
 
         if (!uuid) {
             res.status(400).json({ status: 'error', content: 'Missing agent UUID.' });
@@ -150,11 +163,14 @@ export class HttpServer {
             return;
         }
 
-        const fileUri = AgentFileOperations.getAgentFileUri(uuid);
-        if (!fileUri) {
-            res.status(500).json({ status: 'error', content: 'No workspace available.' });
+        // Get agent from registry to get the actual file URI
+        const agentInfo = this.getAgentFromRegistry(uuid);
+        if (!agentInfo) {
+            res.status(404).json({ status: 'error', content: 'Agent not found.' });
             return;
         }
+
+        const fileUri = vscode.Uri.parse(agentInfo.fileUri);
 
         let content: Uint8Array;
         try {
@@ -259,19 +275,72 @@ export class HttpServer {
         const abortController = new AbortController();
         this.abortControllers.set(uuid, abortController);
 
-        // Start the agent run asynchronously (don't await - return immediately)
-        void (async () => {
+        // If stream mode is requested, setup SSE
+        if (isStreamMode) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+            res.status(200);
+
+            let lastOutputLength = 0;
+            let isFinished = false;
+
+            // Override session's replaceOutput to capture streaming content
+            const originalReplaceOutput = session.replaceOutput.bind(session);
+
+            session.replaceOutput = async (output: string, options?: { isMarkdown?: boolean }) => {
+                // Call original method
+                await originalReplaceOutput(output, options);
+
+                // Get current output and send delta
+                const currentOutput = await session.getCurrentOutput!();
+
+                if (currentOutput.length > lastOutputLength && !isFinished) {
+                    const delta = currentOutput.slice(lastOutputLength);
+                    lastOutputLength = currentOutput.length;
+
+                    // Send SSE event with HTML content preserved
+                    const event = {
+                        type: 'content',
+                        content: delta,
+                        fullContent: currentOutput
+                    };
+                    res.write(`data: ${JSON.stringify(event)}\n\n`);
+                }
+            };
+
+            // Run the agent and stream results
             try {
-                const runner = new AgentRunner(runnerOptions, this.toolManager, session!);
+                const runner = new AgentRunner(runnerOptions, this.toolManager, session);
                 const newMessages = await runner.run(abortController, history);
 
                 // Update session with new history
                 const updatedHistory = [...history, ...newMessages];
                 (session as any).setHistory(updatedHistory);
 
-                console.log(`[Mutsumi] Agent ${uuid} completed with ${newMessages.length} new messages`);
+                isFinished = true;
+
+                // Send final event
+                const finalEvent = {
+                    type: 'done',
+                    messageCount: newMessages.length
+                };
+                res.write(`data: ${JSON.stringify(finalEvent)}\n\n`);
+                res.end();
+
+                console.log(`[Mutsumi] Agent ${uuid} streaming completed with ${newMessages.length} new messages`);
             } catch (error: any) {
-                console.error(`[Mutsumi] Agent ${uuid} error:`, error);
+                console.error(`[Mutsumi] Agent ${uuid} streaming error:`, error);
+                isFinished = true;
+
+                // Send error as SSE event
+                const errorEvent = {
+                    type: 'error',
+                    error: error.message || String(error)
+                };
+                res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+                res.end();
 
                 // Append error as assistant message
                 const errorMessage: AgentMessage = {
@@ -280,21 +349,50 @@ export class HttpServer {
                 };
                 const errorHistory = [...history, errorMessage];
                 (session as any).setHistory(errorHistory);
-
-                // Persist error to file
-                await session!.save();
+                await session.save();
             } finally {
                 this.abortControllers.delete(uuid);
+                // Restore original method
+                session.replaceOutput = originalReplaceOutput;
             }
-        })();
+        } else {
+            // Non-streaming mode: original behavior
+            void (async () => {
+                try {
+                    const runner = new AgentRunner(runnerOptions, this.toolManager, session!);
+                    const newMessages = await runner.run(abortController, history);
 
-        // Return immediately with accepted status
-        res.json({
-            status: 'accepted',
-            content: 'Agent run started. Use GET /agent/:uuid to check status.',
-            sessionId: uuid,
-            model: effectiveModel
-        });
+                    // Update session with new history
+                    const updatedHistory = [...history, ...newMessages];
+                    (session as any).setHistory(updatedHistory);
+
+                    console.log(`[Mutsumi] Agent ${uuid} completed with ${newMessages.length} new messages`);
+                } catch (error: any) {
+                    console.error(`[Mutsumi] Agent ${uuid} error:`, error);
+
+                    // Append error as assistant message
+                    const errorMessage: AgentMessage = {
+                        role: 'assistant',
+                        content: `> ⚠️ **Error**: ${error.message || String(error)}\n\n*Execution failed.*`
+                    };
+                    const errorHistory = [...history, errorMessage];
+                    (session as any).setHistory(errorHistory);
+
+                    // Persist error to file
+                    await session!.save();
+                } finally {
+                    this.abortControllers.delete(uuid);
+                }
+            })();
+
+            // Return immediately with accepted status
+            res.json({
+                status: 'accepted',
+                content: 'Agent run started. Use GET /agent/:uuid to check status.',
+                sessionId: uuid,
+                model: effectiveModel
+            });
+        }
     }
 
     private async handleGetAgent(req: express.Request, res: express.Response): Promise<void> {
@@ -305,14 +403,15 @@ export class HttpServer {
             return;
         }
 
-        const agent = await AgentFileOperations.loadAgentFromFile(uuid);
+        // Get agent from registry
+        const agent = this.getAgentFromRegistry(uuid);
         if (!agent) {
             res.status(404).json({ status: 'error', content: 'Agent not found.' });
             return;
         }
 
         // Load full history from file
-        const fileUri = AgentFileOperations.getAgentFileUri(uuid);
+        const fileUri = vscode.Uri.parse(agent.fileUri);
         let history: AgentMessage[] = [];
         if (fileUri) {
             try {
@@ -326,18 +425,13 @@ export class HttpServer {
             }
         }
 
-        // Get current session output if exists
-        const session = this.adapter.getSession(uuid);
-        const currentOutput = session ? await (session as any).getCurrentOutput() : '';
-
         res.json({
             status: 'ok',
             agent: {
                 ...agent,
                 childIds: Array.from(agent.childIds ?? [])
             },
-            history,
-            currentOutput: currentOutput || undefined
+            history
         });
     }
 
@@ -356,12 +450,77 @@ export class HttpServer {
 
     private async handleCreateAgent(req: express.Request, res: express.Response): Promise<void> {
         try {
-            // Execute the 'mutsumi.newAgent' command to create a new agent
-            await vscode.commands.executeCommand('mutsumi.newAgent');
-            
+            const wsFolders = vscode.workspace.workspaceFolders;
+            if (!wsFolders) {
+                res.status(400).json({ status: 'error', content: 'No workspace folder open.' });
+                return;
+            }
+
+            const root = wsFolders[0].uri;
+            const agentDir = vscode.Uri.joinPath(root, '.mutsumi');
+
+            // Create .mutsumi directory if it doesn't exist
+            try {
+                await vscode.workspace.fs.createDirectory(agentDir);
+            } catch {
+                // Directory may already exist
+            }
+
+            // Initialize rules
+            await initializeRules(this.extensionUri, root);
+
+            // Get all existing rules to initialize the agent with all rules enabled
+            let allRules: string[] = [];
+            try {
+                const rulesDir = vscode.Uri.joinPath(root, '.mutsumi', 'rules');
+                const entries = await vscode.workspace.fs.readDirectory(rulesDir);
+                allRules = entries
+                    .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.md'))
+                    .map(([name]) => name);
+            } catch {
+                // Ignore if rules dir doesn't exist yet
+            }
+
+            // Generate UUID for the new agent
+            const uuid = uuidv4();
+            const name = `agent-${Date.now()}.mtm `;
+            const newFileUri = vscode.Uri.joinPath(agentDir, name);
+
+            // Collect all workspace root URIs
+            const allWorkspaceUris = vscode.workspace.workspaceFolders?.map(f => f.uri.toString()) || [root.toString()];
+
+            // Read VS Code configuration to get default model
+            const config = vscode.workspace.getConfiguration('mutsumi');
+            const defaultModel = config.get<string>('defaultModel');
+
+            // Create initial content with the generated UUID
+            const agentContext: AgentContext = {
+                metadata: {
+                    uuid: uuid,
+                    name: 'New Agent',
+                    created_at: new Date().toISOString(),
+                    parent_agent_id: null,
+                    allowed_uris: allWorkspaceUris,
+                    model: defaultModel || undefined,
+                    contextItems: [],
+                    activeRules: allRules
+                },
+                context: []
+            };
+            const initialContent = new TextEncoder().encode(JSON.stringify(agentContext, null, 2));
+
+            // Write the file
+            await vscode.workspace.fs.writeFile(newFileUri, initialContent);
+
+            // Register the agent in the registry
+            await AgentOrchestrator.getInstance().notifyNotebookDocumentOpened(uuid, newFileUri, agentContext.metadata);
+
             res.status(201).json({
                 status: 'created',
-                content: 'New agent created via Mutsumi: New Agent command.'
+                uuid: uuid,
+                name: agentContext.metadata.name,
+                fileUri: newFileUri.toString(),
+                content: 'New agent created successfully.'
             });
         } catch (error: any) {
             console.error('Failed to create agent:', error);
@@ -377,9 +536,8 @@ export class HttpServer {
             return;
         }
 
-        // Get the agent from registry
-        const registry = AgentRegistry.getInstance();
-        const agent = registry.getAgent(uuid);
+        // Get agent from registry
+        const agent = this.getAgentFromRegistry(uuid);
         if (!agent) {
             res.status(404).json({ status: 'error', content: 'Agent not found.' });
             return;
@@ -433,12 +591,14 @@ export class HttpServer {
             return;
         }
 
-        // Get the file URI
-        const fileUri = AgentFileOperations.getAgentFileUri(uuid);
-        if (!fileUri) {
-            res.status(404).json({ status: 'error', content: 'Agent file not found.' });
+        // Get agent from registry to get the actual file URI
+        const agentInfo = this.getAgentFromRegistry(uuid);
+        if (!agentInfo) {
+            res.status(404).json({ status: 'error', content: 'Agent not found.' });
             return;
         }
+
+        const fileUri = vscode.Uri.parse(agentInfo.fileUri);
 
         try {
             // Read current content
