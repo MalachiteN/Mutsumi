@@ -58,6 +58,44 @@ export class HttpServer {
         return registry.getAgent(uuid);
     }
 
+    /**
+     * Gets the first workspace folder URI.
+     * This is the root used for Mutsumi configuration (rules, agents, etc.).
+     */
+    private getWorkspaceRoot(): vscode.Uri | undefined {
+        const wsFolders = vscode.workspace.workspaceFolders;
+        if (!wsFolders || wsFolders.length === 0) {
+            return undefined;
+        }
+        return wsFolders[0].uri;
+    }
+
+    /**
+     * Gets all available rule filenames from the .mutsumi/rules directory.
+     * This is a shared utility function used by multiple endpoints.
+     * @returns Array of .md filenames in the rules directory
+     */
+    private async getAvailableRules(): Promise<string[]> {
+        const root = this.getWorkspaceRoot();
+        if (!root) {
+            return [];
+        }
+
+        const rulesDir = vscode.Uri.joinPath(root, '.mutsumi', 'rules');
+        let allRules: string[] = [];
+
+        try {
+            const entries = await vscode.workspace.fs.readDirectory(rulesDir);
+            allRules = entries
+                .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.md'))
+                .map(([name]) => name);
+        } catch {
+            // Rules directory doesn't exist or can't be read
+        }
+
+        return allRules;
+    }
+
     private configureServer(): void {
         this.app.use(bodyParser.json({ limit: '2mb' }));
 
@@ -91,9 +129,24 @@ export class HttpServer {
             void this.handleSetModel(req, res);
         });
 
+        // Set agent active rules
+        this.app.put('/agent/:uuid/rules', (req: express.Request, res: express.Response) => {
+            void this.handleSetRules(req, res);
+        });
+
         // Stop agent generation
         this.app.post('/agent/:uuid/stop', (req: express.Request, res: express.Response) => {
             void this.handleStopAgent(req, res);
+        });
+
+        // Get all available rules
+        this.app.get('/rules', (req: express.Request, res: express.Response) => {
+            void this.handleListRules(req, res);
+        });
+
+        // Download a specific rule file
+        this.app.get('/rules/:name', (req: express.Request, res: express.Response) => {
+            void this.handleGetRuleFile(req, res);
         });
 
         // Approval endpoints
@@ -108,6 +161,135 @@ export class HttpServer {
         this.app.post('/approval/:id/custom', (req: express.Request, res: express.Response) => {
             void this.handleApproval(req, res, 'custom');
         });
+    }
+
+    private async handleListRules(req: express.Request, res: express.Response): Promise<void> {
+        const root = this.getWorkspaceRoot();
+        if (!root) {
+            res.status(400).json({ status: 'error', content: 'No workspace folder open.' });
+            return;
+        }
+
+        try {
+            const rules = await this.getAvailableRules();
+            res.json({
+                status: 'ok',
+                rules,
+                count: rules.length
+            });
+        } catch (error: any) {
+            console.error('Failed to list rules:', error);
+            res.status(500).json({ status: 'error', content: `Failed to list rules: ${error.message}` });
+        }
+    }
+
+    private async handleGetRuleFile(req: express.Request, res: express.Response): Promise<void> {
+        const root = this.getWorkspaceRoot();
+        if (!root) {
+            res.status(400).json({ status: 'error', content: 'No workspace folder open.' });
+            return;
+        }
+
+        const nameParam = req.params.name;
+        const name = Array.isArray(nameParam) ? nameParam[0] : nameParam;
+
+        if (!name) {
+            res.status(400).json({ status: 'error', content: 'Missing rule filename.' });
+            return;
+        }
+
+        // Validate filename: must end with .md and not contain path traversal
+        if (!name.endsWith('.md') || name.includes('..') || name.includes('/') || name.includes('\\')) {
+            res.status(400).json({ status: 'error', content: 'Invalid rule filename.' });
+            return;
+        }
+
+        // Verify the file exists in available rules
+        const availableRules = await this.getAvailableRules();
+        if (!availableRules.includes(name)) {
+            res.status(404).json({ status: 'error', content: `Rule file '${name}' not found.` });
+            return;
+        }
+
+        const rulesDir = vscode.Uri.joinPath(root, '.mutsumi', 'rules');
+        const fileUri = vscode.Uri.joinPath(rulesDir, name);
+
+        try {
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const contentText = new TextDecoder().decode(content);
+
+            res.setHeader('Content-Type', 'text/markdown');
+            res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+            res.send(contentText);
+        } catch (error: any) {
+            console.error('Failed to read rule file:', error);
+            res.status(500).json({ status: 'error', content: `Failed to read rule file: ${error.message}` });
+        }
+    }
+
+    private async handleSetRules(req: express.Request, res: express.Response): Promise<void> {
+        const uuidParam = req.params.uuid;
+        const uuid = Array.isArray(uuidParam) ? uuidParam[0] : uuidParam;
+        if (!uuid) {
+            res.status(400).json({ status: 'error', content: 'Missing agent UUID.' });
+            return;
+        }
+
+        const { rules } = req.body ?? {};
+        if (!Array.isArray(rules)) {
+            res.status(400).json({ status: 'error', content: 'Missing or invalid rules parameter. Must be an array of strings.' });
+            return;
+        }
+
+        // Validate all items are strings
+        if (!rules.every(r => typeof r === 'string')) {
+            res.status(400).json({ status: 'error', content: 'All rules must be strings.' });
+            return;
+        }
+
+        // Get agent from registry
+        const agentInfo = this.getAgentFromRegistry(uuid);
+        if (!agentInfo) {
+            res.status(404).json({ status: 'error', content: 'Agent not found.' });
+            return;
+        }
+
+        // Validate all rules exist
+        const availableRules = await this.getAvailableRules();
+        const invalidRules = rules.filter(rule => !availableRules.includes(rule));
+        if (invalidRules.length > 0) {
+            res.status(400).json({
+                status: 'error',
+                content: `Invalid rules: ${invalidRules.join(', ')}. Available rules: ${availableRules.join(', ')}`
+            });
+            return;
+        }
+
+        const fileUri = vscode.Uri.parse(agentInfo.fileUri);
+
+        try {
+            // Read current content
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const data = JSON.parse(new TextDecoder().decode(content)) as AgentContext;
+
+            // Update activeRules in metadata
+            data.metadata.activeRules = rules;
+
+            // Write back
+            const encoded = new TextEncoder().encode(JSON.stringify(data, null, 2));
+            await vscode.workspace.fs.writeFile(fileUri, encoded);
+
+            res.json({
+                status: 'updated',
+                agent: {
+                    uuid,
+                    activeRules: rules
+                }
+            });
+        } catch (error: any) {
+            console.error('Failed to set rules:', error);
+            res.status(500).json({ status: 'error', content: `Failed to set rules: ${error.message}` });
+        }
     }
 
     private async handleApproval(req: express.Request, res: express.Response, action: 'approve' | 'reject' | 'custom'): Promise<void> {
@@ -300,11 +482,10 @@ export class HttpServer {
                     const delta = currentOutput.slice(lastOutputLength);
                     lastOutputLength = currentOutput.length;
 
-                    // Send SSE event with HTML content preserved
+                    // Send SSE event with delta only
                     const event = {
                         type: 'content',
-                        content: delta,
-                        fullContent: currentOutput
+                        content: delta
                     };
                     res.write(`data: ${JSON.stringify(event)}\n\n`);
                 }
@@ -470,16 +651,7 @@ export class HttpServer {
             await initializeRules(this.extensionUri, root);
 
             // Get all existing rules to initialize the agent with all rules enabled
-            let allRules: string[] = [];
-            try {
-                const rulesDir = vscode.Uri.joinPath(root, '.mutsumi', 'rules');
-                const entries = await vscode.workspace.fs.readDirectory(rulesDir);
-                allRules = entries
-                    .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.md'))
-                    .map(([name]) => name);
-            } catch {
-                // Ignore if rules dir doesn't exist yet
-            }
+            const allRules = await this.getAvailableRules();
 
             // Generate UUID for the new agent
             const uuid = uuidv4();
