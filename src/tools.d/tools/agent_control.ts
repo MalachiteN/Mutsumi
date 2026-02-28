@@ -42,8 +42,8 @@ export const selfForkTool: ITool = {
         }
     },
     execute: async (args: any, context: ToolContext) => {
-        if (!context.notebook) return 'Error: Only available in Mutsumi Notebook.';
-        const parentUuid = context.notebook.metadata.uuid;
+        const config = await context.session.getConfig();
+        const parentUuid = config.metadata?.uuid;
         if (!parentUuid) return 'Error: No Agent UUID found.';
 
         const { context_summary, sub_agents } = args;
@@ -112,8 +112,9 @@ export const taskFinishTool: ITool = {
         }
     },
     execute: async (args: any, context: ToolContext) => {
-        if (!context.notebook) return 'Error: Only available in Mutsumi Notebook.';
-        const myUuid = context.notebook.metadata.uuid;
+        const config = await context.session.getConfig();
+        const myUuid = config.metadata?.uuid;
+        if (!myUuid) return 'Error: No Agent UUID found.';
         const summary = args.context_summary;
         
         AgentOrchestrator.getInstance().reportTaskFinished(myUuid, summary);

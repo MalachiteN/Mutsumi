@@ -123,7 +123,8 @@ export class NotebookAgentSession implements IAgentSession {
              this.config = {
                  model: meta.model,
                  allowedUris: meta.allowed_uris,
-                 isSubAgent: !!meta.parent_agent_id
+                 isSubAgent: !!meta.parent_agent_id,
+                 metadata: meta
              };
         }
         return this.config;

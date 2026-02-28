@@ -221,13 +221,18 @@ export class SkillManager {
                     let rootUri: vscode.Uri;
                     if (workspaceFolders && workspaceFolders.length > 0) {
                         rootUri = workspaceFolders[0].uri;
-                    } else if (contextData.notebook) {
-                        rootUri = contextData.notebook.uri;
                     } else {
-                        // Fallback, though this case shouldn't happen often in practice
-                        // If we really need a URI and don't have one, we can use a dummy or skip file refs
-                        // For now, let's use a dummy file URI pointing to current directory
-                        rootUri = vscode.Uri.file('.');
+                        // Fallback: use the first allowed URI if available, otherwise use filesystem root
+                        const allowedUris = contextData.allowedUris || [];
+                        if (allowedUris.length > 0) {
+                            try {
+                                rootUri = vscode.Uri.parse(allowedUris[0]);
+                            } catch {
+                                rootUri = vscode.Uri.file('/');
+                            }
+                        } else {
+                            rootUri = vscode.Uri.file('/');
+                        }
                     }
                     
                     const allowedUris = contextData.allowedUris || ['/'];

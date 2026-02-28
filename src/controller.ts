@@ -8,6 +8,7 @@ import { ToolManager } from './tools.d/toolManager';
 import { AgentRunner } from './agent/agentRunner';
 import { AgentOrchestrator } from './agent/agentOrchestrator';
 import { NotebookAdapter } from './adapters/notebookAdapter';
+import { AgentMetadata } from './types';
 
 /**
  * Controls the execution of agent notebooks.
@@ -88,7 +89,12 @@ export class AgentController {
         const adapter = new NotebookAdapter(controller);
         const session = await adapter.createSession({ 
             resourceUri: cell.document.uri, 
-            config: { model, apiKey, baseUrl } 
+            config: { 
+                model, 
+                apiKey, 
+                baseUrl,
+                metadata: notebook.metadata as AgentMetadata
+            } 
         });
 
         if (!apiKey) {
