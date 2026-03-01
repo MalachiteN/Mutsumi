@@ -19,7 +19,7 @@ import { sanitizeFileName } from './utils';
 import { registerToolbarCommands } from './notebook/toolbar';
 import { SkillManager } from './contextManagement/skillManager';
 import { HeadlessAdapter } from './adapters/headlessAdapter';
-import { HttpServer } from './adapters/httpServer';
+import { HttpServer } from './httpServer';
 
 /**
  * Checks if a file exists at the given URI.
