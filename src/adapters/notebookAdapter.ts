@@ -41,6 +41,8 @@ export class NotebookAgentSession implements IAgentSession {
     public readonly id: string;
     public readonly token: vscode.CancellationToken;
     public readonly supportsUI = true;
+    private initialHistoryLength: number = 0;
+    private fullHistory: AgentMessage[] | undefined;
     
     // We keep track of the accumulated output string if needed, 
     // but VSCode execution handles the actual display state.
@@ -80,6 +82,9 @@ export class NotebookAgentSession implements IAgentSession {
             this.config.isSubAgent = result.isSubAgent;
         }
 
+        // Record initial history length to calculate diff for save()
+        this.initialHistoryLength = result.messages.length;
+
         return result.messages;
     }
 
@@ -111,23 +116,69 @@ export class NotebookAgentSession implements IAgentSession {
         ]);
     }
 
+    setHistory(messages: AgentMessage[]): void {
+        this.fullHistory = messages;
+    }
+
     async save(): Promise<void> {
-        // Persistence is currently handled by the Controller via WorkspaceEdit on Metadata.
-        // This placeholder fulfills the interface.
-        // In the future, this could persist intermediate state to cell metadata.
+        // Persist metadata changes and interaction history to the notebook via WorkspaceEdit
+        // This updates VSCode's buffer (dirty state), which will be saved to disk
+        // by user action or auto-save
+
+        const edits: vscode.NotebookEdit[] = [];
+
+        // 1. Metadata Update
+        if (this.config?.metadata) {
+            const newMetadata = { ...this.notebook.metadata, ...this.config.metadata };
+            edits.push(vscode.NotebookEdit.updateNotebookMetadata(newMetadata));
+        }
+
+        // 2. Cell Interaction Update
+        // Calculate the new interaction part by slicing off the initial history
+        if (this.fullHistory && this.fullHistory.length > this.initialHistoryLength) {
+            const newInteraction = this.fullHistory.slice(this.initialHistoryLength);
+            
+            const newCellMetadata = {
+                ...this.execution.cell.metadata,
+                mutsumi_interaction: newInteraction
+            };
+            edits.push(vscode.NotebookEdit.updateCellMetadata(this.execution.cell.index, newCellMetadata));
+        }
+
+        if (edits.length > 0) {
+            const edit = new vscode.WorkspaceEdit();
+            edit.set(this.notebook.uri, edits);
+            await vscode.workspace.applyEdit(edit);
+        }
     }
 
     async getConfig(): Promise<AgentSessionConfig> {
         if (!this.config) {
              const meta = this.notebook.metadata as AgentMetadata;
+             // Deep clone metadata to avoid referencing VSCode's frozen object
+             const metaCopy = meta ? JSON.parse(JSON.stringify(meta)) as AgentMetadata : undefined;
              this.config = {
-                 model: meta.model,
-                 allowedUris: meta.allowed_uris,
-                 isSubAgent: !!meta.parent_agent_id,
-                 metadata: meta
+                 model: meta?.model,
+                 allowedUris: meta?.allowed_uris,
+                 isSubAgent: !!meta?.parent_agent_id,
+                 metadata: metaCopy
              };
         }
         return this.config;
+    }
+
+    setConfig(config: Partial<AgentSessionConfig>): void {
+        if (!this.config) {
+            this.config = {};
+        }
+        // Merge the new config, deep cloning metadata to avoid read-only issues
+        this.config = {
+            ...this.config,
+            ...config,
+            metadata: config.metadata 
+                ? JSON.parse(JSON.stringify(config.metadata)) as AgentMetadata 
+                : this.config.metadata
+        };
     }
 
     async updateTitle(title: string): Promise<void> {

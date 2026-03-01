@@ -177,6 +177,17 @@ export class HeadlessAgentSession implements IAgentSession {
         return this.config;
     }
 
+    setConfig(config: Partial<AgentSessionConfig>): void {
+        // Merge the new config into existing config
+        this.config = {
+            ...this.config,
+            ...config,
+            metadata: config.metadata 
+                ? { ...this.config.metadata, ...config.metadata }
+                : this.config.metadata
+        };
+    }
+
     async updateTitle(title: string): Promise<void> {
         // Update in-memory config
         if (!this.config.metadata) {

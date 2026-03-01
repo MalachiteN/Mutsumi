@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { AgentMessage } from '../types';
 import { TextDecoder } from 'util';
 import { ToolManager } from '../tools.d/toolManager';
 import { ToolContext } from '../tools.d/interface';
@@ -41,6 +42,14 @@ class StubAgentSession implements IAgentSession {
     }
     
     async updateTitle(): Promise<void> {
+        // No-op for stub
+    }
+
+    setConfig(config: Partial<AgentSessionConfig>): void {
+        // No-op for stub
+    }
+
+    setHistory(messages: AgentMessage[]): void {
         // No-op for stub
     }
 }
