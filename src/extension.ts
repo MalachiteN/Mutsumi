@@ -20,6 +20,7 @@ import { registerToolbarCommands } from './notebook/toolbar';
 import { SkillManager } from './contextManagement/skillManager';
 import { HeadlessAdapter } from './adapters/headlessAdapter';
 import { HttpServer } from './httpServer';
+import { debugLogger } from './debugLogger';
 
 /**
  * Checks if a file exists at the given URI.
@@ -48,6 +49,9 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
  * }
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    // Initialize Debug Logger first so other modules can use it
+    debugLogger.initialize(context);
+
     // Initialize Codebase Service
     CodebaseService.getInstance().initialize(context).catch(console.error);
 
@@ -57,8 +61,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Initialize HeadlessAdapter and HttpServer
     const headlessAdapter = new HeadlessAdapter();
-    const httpServer = new HttpServer(headlessAdapter, context.extensionUri, { port: 3000 });
-    httpServer.start();
+    const httpServer = new HttpServer(headlessAdapter, context.extensionUri);
+    httpServer.start().catch(err => {
+        debugLogger.log(`[Extension] Failed to start HTTP server: ${err}`);
+    });
     context.subscriptions.push({
         dispose: () => {
             httpServer.stop();

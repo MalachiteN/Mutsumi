@@ -3,6 +3,7 @@ const matter = require('gray-matter');
 import { ITool, ToolContext } from '../tools.d/interface';
 import { TextDecoder } from 'util';
 import { TemplateEngine } from './templateEngine';
+import { debugLogger } from '../debugLogger';
 
 interface SkillCacheEntry {
     metadata: { description: string; params: string[] };
@@ -16,7 +17,6 @@ export class SkillManager {
     private skills: Map<string, ITool> = new Map();
     private skillCache: Map<string, SkillCacheEntry> = new Map();
     private skillDir = '.mutsumi/skills';
-    private outputChannel: vscode.OutputChannel;
     private isLoading = false;
     private skillWatcher?: vscode.FileSystemWatcher;
     private pendingReload = false;
@@ -28,12 +28,10 @@ export class SkillManager {
         return SkillManager.instance;
     }
 
-    private constructor() {
-        this.outputChannel = vscode.window.createOutputChannel('Mutsumi Skills');
-    }
+    private constructor() {}
 
     private log(message: string) {
-        this.outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ${message}`);
+        debugLogger.log(`[Skills] ${message}`);
     }
 
     public registerSkillWatcher(context: vscode.ExtensionContext): void {

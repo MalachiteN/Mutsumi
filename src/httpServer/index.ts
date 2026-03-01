@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
+import * as net from 'net';
 import express = require('express');
 import bodyParser = require('body-parser');
 import { ToolManager } from '../tools.d/toolManager';
 import { HeadlessAdapter } from '../adapters/headlessAdapter';
 import { HttpServerOptions } from './types';
+import { debugLogger } from '../debugLogger';
 
 // Import endpoint handlers
 import {
@@ -25,40 +27,91 @@ import { handleStopAgent } from './stop';
 import {
     handleApprove,
     handleReject,
-    handleCustom
+    handleCustom,
+    handleListPending
 } from './approval';
 
 export { HttpServerOptions } from './types';
 
 export class HttpServer {
     private readonly app = express();
-    private readonly port: number;
     private server?: ReturnType<typeof this.app.listen>;
+    private actualPort?: number;
     private readonly adapter: HeadlessAdapter;
     private readonly toolManager: ToolManager;
     private readonly abortControllers = new Map<string, AbortController>();
     private readonly extensionUri: vscode.Uri;
+    private readonly startPort: number;
+    private readonly maxPort: number;
 
     constructor(adapter: HeadlessAdapter, extensionUri: vscode.Uri, options?: HttpServerOptions) {
         this.adapter = adapter;
         this.extensionUri = extensionUri;
-        this.port = options?.port ?? 3000;
+        this.startPort = options?.port ?? 3000;
+        this.maxPort = this.startPort + 100; // Try up to 100 ports
         this.toolManager = ToolManager.getInstance();
     }
 
-    start(): void {
+    /**
+     * Find an available port starting from startPort.
+     */
+    private findAvailablePort(): Promise<number> {
+        return new Promise((resolve, reject) => {
+            const tryPort = (port: number) => {
+                if (port > this.maxPort) {
+                    reject(new Error(`No available ports found between ${this.startPort} and ${this.maxPort}`));
+                    return;
+                }
+
+                const server = net.createServer();
+                
+                server.once('error', (err: any) => {
+                    if (err.code === 'EADDRINUSE') {
+                        // Port is in use, try next
+                        tryPort(port + 1);
+                    } else {
+                        reject(err);
+                    }
+                });
+
+                server.once('listening', () => {
+                    server.close(() => {
+                        resolve(port);
+                    });
+                });
+
+                server.listen(port, '127.0.0.1');
+            };
+
+            tryPort(this.startPort);
+        });
+    }
+
+    async start(): Promise<void> {
         if (this.server) return;
 
-        this.configureServer();
-        this.server = this.app.listen(this.port, () => {
-            console.log(`[Mutsumi] HttpServer listening on port ${this.port}`);
-        });
+        try {
+            this.actualPort = await this.findAvailablePort();
+            this.configureServer();
+            this.server = this.app.listen(this.actualPort, '127.0.0.1', () => {
+                const message = `已于 http://127.0.0.1:${this.actualPort} 启动服务器`;
+                debugLogger.log(message);
+            });
+        } catch (error) {
+            debugLogger.log(`[HttpServer] Failed to start: ${error}`);
+            throw error;
+        }
     }
 
     stop(): void {
         if (!this.server) return;
         this.server.close();
         this.server = undefined;
+        this.actualPort = undefined;
+    }
+
+    getPort(): number | undefined {
+        return this.actualPort;
     }
 
     private configureServer(): void {
@@ -91,6 +144,7 @@ export class HttpServer {
         );
 
         // Approval endpoints
+        this.app.get('/approval/pending', handleListPending);
         this.app.post('/approval/:id/approve', handleApprove);
         this.app.post('/approval/:id/reject', handleReject);
         this.app.post('/approval/:id/custom', handleCustom);
