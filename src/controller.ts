@@ -119,14 +119,10 @@ export class AgentController {
             const newMessages = await runner.run(abortController, history);
 
             if (newMessages.length > 0) {
-                const newMetadata = {
-                    ...cell.metadata,
-                    mutsumi_interaction: newMessages
-                };
-                const notebookEdit = vscode.NotebookEdit.updateCellMetadata(cell.index, newMetadata);
-                const workspaceEdit = new vscode.WorkspaceEdit();
-                (workspaceEdit as any).set(notebook.uri, [notebookEdit]);
-                await vscode.workspace.applyEdit(workspaceEdit);
+                // Update session history and persist
+                // This delegates metadata updates (both Cell and Notebook) to the adapter
+                session.setHistory([...history, ...newMessages]);
+                await session.save();
             }
 
             (session as any).end(true);

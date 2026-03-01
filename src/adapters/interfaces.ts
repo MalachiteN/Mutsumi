@@ -97,10 +97,23 @@ export interface IAgentSession {
     getConfig(): Promise<AgentSessionConfig>;
 
     /**
+     * Set the session configuration.
+     * Updates the in-memory config which will be persisted on next save().
+     * @param config - The new configuration (partial updates are merged)
+     */
+    setConfig(config: Partial<AgentSessionConfig>): void;
+
+    /**
      * Update the session title.
      * @param title - The new title for the session
      */
     updateTitle(title: string): Promise<void>;
+
+    /**
+     * Set the full interaction history to be saved.
+     * Used by NotebookAdapter to persist cell-specific history.
+     */
+    setHistory(messages: AgentMessage[]): void;
 
     /**
      * Get the current output content.

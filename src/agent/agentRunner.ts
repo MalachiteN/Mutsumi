@@ -292,7 +292,10 @@ export class AgentRunner {
         // The session adapter will handle the actual persistence (e.g., notebook metadata, file, etc.)
         const config = await this.session.getConfig();
         if (config.metadata) {
-            config.metadata.is_task_finished = true;
+            // Use setConfig to safely update metadata, avoiding read-only object issues
+            this.session.setConfig({
+                metadata: { ...config.metadata, is_task_finished: true }
+            });
         }
         await this.session.save();
     }
