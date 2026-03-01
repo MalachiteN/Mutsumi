@@ -2,6 +2,24 @@ import type * as express from 'express';
 import { approvalManager } from '../tools.d/permission';
 
 /**
+ * 获取所有待批准的请求列表
+ * GET /approval/pending
+ */
+export async function handleListPending(req: express.Request, res: express.Response): Promise<void> {
+    const pendingRequests = approvalManager.getPendingRequests();
+    const simplified = pendingRequests.map(r => ({
+        id: r.id,
+        actionDescription: r.actionDescription,
+        targetUri: r.targetUri,
+        details: r.details,
+        timestamp: r.timestamp,
+        status: r.status,
+        customActionLabel: r.customAction?.label
+    }));
+    res.json({ status: 'ok', content: simplified });
+}
+
+/**
  * 处理批准请求
  * POST /approval/:id/approve
  */
