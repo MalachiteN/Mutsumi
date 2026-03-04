@@ -226,6 +226,11 @@ export class TemplateEngine {
                 return originalTag;
             }
         } catch (e: any) {
+            // If file not found (ENOENT) in INLINE mode, return original tag unchanged
+            if (e.code === "FileNotFound") {
+                return originalTag;
+            }
+
             const errorMessage = `> Error including file: ${e.message}`;
             if (mode === 'INLINE') {
                 return errorMessage;

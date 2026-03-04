@@ -264,7 +264,7 @@ export class AgentRunner {
     private async generateTitleIfNeeded(
         session: IAgentSession,
         allMessages: AgentMessage[],
-        sessionConfig: AgentSessionConfig // 问题 找不到名称“AgentSessionConfig”。你是否指的是“IAgentSession”?
+        sessionConfig: AgentSessionConfig
     ): Promise<void> {
         const config = vscode.workspace.getConfiguration('mutsumi');
         const titleGeneratorModel = config.get<string>('titleGeneratorModel') || sessionConfig.model;
