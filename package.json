@@ -130,6 +130,12 @@
                 "title": "Exit Auto-Approve",
                 "category": "Mutsumi",
                 "icon": "$(debug-disconnect)"
+            },
+            {
+                "command": "mutsumi.testRagSearch",
+                "title": "Test RAG Search",
+                "category": "Mutsumi",
+                "icon": "$(search)"
             }
         ],
         "menus": {
@@ -203,6 +209,11 @@
                     "command": "mutsumi.toggleAutoApproveOn",
                     "group": "navigation@6",
                     "when": "notebookType == mutsumi-notebook && mutsumi:autoApproveEnabled"
+                },
+                {
+                    "command": "mutsumi.testRagSearch",
+                    "group": "navigation@7",
+                    "when": "notebookType == mutsumi-notebook"
                 }
             ]
         },
@@ -261,21 +272,28 @@
         "install-local": "npm run package && code --install-extension my-agent-0.0.1.vsix --force && echo '安装完成，请在 VS Code 中执行 Developer: Reload Window'"
     },
     "devDependencies": {
+        "@electron/rebuild": "^4.0.3",
+        "@types/better-sqlite3": "^7.6.13",
         "@types/node": "^18.0.0",
         "@types/uuid": "^9.0.8",
         "@types/vscode": "^1.108.1",
+        "electron": "^39.0.0",
+        "electron-rebuild": "^3.2.9",
         "typescript": "^5.0.0"
     },
     "dependencies": {
         "@types/diff": "^8.0.0",
         "@types/express": "^5.0.6",
         "@types/vscode": "^1.108.1",
+        "better-sqlite3": "^12.8.0",
         "body-parser": "^2.2.2",
         "diff": "^8.0.3",
         "express": "^5.2.1",
         "gray-matter": "^4.0.3",
+        "node-llama-cpp": "^3.17.1",
         "openai": "^6.17.0",
         "preprocess": "^3.2.0",
+        "sqlite-vec": "^0.1.7-alpha.2",
         "uuid": "^9.0.1",
         "web-tree-sitter": "^0.22.2"
     }

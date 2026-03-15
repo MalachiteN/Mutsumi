@@ -106,7 +106,7 @@ export async function generateTitle(
     config: LLMClientConfig
 ): Promise<string> {
     // Dynamically import AgentRunner to avoid circular dependency
-    const { AgentRunner } = await import('./agentRunner');
+    const { AgentRunner } = await import('./agentRunner.js');
 
     // Create lite adapter and session
     const adapter = new LiteAdapter();
