@@ -19,6 +19,7 @@ import { sanitizeFileName } from './utils';
 import { registerToolbarCommands } from './notebook/toolbar';
 import { SkillManager } from './contextManagement/skillManager';
 import { HeadlessAdapter } from './adapters/headlessAdapter';
+import { ToolRegistry } from './tools.d/toolManager';
 import { HttpServer } from './httpServer';
 import { debugLogger } from './debugLogger';
 
@@ -51,6 +52,9 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     // Initialize Debug Logger first so other modules can use it
     debugLogger.initialize(context);
+
+    // Initialize ToolRegistry (required for the new ToolSet architecture)
+    ToolRegistry.initialize();
 
     // Initialize Codebase Service
     CodebaseService.getInstance().initialize(context).catch(console.error);

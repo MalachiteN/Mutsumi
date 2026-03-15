@@ -9,6 +9,21 @@ import type { AgentStateInfo, AgentRuntimeStatus } from '../types';
 export type { AgentStateInfo, AgentRuntimeStatus };
 
 /**
+ * Options for configuring the agent runner.
+ * @interface AgentRunOptions
+ */
+export interface AgentRunOptions {
+    /** Model identifier to use for LLM calls */
+    model: string;
+    /** OpenAI API key */
+    apiKey: string;
+    /** Base URL for OpenAI-compatible API */
+    baseUrl: string | undefined;
+    /** Maximum number of tool interaction loops */
+    maxLoops?: number;
+}
+
+/**
  * Fork session information for managing sub-agent lifecycle.
  * @interface ForkSession
  */

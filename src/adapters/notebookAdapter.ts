@@ -43,6 +43,7 @@ export class NotebookAgentSession implements IAgentSession {
     public readonly supportsUI = true;
     private initialHistoryLength: number = 0;
     private fullHistory: AgentMessage[] | undefined;
+    private config?: AgentSessionConfig;
     
     // We keep track of the accumulated output string if needed, 
     // but VSCode execution handles the actual display state.
@@ -50,10 +51,15 @@ export class NotebookAgentSession implements IAgentSession {
     constructor(
         public readonly execution: vscode.NotebookCellExecution,
         private readonly notebook: vscode.NotebookDocument,
-        private config?: AgentSessionConfig
+        config?: AgentSessionConfig
     ) {
         this.id = execution.cell.document.uri.toString();
         this.token = execution.token;
+        
+        // Deep clone config to avoid read-only issues with VSCode's frozen metadata
+        if (config) {
+            this.config = JSON.parse(JSON.stringify(config)) as AgentSessionConfig;
+        }
         
         // Start timing
         this.execution.start(Date.now());
@@ -164,7 +170,8 @@ export class NotebookAgentSession implements IAgentSession {
                  metadata: metaCopy
              };
         }
-        return this.config;
+        // Always return a deep clone to prevent external modifications affecting internal state
+        return JSON.parse(JSON.stringify(this.config)) as AgentSessionConfig;
     }
 
     setConfig(config: Partial<AgentSessionConfig>): void {
@@ -182,26 +189,57 @@ export class NotebookAgentSession implements IAgentSession {
     }
 
     async updateTitle(title: string): Promise<void> {
-        const edit = new vscode.WorkspaceEdit();
-        const newMetadata = { ...this.notebook.metadata, name: title };
-        const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
-        edit.set(this.notebook.uri, [nbEdit]);
-        await vscode.workspace.applyEdit(edit);
+        const { debugLogger } = require('../debugLogger');
+        debugLogger.log(`[NotebookAdapter] updateTitle called: "${title}"`);
 
-        // Also update in-memory config
-        if (!this.config) {
-            this.config = {};
+        try {
+            const edit = new vscode.WorkspaceEdit();
+            // Use deep clone to avoid readonly issues with VSCode's frozen metadata
+            const newMetadata = JSON.parse(JSON.stringify({ ...this.notebook.metadata, name: title }));
+            const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
+            edit.set(this.notebook.uri, [nbEdit]);
+            await vscode.workspace.applyEdit(edit);
+            debugLogger.log(`[NotebookAdapter] Notebook metadata updated with title: "${title}"`);
+        } catch (err) {
+            debugLogger.log(`[NotebookAdapter] ERROR updating notebook metadata: ${err}`);
         }
-        if (!this.config.metadata) {
-            this.config.metadata = {} as AgentMetadata;
-        }
-        this.config.metadata.name = title;
 
-        // Sync with orchestrator
-        const uuid = this.notebook.metadata?.uuid || this.config.metadata?.uuid;
-        if (uuid) {
-            const { AgentOrchestrator } = require('../agent/agentOrchestrator');
-            AgentOrchestrator.getInstance().updateAgentName(uuid, title);
+        try {
+            // Also update in-memory config
+            if (!this.config) {
+                this.config = {};
+            }
+            if (!this.config.metadata) {
+                this.config.metadata = {} as AgentMetadata;
+            }
+            this.config.metadata.name = title;
+            debugLogger.log(`[NotebookAdapter] In-memory config updated`);
+        } catch (err) {
+            debugLogger.log(`[NotebookAdapter] ERROR updating in-memory config: ${err}`);
+        }
+
+        try {
+            // Sync with orchestrator
+            const notebookUuid = this.notebook.metadata?.uuid;
+            const configUuid = this.config?.metadata?.uuid;
+            const uuid = notebookUuid || configUuid;
+            debugLogger.log(`[NotebookAdapter] UUID sources - notebook.metadata.uuid: ${notebookUuid}, config.metadata.uuid: ${configUuid}`);
+            debugLogger.log(`[NotebookAdapter] Attempting registry sync with uuid: ${uuid}`);
+            if (uuid) {
+                const { AgentOrchestrator } = require('../agent/agentOrchestrator');
+                const { AgentRegistry } = require('../agent/registry');
+                const orchestrator = AgentOrchestrator.getInstance();
+                const registry = AgentRegistry.getInstance();
+                const agent = registry.getAgent(uuid);
+                debugLogger.log(`[NotebookAdapter] Registry lookup for uuid ${uuid}: ${agent ? `found "${agent.name}"` : 'NOT FOUND'}`);
+                orchestrator.updateAgentName(uuid, title);
+                orchestrator.refreshUI();
+                debugLogger.log(`[NotebookAdapter] Registry sync completed`);
+            } else {
+                debugLogger.log(`[NotebookAdapter] No uuid available for registry sync`);
+            }
+        } catch (err) {
+            debugLogger.log(`[NotebookAdapter] ERROR during registry sync: ${err}`);
         }
     }
 

@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ToolManager } from '../tools.d/toolManager';
+import { ToolSet, createSubAgentToolSet } from '../tools.d/toolManager';
 import { AgentMessage } from '../types';
 import { UIRenderer } from './uiRenderer';
 import { LLMStreamHandler } from './llmStream';
@@ -12,21 +12,11 @@ import { ToolExecutor } from './toolExecutor';
 import { TitleGenerator } from './titleGenerator';
 import { LLMClient } from './llmClient';
 import { IAgentSession, AgentSessionConfig } from '../adapters/interfaces';
+import { LiteAgentSession } from '../adapters/liteAdapter';
+import { debugLogger } from '../debugLogger';
+import { AgentRunOptions } from './types';
 
-/**
- * Options for configuring the agent runner.
- * @interface AgentRunOptions
- */
-export interface AgentRunOptions {
-    /** Model identifier to use for LLM calls */
-    model: string;
-    /** OpenAI API key */
-    apiKey: string;
-    /** Base URL for OpenAI-compatible API */
-    baseUrl: string | undefined;
-    /** Maximum number of tool interaction loops */
-    maxLoops?: number;
-}
+export { AgentRunOptions } from './types';
 
 /**
  * Executes the main agent loop for LLM interactions.
@@ -34,7 +24,7 @@ export interface AgentRunOptions {
  * tool calls, and UI updates. Implements the core agent execution logic.
  * @class AgentRunner
  * @example
- * const runner = new AgentRunner(options, tools, session);
+ * const runner = new AgentRunner(options, toolSet, session);
  * const newMessages = await runner.run(abortController, initialMessages);
  */
 export class AgentRunner {
@@ -52,20 +42,23 @@ export class AgentRunner {
     private llmClient: LLMClient;
     /** Agent session for UI interactions */
     private session: IAgentSession;
+    /** Tool set for this agent instance */
+    private toolSet: ToolSet;
 
     /**
      * Creates a new AgentRunner instance.
      * @constructor
      * @param {AgentRunOptions} options - Configuration options
-     * @param {ToolManager} tools - Tool manager for executing tools
+     * @param {ToolSet} toolSet - Tool set for this agent instance
      * @param {IAgentSession} session - The agent session
      */
     constructor(
         private options: AgentRunOptions,
-        private tools: ToolManager,
+        toolSet: ToolSet,
         session: IAgentSession
     ) {
         this.session = session;
+        this.toolSet = toolSet;
         this.maxLoops = options.maxLoops || 30;
         this.llmClient = new LLMClient({
             apiKey: options.apiKey,
@@ -102,7 +95,7 @@ export class AgentRunner {
         // Initialize ToolExecutor here since we needed async config
         if (!this.toolExecutor) {
             this.toolExecutor = new ToolExecutor(
-                this.tools,
+                this.toolSet,
                 allowedUris,
                 this.session,
                 isSubAgent,
@@ -127,7 +120,7 @@ export class AgentRunner {
             try {
                 const result = await this.llmStreamHandler.streamResponse(
                     messages,
-                    this.tools.getToolsDefinitions(isSubAgent),
+                    this.toolSet.getDefinitions(),
                     abortController.signal,
                     async (content, reasoning, partialToolCalls) => {
                         if (this.session.token.isCancellationRequested) {
@@ -136,7 +129,7 @@ export class AgentRunner {
 
                         const pendingToolsHtml = this.uiRenderer.formatPendingToolCalls(
                             partialToolCalls,
-                            this.tools,
+                            this.toolSet,
                             isSubAgent
                         );
 
@@ -245,8 +238,9 @@ export class AgentRunner {
         }
 
         // Generate title after first user message (only once)
+        // Skip for LiteAgentSession which is used for background tasks like title generation
         const userMessageCount = messages.filter(m => m.role === 'user').length;
-        if (userMessageCount === 1) {
+        if (userMessageCount === 1 && !(this.session instanceof LiteAgentSession)) {
             void this.generateTitleIfNeeded(this.session, messages, config);
         }
 
@@ -272,14 +266,21 @@ export class AgentRunner {
         const baseUrl = config.get<string>('baseUrl') || sessionConfig.baseUrl;
 
         if (!titleGeneratorModel || !apiKey) {
+            debugLogger.log(`[AgentRunner] Title generation skipped: missing ${!titleGeneratorModel ? 'titleGeneratorModel' : 'apiKey'}`);
             return;
         }
+
+        debugLogger.log(`[AgentRunner] Generating title for session (first user message received)`);
+
+        const notebook = session.supportsUI && 'execution' in session
+            ? (session as any).execution?.cell?.notebook
+            : undefined;
 
         await this.titleGenerator.generateTitleForSession(session, allMessages, {
             titleGeneratorModel,
             apiKey,
             baseUrl
-        });
+        }, notebook);
     }
 
     /**

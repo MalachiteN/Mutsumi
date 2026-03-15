@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ToolManager } from '../tools.d/toolManager';
+import { ToolSet } from '../tools.d/toolManager';
 import { ToolContext } from '../tools.d/interface';
 import { AgentMessage } from '../types';
 import { UIRenderer } from './uiRenderer';
@@ -47,14 +47,14 @@ export class ToolExecutor {
     /**
      * Creates a new ToolExecutor instance.
      * @constructor
-     * @param {ToolManager} tools - Tool manager for executing tools
+     * @param {ToolSet} toolSet - Tool set for executing tools
      * @param {string[]} allowedUris - List of allowed URIs for the agent
      * @param {IAgentSession} session - The agent session
      * @param {boolean} isSubAgent - Whether this is a sub-agent
      * @param {UIRenderer} uiRenderer - UI renderer for formatting tool calls
      */
     constructor(
-        private tools: ToolManager,
+        private toolSet: ToolSet,
         private allowedUris: string[],
         private session: IAgentSession,
         private isSubAgent: boolean,
@@ -110,14 +110,14 @@ export class ToolExecutor {
 
             let toolResult = '';
             try {
-                toolResult = await this.tools.executeTool(toolName, toolArgs, context, this.isSubAgent);
+                toolResult = await this.toolSet.execute(toolName, toolArgs, context);
             } catch (err: any) {
                 toolResult = `Error executing tool: ${err.message}`;
             }
 
             // Get the pretty print summary for this tool call
-            const prettyPrintSummary = this.tools.getPrettyPrint(toolName, toolArgs, this.isSubAgent);
-            const config = this.tools.getToolRenderingConfig(toolName, this.isSubAgent);
+            const prettyPrintSummary = this.toolSet.getPrettyPrint(toolName, toolArgs);
+            const config = this.toolSet.getRenderingConfig(toolName);
             await callbacks.appendOutput(this.uiRenderer.formatToolCall(toolArgs, prettyPrintSummary, false, toolResult, config));
 
             toolMessages.push({

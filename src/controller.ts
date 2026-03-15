@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ToolManager } from './tools.d/toolManager';
+import { createMainAgentToolSet, createSubAgentToolSet } from './tools.d/toolManager';
 import { AgentRunner } from './agent/agentRunner';
 import { AgentOrchestrator } from './agent/agentOrchestrator';
 import { NotebookAdapter } from './adapters/notebookAdapter';
@@ -20,8 +20,6 @@ import { AgentMetadata } from './types';
  * await controller.execute(cells, notebook, notebookController);
  */
 export class AgentController {
-    /** Tool manager instance for providing tools to agents */
-    private tools = ToolManager.getInstance();
     /** Execution order counter for tracking cell execution sequence */
     private executionOrder = 0;
 
@@ -60,6 +58,24 @@ export class AgentController {
             if (uuid) {
                 AgentOrchestrator.getInstance().notifyAgentStopped(uuid);
             }
+        }
+    }
+
+    /**
+     * Creates the appropriate tool set for an agent based on its metadata.
+     * @description 
+     * - Main agents (parent_agent_id is null/undefined): All common tools, NO task_finish
+     * - Sub-agents (parent_agent_id is set): All common tools + task_finish
+     * @private
+     * @param {AgentMetadata} metadata - Agent metadata
+     * @returns {ToolSet} Appropriate tool set for the agent type
+     */
+    private createToolSetForAgent(metadata: AgentMetadata) {
+        const isSubAgent = !!metadata?.parent_agent_id;
+        if (isSubAgent) {
+            return createSubAgentToolSet(); // Includes task_finish
+        } else {
+            return createMainAgentToolSet(); // No task_finish
         }
     }
 
@@ -103,6 +119,9 @@ export class AgentController {
             return;
         }
 
+        // Create appropriate tool set based on agent type
+        const toolSet = this.createToolSetForAgent(notebook.metadata as AgentMetadata);
+
         const abortController = new AbortController();
         const tokenDisposable = session.token.onCancellationRequested(() => {
             abortController.abort();
@@ -111,7 +130,7 @@ export class AgentController {
         try {
             const runner = new AgentRunner(
                 { apiKey, baseUrl, model },
-                this.tools,
+                toolSet,
                 session
             );
 

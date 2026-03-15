@@ -38,7 +38,10 @@ export {
  * - 'notebook': UI-based adapter using VSCode Notebook API
  * - 'headless': API-based adapter for HTTP/ programmatic access
  */
-export type AdapterType = 'notebook' | 'headless';
+export type AdapterType = 'notebook' | 'headless' | 'lite';
+
+// Re-export LiteAdapter types for convenience
+export { LiteAgentSessionConfig } from './liteAdapter';
 
 // ============================================================================
 // Headless Adapter HTTP API Types

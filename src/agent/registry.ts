@@ -4,6 +4,7 @@
  */
 
 import { AgentStateInfo } from '../types';
+import { debugLogger } from '../debugLogger';
 
 /**
  * Agent Registry - Singleton class for managing agent state information.
@@ -73,7 +74,9 @@ export class AgentRegistry {
      * });
      */
     public setAgent(uuid: string, agent: AgentStateInfo): void {
+        const isUpdate = this.agentRegistry.has(uuid);
         this.agentRegistry.set(uuid, agent);
+        debugLogger.log(`[AgentRegistry] ${isUpdate ? 'Updated' : 'Registered'} agent: ${agent.name} (${uuid})`);
     }
 
     /**
@@ -87,7 +90,12 @@ export class AgentRegistry {
      * }
      */
     public deleteAgent(uuid: string): boolean {
-        return this.agentRegistry.delete(uuid);
+        const agent = this.agentRegistry.get(uuid);
+        const deleted = this.agentRegistry.delete(uuid);
+        if (deleted && agent) {
+            debugLogger.log(`[AgentRegistry] Deleted agent: ${agent.name} (${uuid})`);
+        }
+        return deleted;
     }
 
     /**
@@ -138,6 +146,8 @@ export class AgentRegistry {
      * console.log(registry.getAllAgents().length); // 0
      */
     public clear(): void {
+        const count = this.agentRegistry.size;
         this.agentRegistry.clear();
+        debugLogger.log(`[AgentRegistry] Cleared all agents (${count} removed)`);
     }
 }

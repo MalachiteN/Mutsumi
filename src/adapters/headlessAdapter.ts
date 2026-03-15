@@ -60,7 +60,10 @@ export class HeadlessAgentSession implements IAgentSession {
     constructor(options: HeadlessAgentSessionOptions) {
         this.id = options.id;
         this.resourceUri = options.resourceUri;
-        this.config = options.config ?? {};
+        // Deep clone config to avoid external mutations affecting internal state
+        this.config = options.config 
+            ? JSON.parse(JSON.stringify(options.config)) as AgentSessionConfig 
+            : {};
         this.token = this.tokenSource.token;
     }
 
@@ -174,7 +177,8 @@ export class HeadlessAgentSession implements IAgentSession {
     }
 
     async getConfig(): Promise<AgentSessionConfig> {
-        return this.config;
+        // Return deep clone to prevent external modifications affecting internal state
+        return JSON.parse(JSON.stringify(this.config)) as AgentSessionConfig;
     }
 
     setConfig(config: Partial<AgentSessionConfig>): void {

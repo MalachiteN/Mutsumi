@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import * as net from 'net';
 import express = require('express');
 import bodyParser = require('body-parser');
-import { ToolManager } from '../tools.d/toolManager';
 import { HeadlessAdapter } from '../adapters/headlessAdapter';
 import { HttpServerOptions } from './types';
 import { debugLogger } from '../debugLogger';
@@ -38,7 +37,6 @@ export class HttpServer {
     private server?: ReturnType<typeof this.app.listen>;
     private actualPort?: number;
     private readonly adapter: HeadlessAdapter;
-    private readonly toolManager: ToolManager;
     private readonly abortControllers = new Map<string, AbortController>();
     private readonly extensionUri: vscode.Uri;
     private readonly startPort: number;
@@ -49,7 +47,6 @@ export class HttpServer {
         this.extensionUri = extensionUri;
         this.startPort = options?.port ?? 3000;
         this.maxPort = this.startPort + 100; // Try up to 100 ports
-        this.toolManager = ToolManager.getInstance();
     }
 
     /**
@@ -127,7 +124,7 @@ export class HttpServer {
 
         // Chat endpoint
         this.app.post('/agent/:uuid/chat', (req, res) =>
-            handleChat(req, res, this.adapter, this.toolManager, this.abortControllers, this.extensionUri)
+            handleChat(req, res, this.adapter, this.abortControllers, this.extensionUri)
         );
 
         // Model endpoint
