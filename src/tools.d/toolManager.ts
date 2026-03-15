@@ -17,6 +17,7 @@ import { mkdirTool, createNewFileTool } from './tools/fs_write_ops';
 import { selfForkTool, taskFinishTool, getAvailableModelsTool } from './tools/agent_control';
 import { projectOutlineTool } from './tools/project_outline';
 import { getWarningErrorTool } from './tools/get_warning_error';
+import { queryCodebaseTool } from './tools/rag';
 import { SkillManager } from '../contextManagement/skillManager';
 
 import OpenAI from 'openai';
@@ -183,6 +184,7 @@ export class ToolRegistry {
             createNewFileTool,
             projectOutlineTool,
             getWarningErrorTool,
+            queryCodebaseTool,
             selfForkTool,
             getAvailableModelsTool
         ];
