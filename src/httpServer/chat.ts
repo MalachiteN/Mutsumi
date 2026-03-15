@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import express = require('express');
 import { AgentRunner } from '../agent/agentRunner';
 import { MutsumiSerializer } from '../notebook/serializer';
-import { ToolManager } from '../tools.d/toolManager';
+import { createMainAgentToolSet, createSubAgentToolSet } from '../tools.d/toolManager';
 import { getAgentFromRegistry } from './utils';
 import type { HeadlessAdapter } from '../adapters/headlessAdapter';
 import type { AgentSessionConfig } from '../adapters/interfaces';
@@ -12,7 +12,6 @@ export async function handleChat(
     req: express.Request,
     res: express.Response,
     adapter: HeadlessAdapter,
-    toolManager: ToolManager,
     abortControllers: Map<string, AbortController>,
     extensionUri: vscode.Uri
 ): Promise<void> {
@@ -81,6 +80,9 @@ export async function handleChat(
     const metadata = notebookData.metadata as AgentMetadata;
     const allowedUris = metadata?.allowed_uris || ['/'];
     const isSubAgent = !!metadata?.parent_agent_id;
+
+    // Create appropriate tool set based on agent type
+    const toolSet = isSubAgent ? createSubAgentToolSet() : createMainAgentToolSet();
 
     // Create session config
     const sessionConfig: AgentSessionConfig = {
@@ -179,7 +181,7 @@ export async function handleChat(
 
         // Run the agent and stream results
         try {
-            const runner = new AgentRunner(runnerOptions, toolManager, session);
+            const runner = new AgentRunner(runnerOptions, toolSet, session);
             const newMessages = await runner.run(abortController, history);
 
             // Update session with new history
@@ -226,7 +228,7 @@ export async function handleChat(
         // Non-streaming mode: original behavior
         void (async () => {
             try {
-                const runner = new AgentRunner(runnerOptions, toolManager, session!);
+                const runner = new AgentRunner(runnerOptions, toolSet, session!);
                 const newMessages = await runner.run(abortController, history);
 
                 // Update session with new history

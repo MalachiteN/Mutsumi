@@ -5,7 +5,7 @@
 
 import { wrapInThemedContainer, getLanguageIdentifier } from '../utils';
 import { tryParsePartialJson } from './utils';
-import { ToolManager } from '../tools.d/toolManager';
+import { ToolSet } from '../tools.d/toolManager';
 
 /**
  * Handles UI rendering and output management for agent execution.
@@ -80,14 +80,14 @@ export class UIRenderer {
      * retrieves pretty print summaries and rendering configs, and generates
      * HTML for each pending tool call.
      * @param {any[]} partialToolCalls - Array of partial tool call objects
-     * @param {ToolManager} tools - Tool manager instance for looking up tool metadata
-     * @param {boolean} isSubAgent - Whether the caller is a sub-agent
+     * @param {ToolSet} toolSet - Tool set instance for looking up tool metadata
+     * @param {boolean} isSubAgent - Whether the caller is a sub-agent (deprecated, kept for compatibility)
      * @returns {string} Formatted HTML string containing all pending tool calls
      */
     public formatPendingToolCalls(
         partialToolCalls: any[] | undefined,
-        tools: ToolManager,
-        isSubAgent: boolean
+        toolSet: ToolSet,
+        _isSubAgent?: boolean
     ): string {
         if (!partialToolCalls || partialToolCalls.length === 0) {
             return '';
@@ -99,8 +99,8 @@ export class UIRenderer {
             if (!toolName) { continue; }
 
             const args = tryParsePartialJson(ptc.function?.arguments);
-            const summary = tools.getPrettyPrint(toolName, args, isSubAgent);
-            const config = tools.getToolRenderingConfig(toolName, isSubAgent);
+            const summary = toolSet.getPrettyPrint(toolName, args);
+            const config = toolSet.getRenderingConfig(toolName);
 
             pendingToolsHtml += this.formatToolCall(args, summary, true, undefined, config);
         }

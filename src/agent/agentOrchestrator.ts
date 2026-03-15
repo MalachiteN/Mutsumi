@@ -376,10 +376,16 @@ export class AgentOrchestrator {
      * @param {string} newName - New name for the agent
      */
     public updateAgentName(uuid: string, newName: string): void {
+        const { debugLogger } = require('../debugLogger');
+        debugLogger.log(`[AgentOrchestrator] updateAgentName called: uuid=${uuid}, newName="${newName}"`);
         const agent = this.registry.getAgent(uuid);
         if (agent) {
+            debugLogger.log(`[AgentOrchestrator] Found agent in registry: "${agent.name}"`);
             agent.name = newName;
+            this.registry.setAgent(uuid, agent);
             this.refreshUI();
+        } else {
+            debugLogger.log(`[AgentOrchestrator] Agent NOT FOUND in registry for uuid: ${uuid}`);
         }
     }
 
@@ -514,9 +520,8 @@ export class AgentOrchestrator {
 
     /**
      * Refreshes the sidebar UI.
-     * @private
      */
-    private refreshUI(): void {
+    public refreshUI(): void {
         if (this.sidebar) {
             this.sidebar.update();
         }

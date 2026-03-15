@@ -8,6 +8,18 @@ import { AgentMessage } from '../types';
 import { LLMClient, LLMClientConfig } from './llmClient';
 import { AgentOrchestrator } from './agentOrchestrator';
 import { IAgentSession } from '../adapters/interfaces';
+import { LiteAdapter } from '../adapters/liteAdapter';
+import { createEmptyToolSet } from '../tools.d/toolManager';
+import type { AgentRunOptions } from './types';
+
+/**
+ * Creates a deep clone of an object.
+ * @param {T} obj - Object to clone
+ * @returns {T} Deep cloned object
+ */
+function deepClone<T>(obj: T): T {
+    return JSON.parse(JSON.stringify(obj));
+}
 
 /**
  * Configuration interface for title generation.
@@ -23,13 +35,24 @@ export interface TitleGeneratorConfig {
 }
 
 /**
- * Splits a conversation into rounds based on user prompts.
- * @description Each round starts with a user message and ends before the next user message.
- * @private
- * @param {AgentMessage[]} messages - Complete message history
- * @returns {AgentMessage[][]} Array of message arrays, each representing one conversation round
+ * Sanitizes a string to be safe for use as a file name.
+ * @param {string} name - Original name to sanitize
+ * @returns {string} Sanitized name safe for file system use
  */
-function splitIntoRounds(messages: AgentMessage[]): AgentMessage[][] {
+function sanitizeFileName(name: string): string {
+    return name
+        .replace(/[\\/:*?"<>|]/g, '-')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Creates title generation system and user messages.
+ * @param {AgentMessage[]} messages - Conversation message history
+ * @returns {AgentMessage[]} Messages for title generation prompt
+ */
+function createTitleGenerationMessages(messages: AgentMessage[]): AgentMessage[] {
+    // Filter out system messages and split into rounds
     const dialogMessages = messages.filter(msg => msg.role !== 'system');
     const rounds: AgentMessage[][] = [];
     let currentRound: AgentMessage[] = [];
@@ -49,23 +72,31 @@ function splitIntoRounds(messages: AgentMessage[]): AgentMessage[][] {
         rounds.push(currentRound);
     }
 
-    return rounds;
+    // Take last 6 rounds
+    const recentRounds = rounds.length <= 6 ? rounds : rounds.slice(-6);
+    const contextMessages = recentRounds.flat();
+    const contextJson = JSON.stringify(contextMessages, null, 2);
+
+    return [
+        {
+            role: 'system',
+            content: 'Please generate a short title based on the following conversation content. ' +
+                'The title should summarize the main topic of the conversation. ' +
+                'Conversation data is provided in JSON format, containing messages from user, assistant, tool roles. ' +
+                'Requirements:\n1. Length should be 10-20 characters\n2. No special characters like \\\/:*?"<>|' +
+                '\n3. Return only the title text, no explanations or prefixes'
+        },
+        {
+            role: 'user',
+            content: `Please generate a title for this conversation:\n\n${contextJson.substring(0, 4000)}`
+        }
+    ];
 }
 
 /**
- * Sanitizes a string to be safe for use as a file name.
- * @param {string} name - Original name to sanitize
- * @returns {string} Sanitized name safe for file system use
- */
-function sanitizeFileName(name: string): string {
-    return name
-        .replace(/[\\/:*?"<>|]/g, '-')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-/**
- * Generates a concise title based on conversation context.
+ * Generates a concise title using an AgentRunner with LiteAdapter and no tools.
+ * @description Uses the standard AgentRunner infrastructure with an empty tool set,
+ * ensuring single-round execution (since no tools are available).
  * @param {AgentMessage[]} messages - Conversation message history
  * @param {LLMClientConfig} config - LLM client configuration
  * @returns {Promise<string>} Generated title string
@@ -74,39 +105,54 @@ export async function generateTitle(
     messages: AgentMessage[],
     config: LLMClientConfig
 ): Promise<string> {
-    const client = new LLMClient(config);
+    // Dynamically import AgentRunner to avoid circular dependency
+    const { AgentRunner } = await import('./agentRunner');
 
-    const rounds = splitIntoRounds(messages);
-    const recentRounds = rounds.length <= 6 ? rounds : rounds.slice(-6);
-    const contextMessages = recentRounds.flat();
-    const contextJson = JSON.stringify(contextMessages, null, 2);
-
-    const result = await client.chatCompletion({
-        messages: [
-            {
-                role: 'system',
-                content: 'Please generate a short title based on the following conversation content. ' +
-                    'The title should summarize the main topic of the conversation. ' +
-                    'Conversation data is provided in JSON format, containing messages from user, assistant, tool roles. ' +
-                    'Requirements:\n1. Length should be 10-20 characters\n2. No special characters like \\\/:*?"<>|' +
-                    '\n3. Return only the title text, no explanations or prefixes'
-            },
-            {
-                role: 'user',
-                content: `Please generate a title for this conversation:\n\n${contextJson.substring(0, 4000)}`
-            }
-        ],
-        temperature: 0.7,
-        max_tokens: 50
+    // Create lite adapter and session
+    const adapter = new LiteAdapter();
+    const session = await adapter.createSession({
+        config: {
+            model: config.model,
+            apiKey: config.apiKey,
+            baseUrl: config.baseUrl
+        }
     });
 
-    let title = result.content?.trim() || 'New Agent';
+    // Create empty tool set (no tools = single round guaranteed)
+    const emptyToolSet = createEmptyToolSet();
+
+    // Create runner options
+    const runOptions: AgentRunOptions = {
+        model: config.model,
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        maxLoops: 1 // Extra safety: limit to 1 loop
+    };
+
+    // Create agent runner with empty tool set
+    const runner = new AgentRunner(runOptions, emptyToolSet, session);
+
+    // Create title generation messages
+    const titleMessages = createTitleGenerationMessages(messages);
+
+    // Run the agent (will be single round since no tools)
+    const abortController = new AbortController();
+    const newMessages = await runner.run(abortController, titleMessages);
+
+    // The last assistant message contains the title
+    const lastAssistantMsg = [...newMessages].reverse().find(m => m.role === 'assistant');
+    let title = 'New Agent';
+    if (lastAssistantMsg?.content && typeof lastAssistantMsg.content === 'string') {
+        title = lastAssistantMsg.content.trim();
+    }
+
+    // Sanitize the title
     title = sanitizeFileName(title);
-    
+
     if (title.length > 30) {
         title = title.substring(0, 30);
     }
-    
+
     return title || 'New Agent';
 }
 
@@ -139,14 +185,17 @@ export async function updateNotebookMetadataWithSync(
     title: string
 ): Promise<void> {
     const edit = new vscode.WorkspaceEdit();
-    const newMetadata = { ...notebook.metadata, name: title };
+    // Use deep clone to avoid readonly issues with nested objects
+    const newMetadata = deepClone({ ...notebook.metadata, name: title });
     const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
     edit.set(notebook.uri, [nbEdit]);
     await vscode.workspace.applyEdit(edit);
 
     const uuid = notebook.metadata?.uuid;
     if (uuid) {
-        AgentOrchestrator.getInstance().updateAgentName(uuid, title);
+        const orchestrator = AgentOrchestrator.getInstance();
+        orchestrator.updateAgentName(uuid, title);
+        orchestrator.refreshUI();
     }
 }
 
@@ -189,7 +238,8 @@ export class TitleGenerator {
     async generateTitleForSession(
         session: IAgentSession,
         messages: AgentMessage[],
-        config: TitleGeneratorConfig
+        config: TitleGeneratorConfig,
+        notebook?: vscode.NotebookDocument
     ): Promise<string | undefined> {
         if (!this.shouldGenerateTitle(config) || messages.length === 0) {
             return undefined;
@@ -203,6 +253,8 @@ export class TitleGenerator {
             });
 
             await session.updateTitle(title);
+            // Note: session.updateTitle() already handles metadata update and UI refresh
+            // for NotebookAgentSession, so we don't need to call updateNotebookMetadataWithSync here
             return title;
         } catch (error) {
             console.error('Failed to generate session title:', error);
@@ -223,7 +275,8 @@ export class TitleGenerator {
 export async function regenerateTitleForSession(
     session: IAgentSession,
     messages: AgentMessage[],
-    config: TitleGeneratorConfig
+    config: TitleGeneratorConfig,
+    notebook?: vscode.NotebookDocument
 ): Promise<string> {
     if (!config.apiKey) {
         throw new Error('Please set mutsumi.apiKey in VSCode Settings.');
@@ -243,5 +296,8 @@ export async function regenerateTitleForSession(
     });
 
     await session.updateTitle(title);
+    if (notebook) {
+        await updateNotebookMetadataWithSync(notebook, title);
+    }
     return title;
 }

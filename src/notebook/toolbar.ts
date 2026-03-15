@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import { regenerateTitleForSession, extractMessagesFromNotebook, getTitleGeneratorConfig } from '../agent/titleGenerator';
-import { NotebookAdapter } from '../adapters/notebookAdapter';
+import { LiteAdapter, LiteAgentSessionConfig } from '../adapters/liteAdapter';
 import { AgentOrchestrator } from '../agent/agentOrchestrator';
 import { buildInteractionHistory } from '../contextManagement/history';
 import { toggleAutoApprove, isAutoApproveEnabled } from '../tools.d/permission';
@@ -83,33 +83,24 @@ export function registerToolbarCommands(context: vscode.ExtensionContext): void 
                 return;
             }
 
-            const controller = AgentOrchestrator.getInstance().getNotebookController();
-            if (!controller) {
-                vscode.window.showErrorMessage('Notebook controller not available.');
-                return;
-            }
-
-            // Find first code cell to use as resource for session creation
-            const firstCodeCell = editor.notebook.getCells().find(c => c.kind === vscode.NotebookCellKind.Code);
-            if (!firstCodeCell) {
-                vscode.window.showErrorMessage('No code cell found in notebook.');
-                return;
-            }
-
             try {
-                // Create adapter and session
-                const adapter = new NotebookAdapter(controller);
-                const session = await adapter.createSession({
-                    resourceUri: firstCodeCell.document.uri,
-                    config: {
-                        model: editor.notebook.metadata?.model
-                    }
-                });
-
                 const messages = extractMessagesFromNotebook(editor.notebook);
                 const config = getTitleGeneratorConfig();
-                
-                const title = await regenerateTitleForSession(session, messages, config);
+
+                const adapter = new LiteAdapter();
+                const liteConfig: LiteAgentSessionConfig = {
+                    model: editor.notebook.metadata?.model,
+                    metadata: editor.notebook.metadata 
+                        ? JSON.parse(JSON.stringify(editor.notebook.metadata)) as any 
+                        : undefined,
+                    history: messages
+                };
+                const session = await adapter.createSession({
+                    sessionId: editor.notebook.metadata?.uuid || editor.notebook.uri.toString(),
+                    config: liteConfig
+                });
+
+                const title = await regenerateTitleForSession(session, messages, config, editor.notebook);
                 vscode.window.showInformationMessage(`Title regenerated: ${title}`);
             } catch (error: any) {
                 console.error('Failed to regenerate title:', error);
