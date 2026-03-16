@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { IAgentAdapter, IAgentSession, CreateSessionOptions, AgentSessionConfig } from './interfaces';
-import { AgentMessage, AgentMetadata } from '../types';
-import { buildInteractionHistory } from '../contextManagement/history';
+import { AgentMessage, AgentMetadata, ContextItem } from '../types';
+import { debugLogger } from '../debugLogger';
 
 export class NotebookAdapter implements IAgentAdapter {
     constructor(
@@ -41,13 +41,15 @@ export class NotebookAgentSession implements IAgentSession {
     public readonly id: string;
     public readonly token: vscode.CancellationToken;
     public readonly supportsUI = true;
-    private initialHistoryLength: number = 0;
-    private fullHistory: AgentMessage[] | undefined;
+    private rawHistoryLength: number = 0;  // Length of raw (unexpanded) history from getHistory
+    private fullHistory: AgentMessage[] | undefined;  // Full expanded history set by setHistory
     private config?: AgentSessionConfig;
-    
-    // We keep track of the accumulated output string if needed, 
+    private pendingGhostBlock?: string;
+    private pendingContextItems?: ContextItem[];
+
+    // We keep track of the accumulated output string if needed,
     // but VSCode execution handles the actual display state.
-    
+
     constructor(
         public readonly execution: vscode.NotebookCellExecution,
         private readonly notebook: vscode.NotebookDocument,
@@ -55,12 +57,12 @@ export class NotebookAgentSession implements IAgentSession {
     ) {
         this.id = execution.cell.document.uri.toString();
         this.token = execution.token;
-        
+
         // Deep clone config to avoid read-only issues with VSCode's frozen metadata
         if (config) {
             this.config = JSON.parse(JSON.stringify(config)) as AgentSessionConfig;
         }
-        
+
         // Start timing
         this.execution.start(Date.now());
     }
@@ -70,28 +72,65 @@ export class NotebookAgentSession implements IAgentSession {
     }
 
     async getHistory(): Promise<AgentMessage[]> {
-        // Use the existing context management logic
-        const result = await buildInteractionHistory(
-            this.notebook,
-            this.execution.cell.index,
-            this.execution.cell.document.getText()
-        );
-        
-        // Populate config from history analysis if missing
+        debugLogger.log('[NotebookAdapter.getHistory] ==== START ====');
+        // Build raw history from notebook cells
+        // Returns original stored messages WITHOUT expanding interactions
+        // This preserves metadata and maintains 1:1 correspondence with ghostBlocks
+        const history: AgentMessage[] = [];
+        const currentIndex = this.execution.cell.index;
+        debugLogger.log(`[NotebookAdapter.getHistory] Current cell index: ${currentIndex}, iterating ${currentIndex} previous cells`);
+
+        for (let i = 0; i < currentIndex; i++) {
+            const cell = this.notebook.cellAt(i);
+            const role = cell.metadata?.role || 'user';
+            const content = cell.document.getText();
+            debugLogger.log(`[NotebookAdapter.getHistory] Cell ${i}: kind=${cell.kind}, role=${role}, content length=${content.length}, metadata keys=${Object.keys(cell.metadata ?? {}).join(',')}`);
+
+            if (content.trim()) {
+                if (role === 'user') {
+                    // User message - store with cell metadata if any
+                    history.push({
+                        role: 'user',
+                        content,
+                        metadata: cell.metadata
+                    });
+                    debugLogger.log(`[NotebookAdapter.getHistory]   - Added user message, has interaction=${!!cell.metadata?.mutsumi_interaction}`);
+                } else if (role === 'assistant') {
+                    // Assistant message - preserve the full interaction in metadata
+                    // Do NOT expand here - buildInteractionHistory will handle expansion
+                    history.push({
+                        role: 'assistant',
+                        content,
+                        metadata: cell.metadata
+                    });
+                    debugLogger.log(`[NotebookAdapter.getHistory]   - Added assistant message, has interaction=${!!cell.metadata?.mutsumi_interaction}`);
+                }
+            } else {
+                debugLogger.log(`[NotebookAdapter.getHistory]   - Skipped empty content cell`);
+            }
+        }
+
+        // Populate config from metadata if missing
         if (!this.config) {
             this.config = {};
         }
-        if (!this.config.allowedUris) {
-            this.config.allowedUris = result.allowedUris;
+        const metadata = this.notebook.metadata as AgentMetadata;
+        if (!this.config.allowedUris && metadata?.allowed_uris) {
+            this.config.allowedUris = metadata.allowed_uris;
         }
-        if (this.config.isSubAgent === undefined) {
-            this.config.isSubAgent = result.isSubAgent;
+        if (this.config.isSubAgent === undefined && metadata?.parent_agent_id) {
+            this.config.isSubAgent = true;
+        }
+        if (!this.config.metadata && metadata) {
+            this.config.metadata = JSON.parse(JSON.stringify(metadata)) as AgentMetadata;
         }
 
-        // Record initial history length to calculate diff for save()
-        this.initialHistoryLength = result.messages.length;
+        // Record raw history length to calculate diff for save()
+        // This is the count of raw (unexpanded) messages BEFORE AgentRunner adds new messages
+        this.rawHistoryLength = history.length;
+        debugLogger.log(`[NotebookAdapter.getHistory] ==== END, returning ${history.length} messages, rawHistoryLength=${this.rawHistoryLength} ====`);
 
-        return result.messages;
+        return history;
     }
 
     async appendOutput(content: string, options?: { isMarkdown?: boolean }): Promise<void> {
@@ -123,6 +162,7 @@ export class NotebookAgentSession implements IAgentSession {
     }
 
     setHistory(messages: AgentMessage[]): void {
+        // Store the full expanded history (after buildInteractionHistory and AgentRunner processing)
         this.fullHistory = messages;
     }
 
@@ -132,30 +172,60 @@ export class NotebookAgentSession implements IAgentSession {
         // by user action or auto-save
 
         const edits: vscode.NotebookEdit[] = [];
+        const cellIndex = this.execution.cell.index;
 
-        // 1. Metadata Update
+        // 1. Metadata Update (including context items and macros)
+        const currentMetadata = this.notebook.metadata as AgentMetadata;
+        const newMetadata: AgentMetadata = { ...currentMetadata };
+
         if (this.config?.metadata) {
-            const newMetadata = { ...this.notebook.metadata, ...this.config.metadata };
-            edits.push(vscode.NotebookEdit.updateNotebookMetadata(newMetadata));
+            Object.assign(newMetadata, this.config.metadata);
         }
 
-        // 2. Cell Interaction Update
-        // Calculate the new interaction part by slicing off the initial history
-        if (this.fullHistory && this.fullHistory.length > this.initialHistoryLength) {
-            const newInteraction = this.fullHistory.slice(this.initialHistoryLength);
-            
-            const newCellMetadata = {
-                ...this.execution.cell.metadata,
-                mutsumi_interaction: newInteraction
-            };
-            edits.push(vscode.NotebookEdit.updateCellMetadata(this.execution.cell.index, newCellMetadata));
+        // Apply pending context items if any
+        if (this.pendingContextItems) {
+            newMetadata.contextItems = this.pendingContextItems;
         }
+
+        // Deep clone to avoid read-only issues
+        edits.push(vscode.NotebookEdit.updateNotebookMetadata(JSON.parse(JSON.stringify(newMetadata))));
+
+        // 2. Cell Metadata Update
+        const newCellMetadata: any = { ...this.execution.cell.metadata };
+
+        // Apply pending ghost block if any
+        if (this.pendingGhostBlock !== undefined) {
+            newCellMetadata.last_ghost_block = this.pendingGhostBlock;
+        }
+
+        // Calculate the new interaction for this cell
+        if (this.fullHistory && this.fullHistory.length > 0) {
+
+            const newMessages: AgentMessage[] = [];
+            for (let i = this.fullHistory.length - 1; i >= 0; i--) {
+                const msg = this.fullHistory[i];
+                if (msg.role === 'user') {
+                    break;
+                }
+                newMessages.unshift(msg);
+            }
+
+            if (newMessages.length > 0) {
+                newCellMetadata.mutsumi_interaction = newMessages;
+            }
+        }
+
+        edits.push(vscode.NotebookEdit.updateCellMetadata(cellIndex, newCellMetadata));
 
         if (edits.length > 0) {
             const edit = new vscode.WorkspaceEdit();
             edit.set(this.notebook.uri, edits);
             await vscode.workspace.applyEdit(edit);
         }
+
+        // Clear pending state
+        this.pendingGhostBlock = undefined;
+        this.pendingContextItems = undefined;
     }
 
     async getConfig(): Promise<AgentSessionConfig> {
@@ -249,5 +319,38 @@ export class NotebookAgentSession implements IAgentSession {
      */
     end(success: boolean): void {
         this.execution.end(success, Date.now());
+    }
+
+    /**
+     * Get ghost blocks from previous cells for content version tracking.
+     * Iterates through all cells before the current one to collect ghost blocks.
+     */
+    async getPreviousGhostBlocks(): Promise<string[]> {
+        const ghostBlocks: string[] = [];
+        const currentIndex = this.execution.cell.index;
+
+        for (let i = 0; i < currentIndex; i++) {
+            const cell = this.notebook.cellAt(i);
+            const ghostBlock = cell.metadata?.last_ghost_block;
+            ghostBlocks.push(typeof ghostBlock === 'string' ? ghostBlock : '');
+        }
+
+        return ghostBlocks;
+    }
+
+    /**
+     * Persist ghost block for the current cell.
+     * Stores in cell metadata via pending state (applied on save).
+     */
+    async persistGhostBlock(ghostBlock: string): Promise<void> {
+        this.pendingGhostBlock = ghostBlock;
+    }
+
+    /**
+     * Update context items in session metadata.
+     * Stores in pending state (applied on save).
+     */
+    async updateContextItems(items: ContextItem[]): Promise<void> {
+        this.pendingContextItems = items;
     }
 }

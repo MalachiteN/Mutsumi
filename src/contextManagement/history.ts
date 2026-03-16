@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { AgentMessage, AgentMetadata, MessageContent, ContextItem } from '../types';
+import { IAgentSession } from '../adapters/interfaces';
 import { getSystemPrompt, getRulesContext } from './prompts';
 import { TemplateEngine } from './templateEngine';
 import { ContextPresenter } from './contextPresenter';
@@ -9,14 +10,14 @@ import {
     computeHash
 } from './utils';
 
-function collectAvailableFileVersions(
-    notebook: vscode.NotebookDocument,
-    currentCellIndex: number
-): Set<string> {
+/**
+ * Collect available file versions from previous ghost blocks.
+ * Parses ghost blocks to track which file versions have been shown.
+ */
+function collectAvailableFileVersions(ghostBlocks: string[]): Set<string> {
     const available = new Set<string>();
 
-    for (let i = 0; i < currentCellIndex; i++) {
-        const ghostBlock = notebook.cellAt(i).metadata?.last_ghost_block;
+    for (const ghostBlock of ghostBlocks) {
         if (!ghostBlock || typeof ghostBlock !== 'string') {
             continue;
         }
@@ -52,20 +53,34 @@ function collectAvailableFileVersions(
 
 /**
  * @description Build Agent's conversation history context
+ * @param session - The agent session providing history and persistence
+ * @param currentPrompt - Optional current user prompt (if not provided, uses session.getInput())
+ * @returns Object containing messages array, allowed URIs, and sub-agent status
  */
 export async function buildInteractionHistory(
-    notebook: vscode.NotebookDocument,
-    currentCellIndex: number,
-    currentPrompt: string
+    session: IAgentSession,
+    currentPrompt?: string
 ): Promise<{ messages: AgentMessage[], allowedUris: string[], isSubAgent: boolean }> {
+    // Get current prompt from session if not provided
+    if (!currentPrompt) {
+        currentPrompt = await session.getInput();
+    }
     const messages: AgentMessage[] = [];
-    
-    // Get metadata
-    const metadata = notebook.metadata as AgentMetadata;
-    const allowedUris = metadata.allowed_uris || ['/'];
-    const isSubAgent = !!metadata.parent_agent_id;
-    const wsUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : notebook.uri;
-    
+
+    // Get config and metadata from session
+    const config = await session.getConfig();
+    const metadata = config.metadata || {} as AgentMetadata;
+    const allowedUris = config.allowedUris || metadata.allowed_uris || ['/'];
+    const isSubAgent = config.isSubAgent || !!metadata.parent_agent_id;
+
+    // Get workspace URI
+    const wsUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri :
+        (config.resourceUri ? vscode.Uri.parse(config.resourceUri) : undefined);
+
+    if (!wsUri) {
+        throw new Error('No workspace available for resolving context references');
+    }
+
     // Extract and merge macros
     // 1. Load persisted macros from metadata
     const persistedMacros = metadata.macroContext || {};
@@ -83,7 +98,11 @@ export async function buildInteractionHistory(
         content: systemPromptContent
     });
 
-    const availableContentVersions = collectAvailableFileVersions(notebook, currentCellIndex);
+    // Get previous ghost blocks for version tracking
+    const previousGhostBlocks = session.getPreviousGhostBlocks
+        ? await session.getPreviousGhostBlocks()
+        : [];
+    const availableContentVersions = collectAvailableFileVersions(previousGhostBlocks);
 
     // 2. Prepare Context Map & Differential Update
     const persistedItems: ContextItem[] = metadata.contextItems || [];
@@ -110,7 +129,7 @@ export async function buildInteractionHistory(
         if (item.type === 'file') {
             const currentHash = computeHash(item.content);
             const prevItem = persistedMap.get(item.key);
-            
+
             let version = 1;
             let isModified = true;
 
@@ -126,13 +145,13 @@ export async function buildInteractionHistory(
                 // persistedMap handles keys. If not in map, it's new.
                 version = 1;
             }
-            
+
             // Update item metadata
             item.lastHash = currentHash;
             item.version = version;
 
             const hasPreviousContent = !isModified && availableContentVersions.has(`${item.key}::${version}`);
-            
+
             if (isModified || !hasPreviousContent) {
                 // Full content
                 finalItemsToDisplay.push(item);
@@ -142,7 +161,7 @@ export async function buildInteractionHistory(
                 refItem.metadata = { ...refItem.metadata, isReference: true };
                 finalItemsToDisplay.push(refItem);
             }
-            
+
             // Update global metadata tracking
             const index = newContextItemsForMetadata.findIndex(i => i.key === item.key && i.type === 'file');
             if (index !== -1) {
@@ -156,63 +175,65 @@ export async function buildInteractionHistory(
         }
     }
 
-    // 3. Build Message History
-    for (let i = 0; i < currentCellIndex; i++) {
-        const prevCell = notebook.cellAt(i);
-        const role = prevCell.metadata?.role || 'user';
-        const content = prevCell.document.getText();
-        
-        if (content.trim()) {
-            if (role === 'user') {
-                const multiModalContent = await parseUserMessageWithImages(content);
-                // DO NOT strip ghost block here. 
-                // Instead, append the persisted ghost block if it exists in cell metadata.
-                const savedGhostBlock = prevCell.metadata?.last_ghost_block || '';
-                
-                if (savedGhostBlock) {
-                    if (Array.isArray(multiModalContent)) {
-                        messages.push({ role: 'user', content: [...multiModalContent, { type: 'text', text: savedGhostBlock }] });
-                    } else {
-                        messages.push({ role: 'user', content: multiModalContent + savedGhostBlock });
-                    }
+    // 3. Build Message History from session
+    const history = await session.getHistory();
+
+    // Track ghost block index separately (only for user messages)
+    let ghostBlockIndex = 0;
+
+    // Process raw history - expand interactions and attach ghost blocks
+    // NOTE: mutsumi_interaction ONLY exists on user messages, containing the
+    // assistant and tool messages that followed that user prompt
+    for (const msg of history) {
+        if (msg.role === 'user') {
+            const multiModalContent = await parseUserMessageWithImages(
+                typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+            );
+            // Append the persisted ghost block if it exists
+            const savedGhostBlock = previousGhostBlocks[ghostBlockIndex] || '';
+            ghostBlockIndex++;
+
+            if (savedGhostBlock) {
+                if (Array.isArray(multiModalContent)) {
+                    messages.push({ role: 'user', content: [...multiModalContent, { type: 'text', text: savedGhostBlock }] });
                 } else {
-                    messages.push({ role: 'user', content: multiModalContent });
+                    messages.push({ role: 'user', content: multiModalContent + savedGhostBlock });
                 }
             } else {
-                messages.push({ role: role as any, content });
+                messages.push({ role: 'user', content: multiModalContent });
             }
-        }
 
-        if (prevCell.metadata?.mutsumi_interaction) {
-            const interaction = prevCell.metadata.mutsumi_interaction as AgentMessage[];
-            messages.push(...interaction);
+            // Expand mutsumi_interaction from user message metadata
+            // This contains the assistant response and any tool calls/results
+            const interaction = msg.metadata?.mutsumi_interaction as AgentMessage[] | undefined;
+            if (interaction && Array.isArray(interaction)) {
+                messages.push(...interaction);
+            }
+        } else if (msg.role === 'assistant') {
+            // Assistant messages in history are standalone (orphan messages without a preceding user)
+            // or legacy format. Add them directly.
+            messages.push(msg);
+        } else if (msg.role === 'system') {
+            // Skip, we already added system prompt
+            continue;
+        } else {
+            // tool, etc. - add directly
+            messages.push(msg);
         }
     }
 
     // 4. Assemble Final User Message
     // Pass empty array for rules because they are in system prompt
     const ghostBlock = ContextPresenter.format([], finalItemsToDisplay);
-    
-    // 5. Update Metadata & Current Cell Metadata
-    const edit = new vscode.WorkspaceEdit();
-    
-    // Update Notebook Metadata (Context Items and Macros)
-    const newMetadata = {
-        ...metadata,
-        contextItems: newContextItemsForMetadata,
-        macroContext: macros
-    };
-    edit.set(notebook.uri, [vscode.NotebookEdit.updateNotebookMetadata(newMetadata)]);
-    
-    // Update Current Cell Metadata (Persist the Ghost Block we just generated)
-    const currentCell = notebook.cellAt(currentCellIndex);
-    const newCellMetadata = {
-        ...currentCell.metadata,
-        last_ghost_block: ghostBlock
-    };
-    edit.set(notebook.uri, [vscode.NotebookEdit.updateCellMetadata(currentCellIndex, newCellMetadata)]);
 
-    await vscode.workspace.applyEdit(edit);
+    // 5. Persist context items and ghost block via session
+    if (session.updateContextItems) {
+        await session.updateContextItems(newContextItemsForMetadata);
+    }
+
+    if (session.persistGhostBlock) {
+        await session.persistGhostBlock(ghostBlock);
+    }
 
     // 6. Push final message
     const currentMultiModalContent = await parseUserMessageWithImages(processedPrompt);

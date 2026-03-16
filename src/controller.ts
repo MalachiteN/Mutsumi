@@ -8,6 +8,7 @@ import { createMainAgentToolSet, createSubAgentToolSet } from './tools.d/toolMan
 import { AgentRunner } from './agent/agentRunner';
 import { AgentOrchestrator } from './agent/agentOrchestrator';
 import { NotebookAdapter } from './adapters/notebookAdapter';
+import { buildInteractionHistory } from './contextManagement/history';
 import { AgentMetadata } from './types';
 
 /**
@@ -134,7 +135,7 @@ export class AgentController {
                 session
             );
 
-            const history = await session.getHistory();
+            const { messages: history } = await buildInteractionHistory(session);
             const newMessages = await runner.run(abortController, history);
 
             if (newMessages.length > 0) {

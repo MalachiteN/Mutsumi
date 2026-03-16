@@ -2,12 +2,17 @@ import * as vscode from 'vscode';
 import { v4 as uuidv4 } from 'uuid';
 import { MutsumiSerializer } from '../notebook/serializer';
 import {
+    messagesToGenericCells,
+    genericCellsToMessages,
+    extractGhostBlocksFromCells
+} from '../notebook/serializer';
+import {
     IAgentAdapter,
     IAgentSession,
     AgentSessionConfig,
     CreateSessionOptions
 } from './interfaces';
-import type { AgentMessage, AgentMetadata, AgentContext } from '../types';
+import type { AgentMessage, AgentMetadata, AgentContext, ContextItem } from '../types';
 
 export class HeadlessAdapter implements IAgentAdapter {
     private sessions = new Map<string, HeadlessAgentSession>();
@@ -53,16 +58,18 @@ export class HeadlessAgentSession implements IAgentSession {
     private readonly tokenSource = new vscode.CancellationTokenSource();
     private readonly resourceUri?: vscode.Uri;
     private config: AgentSessionConfig;
-    private history: AgentMessage[] = [];
+    private history: AgentMessage[] = [];  // Raw (unexpanded) history from file
+    private fullHistory: AgentMessage[] | undefined;  // Full expanded history from setHistory
     private inputPrompt = '';
     private outputBuffer = '';
+    private pendingGhostBlock?: string;  // Ghost block for current message (applied on save)
 
     constructor(options: HeadlessAgentSessionOptions) {
         this.id = options.id;
         this.resourceUri = options.resourceUri;
         // Deep clone config to avoid external mutations affecting internal state
-        this.config = options.config 
-            ? JSON.parse(JSON.stringify(options.config)) as AgentSessionConfig 
+        this.config = options.config
+            ? JSON.parse(JSON.stringify(options.config)) as AgentSessionConfig
             : {};
         this.token = this.tokenSource.token;
     }
@@ -94,7 +101,8 @@ export class HeadlessAgentSession implements IAgentSession {
     }
 
     setHistory(history: AgentMessage[]): void {
-        this.history = history;
+        // Store the full expanded history
+        this.fullHistory = history;
     }
 
     async appendOutput(content: string): Promise<void> {
@@ -133,39 +141,36 @@ export class HeadlessAgentSession implements IAgentSession {
             } as AgentMetadata;
         }
 
-        // Rebuild cells from current history
-        const cells: vscode.NotebookCellData[] = [];
-        for (const msg of this.history) {
-            if (msg.role === 'user') {
-                const cell = new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-                    'markdown'
-                );
-                cell.metadata = { role: 'user', ...msg.metadata };
-                cells.push(cell);
-            } else if (msg.role === 'assistant') {
-                const content = typeof msg.content === 'string' ? msg.content : '';
-                const interaction: AgentMessage[] = [msg];
+        // Use generic cell conversion for consistent behavior
+        const sourceHistory = this.fullHistory || this.history;
+        const genericCells = messagesToGenericCells(sourceHistory);
 
-                // Include tool messages that follow this assistant message
-                const cell = new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    content,
-                    'markdown'
-                );
-                cell.metadata = {
-                    role: 'assistant',
-                    mutsumi_interaction: interaction
-                };
-                cells.push(cell);
-            } else if (msg.role === 'tool') {
-                // Tool messages are included in the previous assistant cell's interaction
-                // So we skip them here - they should be handled when processing assistant cells
+        // Apply the current ghost block to the last user cell if exists
+        if (this.pendingGhostBlock !== undefined && genericCells.length > 0) {
+            // Find the last user cell
+            for (let i = genericCells.length - 1; i >= 0; i--) {
+                const cell = genericCells[i];
+                if (cell.kind === 2) {  // Code cell = user
+                    cell.metadata = cell.metadata || {};
+                    cell.metadata.last_ghost_block = this.pendingGhostBlock;
+                    break;
+                }
             }
         }
 
-        notebookData.cells = cells;
+        // Convert generic cells to VSCode cells
+        notebookData.cells = genericCells.map(genCell => 
+            new vscode.NotebookCellData(
+                genCell.kind === 2 ? vscode.NotebookCellKind.Code : vscode.NotebookCellKind.Markup,
+                genCell.value,
+                'markdown'
+            )
+        );
+
+        // Apply metadata to cells
+        for (let i = 0; i < genericCells.length && i < notebookData.cells.length; i++) {
+            notebookData.cells[i].metadata = genericCells[i].metadata;
+        }
 
         // Update metadata
         if (this.config.metadata) {
@@ -174,6 +179,9 @@ export class HeadlessAgentSession implements IAgentSession {
 
         const encoded = await serializer.serializeNotebook(notebookData, tokenSource.token);
         await vscode.workspace.fs.writeFile(this.resourceUri, encoded);
+
+        // Clear pending state after successful save
+        this.pendingGhostBlock = undefined;
     }
 
     async getConfig(): Promise<AgentSessionConfig> {
@@ -214,5 +222,41 @@ export class HeadlessAgentSession implements IAgentSession {
 
         // Persist to file
         await this.save();
+    }
+
+    /**
+     * Get ghost blocks from previous messages for content version tracking.
+     * Converts messages to cells and extracts ghost blocks (same logic as NotebookAdapter).
+     */
+    async getPreviousGhostBlocks(): Promise<string[]> {
+        // Convert messages to generic cells and extract ghost blocks
+        const cells = messagesToGenericCells(this.history);
+        return extractGhostBlocksFromCells(cells);
+    }
+
+    /**
+     * Persist ghost block for the current message.
+     * Stored pending until save() writes it to file.
+     */
+    async persistGhostBlock(ghostBlock: string): Promise<void> {
+        this.pendingGhostBlock = ghostBlock;
+    }
+
+    /**
+     * Update context items in session metadata.
+     */
+    async updateContextItems(items: ContextItem[]): Promise<void> {
+        if (!this.config.metadata) {
+            this.config.metadata = {
+                uuid: this.id,
+                name: 'Headless Agent',
+                created_at: new Date().toISOString(),
+                parent_agent_id: null,
+                allowed_uris: this.config.allowedUris ?? [],
+                contextItems: items
+            } as AgentMetadata;
+        } else {
+            this.config.metadata.contextItems = items;
+        }
     }
 }
