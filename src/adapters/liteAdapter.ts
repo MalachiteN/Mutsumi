@@ -6,7 +6,7 @@ import {
     AgentSessionConfig,
     CreateSessionOptions
 } from './interfaces';
-import { AgentMessage } from '../types';
+import { AgentMessage, ContextItem } from '../types';
 
 /**
  * Lightweight session config for utility/background agent tasks.
@@ -42,6 +42,7 @@ export class LiteAgentSession implements IAgentSession {
     private inputPrompt = '';
     private history: AgentMessage[] = [];
     private outputBuffer = '';
+    private ghostBlocks: string[] = [];
 
     constructor(id: string, config?: LiteAgentSessionConfig) {
         this.id = id;
@@ -101,5 +102,33 @@ export class LiteAgentSession implements IAgentSession {
 
     async getCurrentOutput(): Promise<string> {
         return this.outputBuffer;
+    }
+
+    /**
+     * Get ghost blocks from previous messages.
+     * For Lite sessions, returns the in-memory ghost blocks.
+     */
+    async getPreviousGhostBlocks(): Promise<string[]> {
+        return [...this.ghostBlocks];
+    }
+
+    /**
+     * Persist ghost block for the current message.
+     * For Lite sessions, simply adds to the in-memory array.
+     */
+    async persistGhostBlock(ghostBlock: string): Promise<void> {
+        this.ghostBlocks.push(ghostBlock);
+    }
+
+    /**
+     * Update context items in session metadata.
+     * For Lite sessions, updates in-memory config only (no persistence).
+     */
+    async updateContextItems(items: ContextItem[]): Promise<void> {
+        if (!this.config.metadata) {
+            this.config.metadata = { contextItems: items } as any;
+        } else {
+            this.config.metadata = { ...this.config.metadata, contextItems: items };
+        }
     }
 }

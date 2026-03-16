@@ -7,3 +7,4 @@ assets/tree-sitter/*.wasm
 !.mutsumi/rules/mutsumi.md
 *.vsix
 *.gguf
+*.tsbuildinfo

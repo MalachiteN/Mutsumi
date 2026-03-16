@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { AgentMessage, AgentMetadata } from '../types';
+import { AgentMessage, AgentMetadata, ContextItem } from '../types';
 
 /**
  * Configuration for an agent session.
@@ -25,6 +25,8 @@ export interface AgentSessionConfig {
     isSubAgent?: boolean;
     /** Optional persisted metadata */
     metadata?: AgentMetadata;
+    /** Optional resource URI for the session */
+    resourceUri?: string;
 }
 
 /**
@@ -120,4 +122,41 @@ export interface IAgentSession {
      * Used for streaming responses in headless/HTTP mode.
      */
     getCurrentOutput?(): Promise<string>;
+
+    /**
+     * Get ghost blocks from previous messages for content version tracking.
+     * Each ghost block corresponds to a previous user message's context.
+     * Used by history.ts for differential context updates.
+     * @returns Array of ghost block strings, indexed by message position
+     */
+    getPreviousGhostBlocks?(): Promise<string[]>;
+
+    /**
+     * Persist ghost block for the current message.
+     * Called after processing current prompt to save context references.
+     * @param ghostBlock - The formatted ghost block string to persist
+     */
+    persistGhostBlock?(ghostBlock: string): Promise<void>;
+
+    /**
+     * Update persisted context items after processing.
+     * Called to save file hashes, versions, and other context metadata.
+     * @param items - The context items to persist
+     */
+    updateContextItems?(items: ContextItem[]): Promise<void>;
+}
+
+/**
+ * Cell-level metadata for notebook-style adapters.
+ * Used to persist per-cell state like ghost blocks.
+ */
+export interface CellMetadata {
+    /** Persisted ghost block from this cell's context */
+    last_ghost_block?: string;
+    /** Message role (user/assistant) */
+    role?: string;
+    /** Pre-built interaction array for assistant cells */
+    mutsumi_interaction?: AgentMessage[];
+    /** Other arbitrary metadata */
+    [key: string]: any;
 }

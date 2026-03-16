@@ -6,53 +6,7 @@ import { TextDecoder } from 'util';
 import { ToolManager } from '../tools.d/toolManager';
 import { ToolContext } from '../tools.d/interface';
 import { MessageContent, ContentPartText, ContentPartImage, ContextItem } from '../types';
-import { IAgentSession, AgentSessionConfig } from '../adapters/interfaces';
-
-/**
- * Stub implementation of IAgentSession for tool execution outside of a real session context.
- * Used by executeToolCall for pre-execution of tools during template rendering.
- */
-class StubAgentSession implements IAgentSession {
-    id = 'stub';
-    token = new vscode.CancellationTokenSource().token;
-    supportsUI = false;
-    
-    async getInput(): Promise<string> {
-        return '';
-    }
-    
-    async getHistory() {
-        return [];
-    }
-    
-    async appendOutput(): Promise<void> {
-        // No-op for stub
-    }
-    
-    async replaceOutput(): Promise<void> {
-        // No-op for stub
-    }
-    
-    async save(): Promise<void> {
-        // No-op for stub
-    }
-    
-    async getConfig(): Promise<AgentSessionConfig> {
-        return {};
-    }
-    
-    async updateTitle(): Promise<void> {
-        // No-op for stub
-    }
-
-    setConfig(config: Partial<AgentSessionConfig>): void {
-        // No-op for stub
-    }
-
-    setHistory(messages: AgentMessage[]): void {
-        // No-op for stub
-    }
-}
+import { LiteAdapter } from '../adapters/liteAdapter';
 
 // Ghost block marker for filtering during serialization
 export const GHOST_BLOCK_MARKER = '<content_reference>';
@@ -285,9 +239,11 @@ export function shouldRecurseFile(uri: vscode.Uri): boolean {
  */
 export async function executeToolCall(name: string, args: any, allowedUris: string[]): Promise<string> {
     const tm = ToolManager.getInstance();
+    const liteAdapter = new LiteAdapter();
+    const session = await liteAdapter.createSession();
     const context: ToolContext = {
         allowedUris: allowedUris,
-        session: new StubAgentSession(),
+        session,
     };
     return await tm.executeTool(name, args, context, false);
 }
