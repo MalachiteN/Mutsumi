@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ApprovalRequest } from '../tools.d/permission';
+import { ApprovalRequest, approvalManager } from '../tools.d/permission';
 
 /**
  * @description Approval request tree node item for displaying tool call approval requests in the sidebar
@@ -85,4 +85,37 @@ export class ApprovalTreeItem extends vscode.TreeItem {
             case 'rejected': return new vscode.ThemeIcon('x', new vscode.ThemeColor('charts.red'));
         }
     }
+}
+
+/**
+ * @description Registers approval-related commands to the VSCode extension context
+ * @param {vscode.ExtensionContext} context - Extension context for registering subscriptions
+ */
+export function registerApprovalCommands(context: vscode.ExtensionContext): void {
+    // Register approve request command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.approveRequest', (item: any) => {
+            if (item && item.request && item.request.id) {
+                approvalManager.approveRequest(item.request.id);
+            }
+        })
+    );
+
+    // Register reject request command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.rejectRequest', (item: any) => {
+            if (item && item.request && item.request.id) {
+                approvalManager.rejectRequest(item.request.id);
+            }
+        })
+    );
+
+    // Register custom request action command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.customRequestAction', (item: any) => {
+            if (item && item.request && item.request.id) {
+                approvalManager.handleCustomAction(item.request.id);
+            }
+        })
+    );
 }

@@ -92,3 +92,31 @@ export class AgentTreeItem extends vscode.TreeItem {
         }
     }
 }
+
+/**
+ * Registers Agent-related commands.
+ * @description Registers commands related to Agent tree items, such as opening agent files.
+ * @param {vscode.ExtensionContext} context - Extension context for registering disposables
+ * @example
+ * registerAgentCommands(context);
+ */
+export function registerAgentCommands(context: vscode.ExtensionContext): void {
+    // Open agent file command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.openAgentFile', async (item: AgentTreeItem) => {
+            if (item && item.agentData && item.agentData.fileUri) {
+                const uri = vscode.Uri.parse(item.agentData.fileUri);
+                try {
+                    const doc = await vscode.workspace.openNotebookDocument(uri);
+                    await vscode.window.showNotebookDocument(doc, {
+                        viewColumn: vscode.ViewColumn.Active,
+                        preserveFocus: false,
+                        preview: false
+                    });
+                } catch (e) {
+                    vscode.window.showErrorMessage(`Failed to open agent file: ${e}`);
+                }
+            }
+        })
+    );
+}
