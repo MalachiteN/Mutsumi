@@ -12,6 +12,61 @@ import { toggleAutoApprove, isAutoApproveEnabled } from '../tools.d/permission';
 import { RagService } from '../codebase/rag/service';
 import { IAgentSession } from '../adapters/interfaces';
 import { AgentMessage, AgentMetadata } from '../types';
+import { createEmptyToolSet } from '../tools.d/toolManager';
+import type { AgentRunOptions } from '../agent/types';
+import { MutsumiSerializer } from './serializer';
+import { TextEncoder } from 'util';
+/**
+ * Format an array of AgentMessage into a readable string representation.
+ * Used for debugging and displaying conversation context.
+ * @param messages - Array of agent messages to format
+ * @param options - Formatting options
+ * @returns Formatted string
+ */
+function formatMessagesToString(
+    messages: AgentMessage[],
+    options?: {
+        includeHeader?: boolean;
+        maxContentLength?: number;
+    }
+): string {
+    const { includeHeader = true, maxContentLength = Infinity } = options || {};
+    
+    let content = '';
+    
+    if (includeHeader) {
+        content += `Total Messages: ${messages.length}\n\n`;
+    }
+
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        content += `--- Message ${i + 1} [${msg.role.toUpperCase()}] ---\n\n`;
+        
+        if (typeof msg.content === 'string') {
+            const displayContent = maxContentLength < msg.content.length 
+                ? msg.content.substring(0, maxContentLength) + '\n...(truncated)'
+                : msg.content;
+            content += displayContent;
+        } else if (Array.isArray(msg.content)) {
+            // Handle multi-modal content (text + images)
+            for (const part of msg.content) {
+                if (part.type === 'text') {
+                    const displayText = maxContentLength < part.text.length
+                        ? part.text.substring(0, maxContentLength) + '\n...(truncated)'
+                        : part.text;
+                    content += displayText;
+                } else if (part.type === 'image_url') {
+                    content += '[Image: ' + (part.image_url?.url?.substring(0, 50) || 'unknown') + '...]';
+                }
+                content += '\n';
+            }
+        }
+        
+        content += '\n\n';
+    }
+
+    return content;
+}
 
 /**
  * Create a LiteAgentSession from notebook data for debug purposes.
@@ -208,32 +263,9 @@ export function registerToolbarCommands(context: vscode.ExtensionContext): void 
 
                 // Build content for temporary document
                 let content = '=== Complete LLM Context Debug Output ===\n\n';
-                content += `Total Messages: ${messages.length}\n`;
                 content += `Notebook: ${editor.notebook.uri.path}\n`;
                 content += `Last Executed Cell: ${lastCodeCellIndex}\n\n`;
-
-                // Display all messages with their roles
-                for (let i = 0; i < messages.length; i++) {
-                    const msg = messages[i];
-                    content += `--- Message ${i + 1} [${msg.role.toUpperCase()}] ---\n\n`;
-                    
-                    if (typeof msg.content === 'string') {
-                        content += msg.content;
-                    } else if (Array.isArray(msg.content)) {
-                        // Handle multi-modal content (text + images)
-                        for (const part of msg.content) {
-                            if (part.type === 'text') {
-                                content += part.text;
-                            } else if (part.type === 'image_url') {
-                                content += '[Image: ' + (part.image_url?.url?.substring(0, 50) || 'unknown') + '...]';
-                            }
-                            content += '\n';
-                        }
-                    }
-                    
-                    content += '\n\n';
-                }
-
+                content += formatMessagesToString(messages, { includeHeader: true });
                 content += '=== End of Context ===\n';
 
                 // Create and show temporary document
@@ -630,11 +662,10 @@ export function registerToolbarCommands(context: vscode.ExtensionContext): void 
                         } else {
                             for (let i = 0; i < results.length; i++) {
                                 const r = results[i];
-                                content += `[${i + 1}] ${r.filePath}`;
-                                if (r.symbolName) {
-                                    content += ` :: ${r.symbolName}`;
-                                }
-                                content += ` (lines ${r.startLine}-${r.endLine}, distance: ${r.distance.toFixed(4)})\n`;
+                                // 与 embedding 格式一致：文件路径 - 命名空间路径
+                                const fullPath = r.symbolName ? `${r.filePath} - ${r.symbolName}` : r.filePath;
+                                content += `[${i + 1}] ${fullPath}\n`;
+                                content += `    (lines ${r.startLine}-${r.endLine}, distance: ${r.distance.toFixed(4)})\n`;
                                 content += '```\n';
                                 content += r.text.substring(0, 500);
                                 if (r.text.length > 500) {
@@ -663,6 +694,184 @@ export function registerToolbarCommands(context: vscode.ExtensionContext): void 
             } catch (error: any) {
                 console.error('RAG search failed:', error);
                 vscode.window.showErrorMessage(`RAG search failed: ${error.message}`);
+            }
+        })
+    );
+
+    // Compress Conversation command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.compressConversation', async () => {
+            const editor = vscode.window.activeNotebookEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('No active notebook editor.');
+                return;
+            }
+
+            if (editor.notebook.notebookType !== 'mutsumi-notebook') {
+                vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
+                return;
+            }
+
+            const cells = editor.notebook.getCells();
+            let lastCodeCellIndex = -1;
+            for (let i = cells.length - 1; i >= 0; i--) {
+                if (cells[i].kind === vscode.NotebookCellKind.Code) {
+                    lastCodeCellIndex = i;
+                    break;
+                }
+            }
+
+            if (lastCodeCellIndex === -1) {
+                vscode.window.showWarningMessage('No code cell found in notebook.');
+                return;
+            }
+
+            try {
+                // Get configuration for compression
+                const config = vscode.workspace.getConfiguration('mutsumi');
+                const compressModel = config.get<string>('compressModel') || config.get<string>('titleGeneratorModel') || config.get<string>('defaultModel');
+                const apiKey = config.get<string>('apiKey');
+                const baseUrl = config.get<string>('baseUrl');
+
+                if (!compressModel || !apiKey) {
+                    vscode.window.showErrorMessage('Please configure mutsumi.apiKey and mutsumi.compressModel (or defaultModel) in settings.');
+                    return;
+                }
+
+                // Build session and get full interaction history
+                const session = await createDebugSessionFromNotebook(editor.notebook, lastCodeCellIndex);
+                const { messages } = await buildInteractionHistory(session);
+
+                if (messages.length <= 1) {
+                    vscode.window.showWarningMessage('Not enough conversation content to compress.');
+                    return;
+                }
+
+                // Show progress
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Compressing conversation...',
+                    cancellable: false
+                }, async () => {
+                    // Dynamically import AgentRunner to avoid circular dependency
+                    const { AgentRunner } = await import('../agent/agentRunner.js');
+
+                    // Format messages for compression using the shared utility
+                    const conversationText = formatMessagesToString(messages, { includeHeader: false, maxContentLength: 3000 });
+
+                    // Create compression prompt messages
+                    const compressionMessages: AgentMessage[] = [
+                        {
+                            role: 'system',
+                            content: 'You are a conversation compression assistant. Your task is to compress a long conversation into a concise summary while preserving all important information, decisions, and context.\n\n' +
+                                'Requirements:\n' +
+                                '1. Summarize the main topics and goals discussed\n' +
+                                '2. Preserve all key decisions and conclusions\n' +
+                                '3. Include important code snippets or technical details (in markdown code blocks)\n' +
+                                '4. Maintain the chronological flow of the conversation\n' +
+                                '5. Keep the summary concise but comprehensive\n' +
+                                '6. Use markdown formatting for clarity\n' +
+                                '7. Do not include meta-commentary about the compression process'
+                        },
+                        {
+                            role: 'user',
+                            content: `Please compress the following conversation into a concise summary:\n\n${conversationText}`
+                        }
+                    ];
+
+                    // Create lite adapter and session for compression
+                    const adapter = new LiteAdapter();
+                    const compressConfig: LiteAgentSessionConfig = {
+                        model: compressModel,
+                        apiKey,
+                        baseUrl,
+                        metadata: editor.notebook.metadata 
+                            ? JSON.parse(JSON.stringify(editor.notebook.metadata)) as AgentMetadata 
+                            : undefined
+                    };
+                    const compressSession = await adapter.createSession({
+                        config: compressConfig
+                    });
+
+                    // Create empty tool set (no tools = single round)
+                    const emptyToolSet = createEmptyToolSet();
+
+                    // Create agent runner
+                    const runOptions: AgentRunOptions = {
+                        model: compressModel,
+                        apiKey,
+                        baseUrl,
+                        maxLoops: 1 // Single round since no tools
+                    };
+                    const runner = new AgentRunner(runOptions, emptyToolSet, compressSession);
+
+                    // Run compression
+                    const abortController = new AbortController();
+                    const compressedMessages = await runner.run(abortController, compressionMessages);
+
+                    // Extract compressed content
+                    const lastAssistantMsg = [...compressedMessages].reverse().find(m => m.role === 'assistant');
+                    if (!lastAssistantMsg?.content) {
+                        throw new Error('Compression failed: no response from LLM');
+                    }
+
+                    const compressedContent = typeof lastAssistantMsg.content === 'string' 
+                        ? lastAssistantMsg.content 
+                        : JSON.stringify(lastAssistantMsg.content);
+
+                    // Generate new file name
+                    const originalUri = editor.notebook.uri;
+                    const originalName = originalUri.path.split('/').pop() || 'compressed.mtm';
+                    const baseName = originalName.replace(/\.mtm$/, '');
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+                    const newFileName = `${baseName}-compressed-${timestamp}.mtm`;
+
+                    // Determine save location (same directory as original)
+                    const parentDir = originalUri.with({ path: originalUri.path.substring(0, originalUri.path.lastIndexOf('/')) });
+                    const newUri = vscode.Uri.joinPath(parentDir, newFileName);
+
+                    // Create compressed notebook data
+                    const originalMetadata = editor.notebook.metadata as AgentMetadata;
+                    const { v4: uuidv4 } = await import('uuid');
+                    const compressedMetadata: AgentMetadata = {
+                        ...originalMetadata,
+                        uuid: uuidv4(),
+                        name: `${originalMetadata?.name || 'Compressed'} (Compressed)`,
+                        created_at: new Date().toISOString(),
+                        parent_agent_id: null
+                    };
+
+                    // Create single user message with compressed content
+                    const compressedContext: AgentMessage[] = [{
+                        role: 'user',
+                        content: `## Conversation Summary\n\n${compressedContent}\n\n---\n\n*This is a compressed version of the original conversation. Original file: ${originalName}*`
+                    }];
+
+                    // Create notebook data using serializer
+                    const serializer = new MutsumiSerializer();
+                    const notebookData = new vscode.NotebookData([
+                        new vscode.NotebookCellData(
+                            vscode.NotebookCellKind.Code,
+                            compressedContext[0].content as string,
+                            'markdown'
+                        )
+                    ]);
+                    notebookData.metadata = compressedMetadata;
+
+                    // Serialize and save
+                    const tokenSource = new vscode.CancellationTokenSource();
+                    const bytes = await serializer.serializeNotebook(notebookData, tokenSource.token);
+                    await vscode.workspace.fs.writeFile(newUri, bytes);
+
+                    // Open the new file
+                    const doc = await vscode.workspace.openNotebookDocument(newUri);
+                    await vscode.window.showNotebookDocument(doc);
+
+                    vscode.window.showInformationMessage(`Conversation compressed and saved to: ${newFileName}`);
+                });
+            } catch (error: any) {
+                console.error('Failed to compress conversation:', error);
+                vscode.window.showErrorMessage(`Failed to compress conversation: ${error.message}`);
             }
         })
     );

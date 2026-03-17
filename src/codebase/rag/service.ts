@@ -14,7 +14,7 @@ import * as sqliteVec from "sqlite-vec";
 import { TaskQueue } from "./taskQueue";
 import { sha256, f32buf, mkChunk, lineChunks } from "./utils";
 import { debugLogger } from "../../debugLogger";
-import { CodebaseService } from "../service";
+import { CodebaseService, type OutlineNode } from "../service";
 
 // 动态导入 node-llama-cpp (ESM 模块)
 type LlamaModule = typeof import("node-llama-cpp");
@@ -30,6 +30,14 @@ interface WorkspaceDbEntry {
   db: Database.Database;       // 内存数据库
   remoteDbUri: vscode.Uri;         // 远程数据库文件位置
   isDirty: boolean;                // 是否有未保存的更改
+  dirtyVersion: number;  
+  saving?: Promise<void>;  
+}
+
+type LeafNode = {
+  name: string;
+  startLine: number;
+  endLine: number;
 }
 
 export class RagService implements vscode.Disposable {
@@ -68,6 +76,24 @@ export class RagService implements vscode.Disposable {
   private embedCtx!: LlamaEmbeddingContext;
   private dim = 0; // embedding 维度
 
+  // llama.cpp 不保证并发安全
+  private llamaLock: Promise<void> = Promise.resolve();
+  private async withLlamaLock<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.llamaLock;
+    let release!: () => void;
+
+    this.llamaLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
   // 定期保存的间隔（30秒）
   private readonly SAVE_INTERVAL = 30000;
   private saveTimer?: NodeJS.Timeout;
@@ -88,8 +114,8 @@ export class RagService implements vscode.Disposable {
     // 1. 动态导入 ESM 模块 node-llama-cpp
     this.llamaModule = await import("node-llama-cpp");
 
-    // 2. CPU‑only llama
-    this.llama = await this.llamaModule.getLlama({ gpu: false });
+    // 2. 自动检测并使用最佳 GPU（Metal/CUDA/Vulkan），无 GPU 时回退到 CPU
+    this.llama = await this.llamaModule.getLlama({ gpu: "auto" });
 
     // 3. 加载 GGUF 模型（扩展本地资源，可用 fs）
     const embDir = path.join(this.extCtx.extensionPath, "assets", "embedding");
@@ -103,7 +129,7 @@ export class RagService implements vscode.Disposable {
     this.log(`Loading model: ${gguf}`);
     this.model = await this.llama.loadModel({
       modelPath: path.join(embDir, gguf),
-      gpuLayers: 0,
+      gpuLayers: "auto", // 自动决定加载到 GPU 的层数
     });
 
     this.embedCtx = await this.model.createEmbeddingContext();
@@ -122,7 +148,7 @@ export class RagService implements vscode.Disposable {
     this.subs.push(
       vscode.workspace.onDidChangeWorkspaceFolders(async (e) => {
         for (const a of e.added) await this.loadDb(a.uri);
-        for (const r of e.removed) this.unloadDb(r.uri);
+        for (const r of e.removed) await this.unloadDb(r.uri);
       })
     );
 
@@ -178,7 +204,8 @@ export class RagService implements vscode.Disposable {
     this.workspaceDbMap.set(key, {
       db,
       remoteDbUri,
-      isDirty: false
+      isDirty: false,
+      dirtyVersion: 0
     });
 
     return db;
@@ -251,69 +278,89 @@ export class RagService implements vscode.Disposable {
     }
   }
 
-  private unloadDb(wsUri: vscode.Uri): void {
-    const key = wsUri.toString();
-    const entry = this.workspaceDbMap.get(key);
-    if (entry) {
-      // 先保存再关闭
-      this.saveDatabase(entry);
-      entry.db.close();
-      this.workspaceDbMap.delete(key);
-      this.log(`Unloaded DB for ${wsUri.toString()}`);
-    }
-  }
+  private async unloadDb(wsUri: vscode.Uri): Promise<void> {  
+    const key = wsUri.toString();  
+    const entry = this.workspaceDbMap.get(key);  
+    if (entry) {  
+      await this.saveDatabase(entry);  
+      entry.db.close();  
+      this.workspaceDbMap.delete(key);  
+      this.log(`Unloaded DB for ${wsUri.toString()}`);  
+    }  
+  }  
 
   /**
    * 将内存数据库序列化并写回远程工作区
+   * 使用临时文件 + 重命名策略，防止写入过程中断导致数据库损坏
    */
-  private async saveDatabase(entry: WorkspaceDbEntry): Promise<void> {
-    try {
-      // 确保目录存在
-      const dirUri = vscode.Uri.joinPath(entry.remoteDbUri, "..");
-      try {
-        await vscode.workspace.fs.createDirectory(dirUri);
-      } catch {
-        // 目录可能已存在
-      }
+  private async saveDatabase(entry: WorkspaceDbEntry): Promise<void> {  
+    if (!entry.isDirty) return;  
 
-      // 序列化内存数据库
-      const data = entry.db.serialize();
-      await vscode.workspace.fs.writeFile(entry.remoteDbUri, data);
-      entry.isDirty = false;
-      this.log(`Saved DB to ${entry.remoteDbUri.toString()}`);
-    } catch (err) {
-      this.log(`Failed to save DB: ${err}`);
-    }
-  }
+    if (entry.saving) {  
+      await entry.saving;  
+      return;  
+    }  
+
+    const versionAtStart = entry.dirtyVersion;  
+
+    entry.saving = (async () => {  
+      try {  
+        const dirUri = vscode.Uri.joinPath(entry.remoteDbUri, "..");  
+        try {  
+          await vscode.workspace.fs.createDirectory(dirUri);  
+        } catch {}  
+      
+        const data = entry.db.serialize();  
+      
+        const tempUri = vscode.Uri.joinPath(dirUri, "rag.db.tmp");  
+        await vscode.workspace.fs.writeFile(tempUri, data);  
+        await vscode.workspace.fs.rename(tempUri, entry.remoteDbUri, { overwrite: true });  
+      
+        // 只有保存期间没有新修改，才能清掉脏标记  
+        if (entry.dirtyVersion === versionAtStart) {  
+          entry.isDirty = false;  
+        }  
+      
+        this.log(`Saved DB to ${entry.remoteDbUri.toString()}`);  
+      } catch (err) {  
+        this.log(`Failed to save DB: ${err}`);  
+      } finally {  
+        entry.saving = undefined;  
+      }  
+    })();  
+
+    await entry.saving;  
+  }  
 
   /**
    * 保存所有工作区的数据库
    */
-  private saveAllDatabases(): void {
-    for (const entry of this.workspaceDbMap.values()) {
-      if (entry.isDirty) {
-        this.saveDatabase(entry);
-      }
-    }
+  private async saveAllDatabases(): Promise<void> {
+    await Promise.all(
+      [...this.workspaceDbMap.values()]
+        .filter(entry => entry.isDirty)
+        .map(entry => this.saveDatabase(entry))
+    );
   }
 
   /**
    * 标记数据库为脏（需要保存）
    */
-  private markDirty(wsUri: vscode.Uri): void {
-    const key = wsUri.toString();
-    const entry = this.workspaceDbMap.get(key);
-    if (entry) {
-      entry.isDirty = true;
-    }
-  }
+  private markDirty(wsUri: vscode.Uri): void {  
+    const key = wsUri.toString();  
+    const entry = this.workspaceDbMap.get(key);  
+    if (entry) {  
+      entry.isDirty = true;  
+      entry.dirtyVersion++;  
+    }  
+  }  
 
   /**
    * 启动定期保存定时器
    */
   private startPeriodicSave(): void {
-    this.saveTimer = setInterval(() => {
-      this.saveAllDatabases();
+    this.saveTimer = setInterval(async () => {
+      await this.saveAllDatabases();
     }, this.SAVE_INTERVAL);
   }
 
@@ -340,7 +387,7 @@ export class RagService implements vscode.Disposable {
     // 发现所有文件
     const uris = await vscode.workspace.findFiles(
       new vscode.RelativePattern(wsUri, "**/*"),
-      "{**/node_modules/**,**/.git/**,**/.mutsumi/**,**/dist/**,**/build/**,**/.next/**,**/out/**,**/*.lock,**/.DS_Store}"
+      "{**/node_modules/**,**/.git/**,**/.mutsumi/**,**/.continue/**,**/dist/**,**/build/**,**/.next/**,**/out/**,**/*.lock,**/*.tsbuildinfo,**/.DS_Store}"
     );
 
     const seen = new Set<string>();
@@ -421,7 +468,7 @@ export class RagService implements vscode.Disposable {
     this.log(`[ProcessFile] Chunking: ${rel}`);
     const newChunks = await this.chunkFile(uri, content);
     this.log(`[ProcessFile] Generated ${newChunks.length} chunks for: ${rel}`);
-    
+
     if (newChunks.length === 0) {
       this.log(`[ProcessFile] No chunks generated for: ${rel}`);
       return;
@@ -489,8 +536,10 @@ export class RagService implements vscode.Disposable {
     const embeddings: { chunk: ChunkInfo; vec: readonly number[] }[] = [];
     for (let i = 0; i < toEmbed.length; i++) {
       const c = toEmbed[i];
-      this.log(`[ProcessFile] Embedding chunk ${i+1}/${toEmbed.length} (${c.text.length} chars) for: ${rel}`);
-      const vec = await this.embed(c.text);
+      const prefix = c.symbolName ? `${rel} - ${c.symbolName}\n` : `${rel}\n`;
+      const textWithPath = prefix + c.text;
+      this.log(`[ProcessFile] Embedding chunk ${i+1}/${toEmbed.length} (${textWithPath.length} chars) for: ${rel}`);
+      const vec = await this.embed(textWithPath);
       embeddings.push({ chunk: c, vec });
     }
 
@@ -531,12 +580,12 @@ export class RagService implements vscode.Disposable {
               throw new Error(`chunkId ${safeChunkId} (from ${chunkId}) is not a valid positive integer`);
             }
             this.log(`[ProcessFile] About to insert vec_chunks with rowid=${safeChunkId}`);
-            
+
             // 使用 exec 直接执行 SQL 避免参数绑定类型问题
             const vecBuffer = f32buf(vec);
             const hexVec = vecBuffer.toString('hex');
             db.exec(`INSERT INTO vec_chunks(rowid, embedding) VALUES (${safeChunkId}, x'${hexVec}')`);
-            
+
             this.log(`[ProcessFile] Inserted vec_chunks row for chunkId=${safeChunkId}`);
           } catch (err: any) {
             this.log(`[ProcessFile] ERROR inserting vec_chunks row for chunkId=${chunkId}: ${err.message}`);
@@ -557,11 +606,11 @@ export class RagService implements vscode.Disposable {
   private getRelativePath(wsUri: vscode.Uri, fileUri: vscode.Uri): string {
     const wsPath = wsUri.path;
     const filePath = fileUri.path;
-    
+
     if (!filePath.startsWith(wsPath)) {
       return filePath;
     }
-    
+
     let rel = filePath.slice(wsPath.length);
     if (rel.startsWith("/")) {
       rel = rel.slice(1);
@@ -591,7 +640,7 @@ export class RagService implements vscode.Disposable {
   ): Promise<ChunkInfo[]> {
     const lines = content.split("\n");
     this.log(`[ChunkFile] File has ${lines.length} lines: ${uri.toString()}`);
-    
+
     if (lines.length === 0) {
       this.log(`[ChunkFile] Empty file, returning 0 chunks`);
       return [];
@@ -602,7 +651,7 @@ export class RagService implements vscode.Disposable {
       this.log(`[ChunkFile] Trying Tree-sitter based chunking...`);
       const codebaseService = CodebaseService.getInstance();
       const outline = await codebaseService.getFileOutline(uri, content);
-      
+
       if (outline && outline.length > 0) {
         this.log(`[ChunkFile] Got ${outline.length} outline nodes from Tree-sitter`);
         const chunks = this.outlineToChunks(lines, outline);
@@ -622,64 +671,154 @@ export class RagService implements vscode.Disposable {
     return chunks;
   }
 
+  private collectLeafNodes(
+    nodes: OutlineNode[],
+    prefix?: string
+  ): LeafNode[] {
+    const leaves: LeafNode[] = [];
+
+    for (const node of nodes) {
+      const fullName = prefix ? `${prefix}.${node.name}` : node.name;
+
+      if (node.children && node.children.length > 0) {
+        leaves.push(...this.collectLeafNodes(node.children, fullName));
+      } else {
+        leaves.push({
+          name: fullName,
+          startLine: node.startLine,
+          endLine: node.endLine,
+        });
+      }
+    }
+
+    return leaves;
+  }
+
+  private shouldKeepChunkText(text: string): boolean {
+    const t = text.trim();
+    if (!t) return false;
+
+    // 太短直接丢
+    if (t.length < 3) return false;
+
+    // 至少要有“字母 / 数字 / 下划线 / CJK”
+    return /[\p{L}\p{N}_$]/u.test(t);
+  }
+
   /**
    * 将 Tree-sitter outline 转换为 chunks
    */
   private outlineToChunks(
     lines: string[],
-    outline: Awaited<ReturnType<CodebaseService['getFileOutline']>>
+    outline: OutlineNode[]
   ): ChunkInfo[] {
     if (!outline || outline.length === 0) return [];
+
+    // 1. 只收集叶子节点
+    const leaves = this.collectLeafNodes(outline);
+
+    if (leaves.length === 0) return [];
+
+    // 2. 按起始行排序
+    leaves.sort((a, b) => {
+      if (a.startLine !== b.startLine) return a.startLine - b.startLine;
+      return a.endLine - b.endLine;
+    });
 
     const chunks: ChunkInfo[] = [];
     let cursor = 0;
 
-    // 按起始行排序
-    const sortedNodes = [...outline].sort((a, b) => a.startLine - b.startLine);
+    for (const leaf of leaves) {
+      // 跳过非法节点
+      if (leaf.endLine < leaf.startLine) {
+        this.log(
+          `[OutlineToChunks] Skip invalid leaf: ${leaf.name} (${leaf.startLine}-${leaf.endLine})`
+        );
+        continue;
+      }
 
-    for (const node of sortedNodes) {
-      // 符号前的间隙
-      if (node.startLine > cursor) {
-        const gap = lines.slice(cursor, node.startLine).join("\n").trim();
-        if (gap) {
-          chunks.push(mkChunk(gap, null, cursor, node.startLine - 1));
+      // 如果出现重叠/倒退，做保护
+      if (leaf.endLine < cursor) {
+        this.log(
+          `[OutlineToChunks] Skip overlapped leaf: ${leaf.name} (${leaf.startLine}-${leaf.endLine}), cursor=${cursor}`
+        );
+        continue;
+      }
+
+      // 3. 叶子节点前的 gap：只切“cursor 到 leaf.startLine-1”
+      if (leaf.startLine > cursor) {
+        const gapText = lines.slice(cursor, leaf.startLine).join("\n");
+        if (this.shouldKeepChunkText(gapText)) {
+          chunks.push(mkChunk(gapText.trim(), null, cursor, leaf.startLine - 1));
         }
       }
 
-      // 符号本身的内容
-      const body = lines.slice(node.startLine, node.endLine + 1).join("\n");
-      if (body.trim()) {
-        chunks.push(mkChunk(body, node.name, node.startLine, node.endLine));
+      // 4. 当前叶子节点本身
+      const bodyStart = Math.max(cursor, leaf.startLine);
+      const bodyText = lines.slice(bodyStart, leaf.endLine + 1).join("\n");
+      if (this.shouldKeepChunkText(bodyText)) {
+        chunks.push(mkChunk(bodyText.trim(), leaf.name, bodyStart, leaf.endLine));
       }
 
-      // 递归处理子节点
-      if (node.children && node.children.length > 0) {
-        const childChunks = this.outlineToChunks(lines, node.children);
-        chunks.push(...childChunks);
-      }
-
-      cursor = Math.max(cursor, node.endLine + 1);
+      // 5. cursor 推进到当前叶子之后
+      cursor = leaf.endLine + 1;
     }
 
-    // 尾部剩余文本
+    // 6. 最后一个叶子之后的尾部 gap
     if (cursor < lines.length) {
-      const tail = lines.slice(cursor).join("\n").trim();
-      if (tail) {
-        chunks.push(mkChunk(tail, null, cursor, lines.length - 1));
+      const tailText = lines.slice(cursor).join("\n");
+      if (this.shouldKeepChunkText(tailText)) {
+        chunks.push(mkChunk(tailText.trim(), null, cursor, lines.length - 1));
       }
     }
 
     return chunks;
   }
 
+
   // ════════════════════════════════════════════════════════════════════════
   //  Embedding 辅助
   // ════════════════════════════════════════════════════════════════════════
 
   private async embed(text: string): Promise<readonly number[]> {
-    const result = await this.embedCtx.getEmbeddingFor(text);
-    return result.vector;
+    return this.withLlamaLock(async () => {
+      const result = await this.embedCtx.getEmbeddingFor(text);
+
+      // 深拷贝，避免底层复用/覆盖内部 buffer
+      const vec = Array.from(result.vector);
+
+      // 验证嵌入向量有效性
+      if (!vec || vec.length === 0) {
+        throw new Error(`[RAG] 嵌入失败: 返回空向量`);
+      }
+
+      if (vec.length !== this.dim) {
+        throw new Error(
+          `[RAG] 嵌入失败: 维度不匹配, got=${vec.length}, expected=${this.dim}`
+        );
+      }
+
+      const hasInvalid = vec.some(v => !Number.isFinite(v));
+      if (hasInvalid) {
+        const nanCount = vec.filter(v => Number.isNaN(v)).length;
+        const infCount = vec.filter(v => !Number.isFinite(v) && !Number.isNaN(v)).length;
+        throw new Error(
+          `[RAG] 嵌入失败: 包含无效数值 (NaN: ${nanCount}, Inf: ${infCount}/${vec.length})`
+        );
+      }
+
+      let norm2 = 0;
+      for (const v of vec) {
+        norm2 += v * v;
+      }
+      if (!Number.isFinite(norm2) || norm2 <= 1e-20) {
+        throw new Error(`[RAG] 嵌入失败: 向量范数异常 (${norm2})`);
+      }
+
+      return vec;
+    });
   }
+
 
   // ════════════════════════════════════════════════════════════════════════
   //  III.  检索
@@ -742,7 +881,7 @@ export class RagService implements vscode.Disposable {
 
   dispose(): void {
     this.stopPeriodicSave();
-    
+
     // 保存所有数据库
     for (const entry of this.workspaceDbMap.values()) {
       this.saveDatabase(entry);
@@ -751,14 +890,14 @@ export class RagService implements vscode.Disposable {
     this.workspaceDbMap.clear();
 
     for (const d of this.subs) d.dispose();
-    
+
     try {
       this.embedCtx?.dispose();
     } catch { /* */ }
     try {
       this.model?.dispose();
     } catch { /* */ }
-    
+
     RagService.instance = null;
   }
 

@@ -54,7 +54,9 @@ Mutsumi 采用六阶段动态上下文管理架构：
 引用文件、Rules 和 Skills 支持**预处理器命令**。用户使用 `@{define 宏名, 值}` 一类的语句定义宏，然后可调用如下包含预处理器命令的文件：
 
 ```markdown
-@{ifdef 宏名} ... @{endif}
+<!-- @ifdef xxx -->
+如果定义了宏xxx，那么这一行将对Agent可见
+<!-- @endif -->
 ```
 
 本项目使用 [`preprocess`](https://github.com/jsoverson/preprocess) 库实现强大的预处理能力。

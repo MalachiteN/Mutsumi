@@ -14,11 +14,13 @@ import { EXT_TO_LANG, LANGUAGE_CONFIGS, LanguageConfig } from './definitions';
  * Represents a node in the code outline tree.
  * @interface OutlineNode
  */
-interface OutlineNode {
+export interface OutlineNode {
     /** The type of the outline node (e.g., 'Class', 'Function', 'Method') */
     type: string;
     /** The name/identifier of the node */
     name: string;
+    /** The full namespace path (e.g., 'MyClass.NestedClass.myMethod') */
+    fullPath: string;
     /** Zero-based starting line number */
     startLine: number;
     /** Zero-based ending line number */
@@ -221,9 +223,10 @@ export class CodebaseService {
         /**
          * Recursively collects outline nodes from the syntax tree.
          * @param {Parser.SyntaxNode} currentNode - The current node being processed
+         * @param {string} [parentPath=''] - The full path of parent node
          * @returns {OutlineNode[]} Array of outline nodes found in this subtree
          */
-        const collect = (currentNode: Parser.SyntaxNode): OutlineNode[] => {
+        const collect = (currentNode: Parser.SyntaxNode, parentPath: string = ''): OutlineNode[] => {
             const nodes: OutlineNode[] = [];
 
             for (let i = 0; i < currentNode.childCount; i++) {
@@ -234,22 +237,25 @@ export class CodebaseService {
 
                 if (defType) {
                     const name = this.getNodeName(child, source);
+                    const nodeName = name || '<anonymous>';
+                    const fullPath = parentPath ? `${parentPath}.${nodeName}` : nodeName;
                     const newNode: OutlineNode = {
                         type: defType,
-                        name: name || '<anonymous>',
+                        name: nodeName,
+                        fullPath: fullPath,
                         startLine: child.startPosition.row,
                         endLine: child.endPosition.row,
                         children: []
                     };
 
                     if (config.containers.has(child.type)) {
-                        newNode.children = collect(child);
+                        newNode.children = collect(child, fullPath);
                     }
 
                     nodes.push(newNode);
                 } else {
                     if (child.childCount > 0) {
-                        const childNodes = collect(child);
+                        const childNodes = collect(child, parentPath);
                         nodes.push(...childNodes);
                     }
                 }
@@ -305,7 +311,7 @@ export class CodebaseService {
         const indent = '  '.repeat(depth);
 
         for (const node of nodes) {
-            output += `${indent}- ${node.type} ${node.name}\n`;
+            output += `${indent}- ${node.type} ${node.fullPath}\n`;
             if (node.children.length > 0) {
                 output += this.formatOutline(node.children, depth + 1);
             }
