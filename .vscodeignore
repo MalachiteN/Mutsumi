@@ -1,5 +1,7 @@
 tsconfig.json
 .mutsumi/
 .vscode/
+.continue/
+.github/
 doc/
-assets/
+*.tsbuildinfo

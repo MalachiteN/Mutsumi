@@ -107,18 +107,13 @@ export const queryCodebaseTool: ITool = {
                 totalResults += results.length;
                 for (let i = 0; i < results.length; i++) {
                     const r = results[i];
-                    output += `[${i + 1}] ${r.filePath}`;
-                    if (r.symbolName) {
-                        output += ` (${r.symbolName})`;
-                    }
-                    output += ` (lines ${r.startLine}-${r.endLine}, relevance: ${(1 - r.distance).toFixed(2)})\n`;
+                    // 与 embedding 格式一致：文件路径 - 命名空间路径
+                    const fullPath = r.symbolName ? `${r.filePath} - ${r.symbolName}` : r.filePath;
+                    output += `[${i + 1}] ${fullPath}\n`;
+                    output += `    (lines ${r.startLine}-${r.endLine}, relevance: ${(1 - r.distance).toFixed(2)})\n`;
                     output += '```\n';
-                    // Truncate long text
-                    const maxLength = 500;
-                    const text = r.text.length > maxLength
-                        ? r.text.substring(0, maxLength) + '\n...(truncated)'
-                        : r.text;
-                    output += text;
+                    // 给 LLM 看的版本不截断，提供完整代码
+                    output += r.text;
                     output += '\n```\n\n';
                 }
             }

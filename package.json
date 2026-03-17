@@ -136,6 +136,12 @@
                 "title": "Test RAG Search",
                 "category": "Mutsumi",
                 "icon": "$(search)"
+            },
+            {
+                "command": "mutsumi.compressConversation",
+                "title": "Compress Conversation",
+                "category": "Mutsumi",
+                "icon": "$(fold)"
             }
         ],
         "menus": {
@@ -214,6 +220,11 @@
                     "command": "mutsumi.testRagSearch",
                     "group": "navigation@7",
                     "when": "notebookType == mutsumi-notebook"
+                },
+                {
+                    "command": "mutsumi.compressConversation",
+                    "group": "navigation@8",
+                    "when": "notebookType == mutsumi-notebook"
                 }
             ]
         },
@@ -260,6 +271,11 @@
                     "type": "boolean",
                     "default": false,
                     "description": "When enabled, all tool calls will be automatically approved without user confirmation (use with caution)"
+                },
+                "mutsumi.compressModel": {
+                    "type": "string",
+                    "default": "moonshotai/kimi-k2.5",
+                    "description": "Model used for compressing conversations. If empty, falls back to titleGeneratorModel then defaultModel"
                 }
             }
         }
