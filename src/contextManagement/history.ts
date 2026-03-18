@@ -4,6 +4,7 @@ import { IAgentSession } from '../adapters/interfaces';
 import { getSystemPrompt, getRulesContext } from './prompts';
 import { TemplateEngine } from './templateEngine';
 import { ContextPresenter } from './contextPresenter';
+import { SkillManager } from './skillManager';
 import {
     parseUserMessageWithImages,
     extractMacroDefinitions,
@@ -92,7 +93,15 @@ export async function buildInteractionHistory(
     // 1. Static System Prompt (Now includes Rules)
     const activeRules = metadata.activeRules;
     const rulesItems = await getRulesContext(wsUri, allowedUris, activeRules, macros);
-    const systemPromptContent = await getSystemPrompt(wsUri, allowedUris, rulesItems, isSubAgent);
+    let systemPromptContent = await getSystemPrompt(wsUri, allowedUris, rulesItems, isSubAgent);
+
+    // Append skills information if available
+    const activeSkills = metadata.activeSkills;
+    const skillsMarkdown = SkillManager.getInstance().generateSkillsMarkdown(activeSkills);
+    if (skillsMarkdown && skillsMarkdown.trim()) {
+        systemPromptContent += '\n\n# Installed Skills\n' + skillsMarkdown;
+    }
+
     messages.push({
         role: 'system',
         content: systemPromptContent

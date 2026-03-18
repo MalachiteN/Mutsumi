@@ -45,6 +45,12 @@
                     "name": "Pending Approvals",
                     "when": "true",
                     "icon": "assets/sidebar-icon.png"
+                },
+                {
+                    "id": "mutsumi.contextSidebar",
+                    "name": "Context Items",
+                    "when": "true",
+                    "icon": "assets/sidebar-icon.png"
                 }
             ]
         },
@@ -108,12 +114,6 @@
                 "icon": "$(debug-console)"
             },
             {
-                "command": "mutsumi.viewContext",
-                "title": "View Context Items",
-                "category": "Mutsumi",
-                "icon": "$(list-unordered)"
-            },
-            {
                 "command": "mutsumi.reopenEditDiff",
                 "title": "Reopen Diff Editor",
                 "category": "Mutsumi",
@@ -142,9 +142,52 @@
                 "title": "Compress Conversation",
                 "category": "Mutsumi",
                 "icon": "$(fold)"
+            },
+            {
+                "command": "mutsumi.viewContextItem",
+                "title": "View Context Item",
+                "category": "Mutsumi",
+                "icon": "$(open-preview)"
+            },
+            {
+                "command": "mutsumi.toggleRule",
+                "title": "Toggle Rule",
+                "category": "Mutsumi",
+                "icon": "$(check)"
+            },
+            {
+                "command": "mutsumi.toggleSkill",
+                "title": "Toggle Skill",
+                "category": "Mutsumi",
+                "icon": "$(check)"
+            },
+            {
+                "command": "mutsumi.removeMacro",
+                "title": "Remove Macro",
+                "category": "Mutsumi",
+                "icon": "$(close)"
+            },
+            {
+                "command": "mutsumi.removeFile",
+                "title": "Remove File",
+                "category": "Mutsumi",
+                "icon": "$(close)"
+            },
+            {
+                "command": "mutsumi.refreshContextTree",
+                "title": "Refresh Context Tree",
+                "category": "Mutsumi",
+                "icon": "$(refresh)"
             }
         ],
         "menus": {
+            "view/title": [
+                {
+                    "command": "mutsumi.refreshContextTree",
+                    "when": "view == mutsumi.contextSidebar",
+                    "group": "navigation"
+                }
+            ],
             "view/item/context": [
                 {
                     "command": "mutsumi.openAgentFile",
@@ -165,6 +208,38 @@
                     "command": "mutsumi.customRequestAction",
                     "when": "viewItem == pendingApprovalWithCustom",
                     "group": "inline@0"
+                },
+                {
+                    "command": "mutsumi.toggleRule",
+                    "when": "viewItem == ruleActive",
+                    "group": "inline",
+                    "alt": "mutsumi.toggleRule"
+                },
+                {
+                    "command": "mutsumi.toggleRule",
+                    "when": "viewItem == ruleInactive",
+                    "group": "inline"
+                },
+                {
+                    "command": "mutsumi.toggleSkill",
+                    "when": "viewItem == skillActive",
+                    "group": "inline",
+                    "alt": "mutsumi.toggleSkill"
+                },
+                {
+                    "command": "mutsumi.toggleSkill",
+                    "when": "viewItem == skillInactive",
+                    "group": "inline"
+                },
+                {
+                    "command": "mutsumi.removeMacro",
+                    "when": "viewItem == macro",
+                    "group": "inline"
+                },
+                {
+                    "command": "mutsumi.removeFile",
+                    "when": "viewItem == file",
+                    "group": "inline"
                 }
             ],
             "editor/context": [
@@ -189,11 +264,6 @@
                 {
                     "command": "mutsumi.selectModel",
                     "group": "navigation@1",
-                    "when": "notebookType == mutsumi-notebook"
-                },
-                {
-                    "command": "mutsumi.viewContext",
-                    "group": "navigation@2",
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {

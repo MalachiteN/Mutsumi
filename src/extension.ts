@@ -10,15 +10,15 @@ import { AgentController } from './controller';
 import { AgentSidebarProvider } from './sidebar/agentSidebar';
 import { AgentOrchestrator } from './agent/agentOrchestrator';
 import { activateEditSupport } from './tools.d/edit_file';
-import { AgentTreeItem } from './sidebar/agentTreeItem';
+
 import { ReferenceCompletionProvider } from './notebook/completionProvider';
 import { CodebaseService } from './codebase/service';
 import { RagService } from './codebase/rag/service';
 import { initializeRules } from './contextManagement/prompts';
 import { ImagePasteProvider } from './contextManagement/imagePasteProvider';
+import { SkillManager } from './contextManagement/skillManager';
 import { sanitizeFileName } from './utils';
 import { registerToolbarCommands } from './notebook/toolbar';
-import { SkillManager } from './contextManagement/skillManager';
 import { HeadlessAdapter } from './adapters/headlessAdapter';
 import { ToolRegistry } from './tools.d/toolManager';
 import { HttpServer } from './httpServer';
@@ -56,6 +56,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Initialize ToolRegistry (required for the new ToolSet architecture)
     ToolRegistry.initialize();
+
+    // Initialize SkillManager
+    const skillManager = SkillManager.getInstance();
+    await skillManager.initialize(context);
 
     // Initialize Codebase Service
     CodebaseService.getInstance().initialize(context).catch(console.error);
@@ -274,8 +278,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // 5. Commands
     registerCommands(context);
 
-    SkillManager.getInstance().registerSkillWatcher(context);
-
     activateEditSupport(context);
 }
 
@@ -327,25 +329,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 await vscode.workspace.openNotebookDocument(newFileUri),
                 { preview: false }
             );
-        })
-    );
-
-    // Open agent file command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('mutsumi.openAgentFile', async (item: AgentTreeItem) => {
-            if (item && item.agentData && item.agentData.fileUri) {
-                const uri = vscode.Uri.parse(item.agentData.fileUri);
-                try {
-                    const doc = await vscode.workspace.openNotebookDocument(uri);
-                    await vscode.window.showNotebookDocument(doc, {
-                        viewColumn: vscode.ViewColumn.Active,
-                        preserveFocus: false,
-                        preview: false
-                    });
-                } catch (e) {
-                    vscode.window.showErrorMessage(`Failed to open agent file: ${e}`);
-                }
-            }
         })
     );
 

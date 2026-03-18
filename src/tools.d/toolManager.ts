@@ -18,7 +18,6 @@ import { selfForkTool, taskFinishTool, getAvailableModelsTool } from './tools/ag
 import { projectOutlineTool } from './tools/project_outline';
 import { getWarningErrorTool } from './tools/get_warning_error';
 import { queryCodebaseTool } from './tools/rag';
-import { SkillManager } from '../contextManagement/skillManager';
 
 import OpenAI from 'openai';
 
@@ -249,16 +248,6 @@ export class ToolManager {
             includeCommon: true,
             includeTaskFinish: true
         });
-        // Fire and forget skill loading
-        this.loadSkills().catch(err => console.error('Failed to load skills:', err));
-    }
-
-    /**
-     * Loads dynamic skills from the workspace.
-     * @returns {Promise<void>}
-     */
-    public async loadSkills(): Promise<void> {
-        await SkillManager.getInstance().loadSkills();
     }
 
     /**

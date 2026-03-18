@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { v4 as uuidv4 } from 'uuid';
 import { AgentSidebarProvider } from '../sidebar/agentSidebar';
 import { AgentController } from '../controller';
-import { AgentStateInfo, AgentRuntimeStatus } from '../types';
+import { AgentStateInfo, AgentRuntimeStatus, ContextItem } from '../types';
 import { ForkSession } from './types';
 import { AgentRegistry } from './registry';
 import { ForkSessionManager } from './fork';
@@ -144,6 +144,21 @@ export class AgentOrchestrator {
                 return reject(new Error('Operation aborted'));
             }
 
+            // Get parent agent configuration to inherit contextItems and activeRules
+            const parentAgent = this.registry.getAgent(parentId);
+            const parentFileUri = parentAgent?.fileUri;
+            let parentActiveRules: string[] | undefined;
+            
+            if (parentFileUri) {
+                try {
+                    const content = await vscode.workspace.fs.readFile(vscode.Uri.parse(parentFileUri));
+                    const data = JSON.parse(new TextDecoder().decode(content));
+                    parentActiveRules = data.metadata?.activeRules;
+                } catch (e) {
+                    console.error('[AgentOrchestrator] Failed to read parent agent config:', e);
+                }
+            }
+
             const sessionChildUuids = new Set<string>();
             this.forkSessions.createSession(parentId, sessionChildUuids, resolve, reject);
 
@@ -156,7 +171,9 @@ export class AgentOrchestrator {
                         parentId,
                         subAgent.prompt,
                         subAgent.allowed_uris,
-                        subAgent.model
+                        subAgent.model,
+                        [],
+                        parentActiveRules
                     );
                 } catch (e) {
                     console.error('Failed to create sub agent', e);
@@ -426,6 +443,8 @@ export class AgentOrchestrator {
      * @param {string} prompt - Initial prompt for the agent
      * @param {string[]} allowedUris - Allowed URIs for the agent
      * @param {string} [model] - Model identifier to use
+     * @param {ContextItem[]} [contextItems] - Context items for the agent (not inherited, empty for sub-agents)
+     * @param {string[]} [activeRules] - Active rules for the agent (inherited from parent)
      * @returns {Promise<void>}
      */
     private async createAndOpenAgent(
@@ -433,11 +452,11 @@ export class AgentOrchestrator {
         parentId: string,
         prompt: string,
         allowedUris: string[],
-        model?: string
+        model?: string,
+        contextItems?: ContextItem[],
+        activeRules?: string[]
     ): Promise<void> {
         const parent = this.registry.getAgent(parentId);
-        const parentSubAgents = parent?.childIds ? Array.from(parent.childIds) : [];
-        parentSubAgents.push(uuid);
 
         const fileUri = await AgentFileOperations.createAgentFile(
             uuid,
@@ -445,7 +464,8 @@ export class AgentOrchestrator {
             prompt,
             allowedUris,
             model,
-            parentSubAgents
+            contextItems,
+            activeRules
         );
 
         if (!fileUri) {

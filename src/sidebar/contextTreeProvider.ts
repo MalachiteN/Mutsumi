@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import { AgentMetadata, ContextItem } from '../types';
+import { SkillManager, SkillMetadata } from '../contextManagement/skillManager';
 import { ContextTreeItem, ContextItemData, ContextItemType, CategoryType } from './contextTreeItem';
 
 /**
  * @description Context tree data provider, implements VSCode TreeDataProvider interface
- * Responsible for managing the hierarchical structure of context items (Rules, Macros, Files)
+ * Responsible for managing the hierarchical structure of context items (Rules, Skills, Macros, Files)
  * Data is obtained from the current notebook's metadata
  * @class ContextTreeDataProvider
  * @implements {vscode.TreeDataProvider<ContextTreeItem>}
@@ -25,6 +26,9 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     /** @description All available rules from .mutsumi/rules directory */
     private _allRules: string[] = [];
 
+    /** @description All available skills from SkillManager */
+    private _allSkills: SkillMetadata[] = [];
+
     /** @description Extension URI for resolving paths */
     private _extensionUri: vscode.Uri;
 
@@ -34,8 +38,9 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
      */
     constructor(extensionUri: vscode.Uri) {
         this._extensionUri = extensionUri;
-        // Initial load of rules
+        // Initial load of rules and skills
         this.refreshRules();
+        this.refreshSkills();
     }
 
     /**
@@ -53,11 +58,11 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
      * @returns {Thenable<ContextTreeItem[]>} Promise of child node array
      * @example
      * const children = await provider.getChildren(categoryItem); // Get context items in a category
-     * const roots = await provider.getChildren(); // Get category nodes (Rules, Macros, Files)
+     * const roots = await provider.getChildren(); // Get category nodes (Rules, Skills, Macros, Files)
      */
     getChildren(element?: ContextTreeItem): Thenable<ContextTreeItem[]> {
         if (!element) {
-            // Root level - return three category nodes
+            // Root level - return category nodes
             return Promise.resolve(this._buildCategoryNodes());
         }
 
@@ -108,12 +113,38 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     }
 
     /**
-     * @description Builds the three category nodes (Rules, Macros, Files)
+     * @description Refreshes the list of available skills from SkillManager
+     * @returns {Promise<void>}
+     */
+    async refreshSkills(): Promise<void> {
+        try {
+            const skillManager = SkillManager.getInstance();
+            await skillManager.refresh();
+            this._allSkills = [...skillManager.skillsList];
+        } catch (error) {
+            console.error('Failed to refresh skills:', error);
+            this._allSkills = [];
+        }
+    }
+
+    /**
+     * @description Refreshes all context data (rules and skills) and triggers tree view update
+     * This is a full refresh that re-discovers all skills and rules from the filesystem
+     * @returns {Promise<void>}
+     */
+    async refreshAll(): Promise<void> {
+        await this.refreshRules();
+        await this.refreshSkills();
+        this.refresh();
+    }
+
+    /**
+     * @description Builds the category nodes (Rules, Skills, Macros, Files)
      * @private
      * @returns {ContextTreeItem[]} Array of category tree items
      */
     private _buildCategoryNodes(): ContextTreeItem[] {
-        const { rules, macros, files } = this._buildContextItems();
+        const { rules, skills, macros, files } = this._buildContextItems();
 
         const categories: ContextTreeItem[] = [];
 
@@ -129,6 +160,19 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
         );
         rulesNode.children = rules;
         categories.push(rulesNode);
+
+        // Skills category
+        const skillsData: ContextItemData = {
+            type: 'category',
+            key: 'SKILLS',
+            category: 'skills'
+        };
+        const skillsNode = new ContextTreeItem(
+            skillsData,
+            skills.length > 0 ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
+        );
+        skillsNode.children = skills;
+        categories.push(skillsNode);
 
         // Macros category
         const macrosData: ContextItemData = {
@@ -161,26 +205,28 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
     /**
      * @description Builds context items from the current notebook's metadata
-     * Reads activeRules, macroContext, and contextItems from metadata and builds tree items
+     * Reads activeRules, activeSkills, macroContext, and contextItems from metadata and builds tree items
      * @private
-     * @returns {Object} Object containing three arrays: rules, macros, files
+     * @returns {Object} Object containing four arrays: rules, skills, macros, files
      */
-    private _buildContextItems(): { rules: ContextTreeItem[]; macros: ContextTreeItem[]; files: ContextTreeItem[] } {
+    private _buildContextItems(): { rules: ContextTreeItem[]; skills: ContextTreeItem[]; macros: ContextTreeItem[]; files: ContextTreeItem[] } {
         const rules: ContextTreeItem[] = [];
+        const skills: ContextTreeItem[] = [];
         const macros: ContextTreeItem[] = [];
         const files: ContextTreeItem[] = [];
 
         if (!this._currentNotebook) {
-            return { rules, macros, files };
+            return { rules, skills, macros, files };
         }
 
         // Get metadata from the notebook
         const metadata = this._currentNotebook.metadata as AgentMetadata | undefined;
         if (!metadata) {
-            return { rules, macros, files };
+            return { rules, skills, macros, files };
         }
 
         const activeRulesRaw = metadata.activeRules;
+        const activeSkillsRaw = metadata.activeSkills;
         const macroContext = metadata.macroContext || {};
         const contextItems = metadata.contextItems || [];
 
@@ -197,6 +243,24 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
                 {
                     type: 'rule',
                     key: ruleName.replace('.md', ''),
+                    isActive
+                },
+                vscode.TreeItemCollapsibleState.None
+            ));
+        }
+
+        // Build skill items - show all available skills with active state
+        // If activeSkills is undefined/null, all skills are inactive by default (different from rules)
+        const activeSkills = activeSkillsRaw || [];
+        const activeSkillsSet = new Set(activeSkills);
+        
+        for (const skill of this._allSkills) {
+            const isActive = activeSkillsSet.has(skill.name);
+            skills.push(new ContextTreeItem(
+                {
+                    type: 'skill',
+                    key: skill.name,
+                    content: skill.description,
                     isActive
                 },
                 vscode.TreeItemCollapsibleState.None
@@ -228,7 +292,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
             }
         }
 
-        return { rules, macros, files };
+        return { rules, skills, macros, files };
     }
 }
 

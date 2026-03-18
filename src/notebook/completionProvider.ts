@@ -79,7 +79,7 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
             }
         }
 
-        // 4. Tool suggestions (includes skills via ToolManager)
+        // 4. Tool suggestions
         try {
             const tm = ToolManager.getInstance();
             const tools = tm.getToolsDefinitions(false);
@@ -91,7 +91,7 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
                 const parameters = fn.parameters || {};
 
                 const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Function);
-                item.detail = 'Tool/Skill Call';
+                item.detail = 'Tool Call';
 
                 const properties = parameters.properties || {};
                 const required = parameters.required || [];
