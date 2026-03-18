@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { AgentStateInfo } from '../types';
+import { AgentStateInfo, ContextItem } from '../types';
 
 /**
  * Handles file-based operations for agents.
@@ -121,10 +121,12 @@ export class AgentFileOperations {
      * @static
      * @param {string} uuid - UUID for the new agent
      * @param {string | null} parentId - Parent agent ID or null
-     * @param {string} prompt - Initial prompt for the agent (used for name generation)
+     * @param {string} [prompt] - Initial prompt for the agent (used for name generation). If undefined or empty, agent name will be "New Agent" and context will be empty.
      * @param {string[]} allowedUris - Allowed URIs for the agent
      * @param {string} [model] - Model identifier to use
-     * @param {string[]} [parentSubAgents] - Current parent's sub_agents_list (for reference)
+     * @param {ContextItem[]} [contextItems] - Context items for the agent
+     * @param {string[]} [activeRules] - Active rules for the agent
+     * @param {string[]} [activeSkills] - Active skills for the agent
      * @returns {Promise<vscode.Uri | undefined>} The created file URI or undefined on failure
      * @example
      * const uri = await AgentFileOperations.createAgentFile(
@@ -138,10 +140,12 @@ export class AgentFileOperations {
     public static async createAgentFile(
         uuid: string,
         parentId: string | null,
-        prompt: string,
+        prompt: string | undefined,
         allowedUris: string[],
         model?: string,
-        parentSubAgents?: string[]
+        contextItems?: ContextItem[],
+        activeRules?: string[],
+        activeSkills?: string[]
     ): Promise<vscode.Uri | undefined> {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri;
         if (!workspaceRoot) {
@@ -170,20 +174,26 @@ export class AgentFileOperations {
 
         const selectedModel = (model && availableModelNames.includes(model)) ? model : defaultModel;
 
+        // Determine name and context based on prompt
+        const hasPrompt = prompt && prompt.trim().length > 0;
+        const agentName = hasPrompt ? prompt!.slice(0, 20) + '...' : 'New Agent';
+        const context = hasPrompt ? [{ role: 'user', content: prompt }] : [];
+
         const content: any = {
             metadata: {
                 uuid: uuid,
-                name: prompt.slice(0, 20) + '...',
+                name: agentName,
                 created_at: new Date().toISOString(),
                 parent_agent_id: parentId,
                 allowed_uris: allowedUris,
                 is_task_finished: false,
                 model: selectedModel,
-                sub_agents_list: []  // New agent starts with empty sub-agent list
+                sub_agents_list: [],  // New agent starts with empty sub-agent list
+                contextItems: contextItems || [],
+                activeRules: activeRules || [],
+                activeSkills: activeSkills || []
             },
-            context: [
-                { role: 'user', content: prompt }
-            ]
+            context: context
         };
         
         const encoded = new TextEncoder().encode(JSON.stringify(content, null, 2));

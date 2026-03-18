@@ -426,6 +426,8 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
      * @description Create default notebook content
      * @param {string[]} allowedUris - List of allowed URIs
      * @param {string[]} activeRules - Optional list of active rules to start with
+     * @param {string} [uuid] - Optional UUID for the agent. If not provided, a new UUID will be generated.
+     * @param {string[]} [activeSkills] - Optional list of active skills to start with
      * @returns {Uint8Array} Encoded default content
      * @static
      * 
@@ -433,21 +435,22 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
      * const content = MutsumiSerializer.createDefaultContent(['/workspace/project'], ['default.md']);
      * await vscode.workspace.fs.writeFile(uri, content);
      */
-    static createDefaultContent(allowedUris: string[], activeRules?: string[]): Uint8Array {
+    static createDefaultContent(allowedUris: string[], activeRules?: string[], uuid?: string, activeSkills?: string[]): Uint8Array {
         // Read VS Code configuration to get default model
         const config = vscode.workspace.getConfiguration('mutsumi');
         const defaultModel = config.get<string>('defaultModel');
 
         const raw: AgentContext = {
             metadata: {
-                uuid: uuidv4(),
+                uuid: uuid ?? uuidv4(),
                 name: 'New Agent',
                 created_at: new Date().toISOString(),
                 parent_agent_id: null,
                 allowed_uris: allowedUris,
                 model: defaultModel || undefined,
                 contextItems: [],
-                activeRules: activeRules
+                activeRules: activeRules,
+                activeSkills: activeSkills
             },
             context: []
         };

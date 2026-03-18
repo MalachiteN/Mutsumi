@@ -1,26 +1,44 @@
-import * as vscode from 'vscode';
-const matter = require('gray-matter');
-import { ITool, ToolContext } from '../tools.d/interface';
-import { TextDecoder } from 'util';
-import { TemplateEngine } from './templateEngine';
-import { debugLogger } from '../debugLogger';
+/**
+ * @fileoverview Skill Manager for discovering and managing SKILL.md files.
+ * @module contextManagement/skillManager
+ */
 
-interface SkillCacheEntry {
-    metadata: { description: string; params: string[] };
-    content: string;
-    mtime: number;
-    sourceUri: vscode.Uri;
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as os from 'os';
+const matter = require('gray-matter');
+import { TextDecoder } from 'util';
+
+/**
+ * Metadata for a discovered skill
+ */
+export interface SkillMetadata {
+    /** Skill name from front-matter */
+    name: string;
+    /** Skill description from front-matter */
+    description: string;
+    /** URI to the SKILL.md file */
+    uri: vscode.Uri;
 }
 
+/**
+ * Skill Manager - Singleton class for managing skills discovery and monitoring
+ */
 export class SkillManager {
-    private static instance: SkillManager;
-    private skills: Map<string, ITool> = new Map();
-    private skillCache: Map<string, SkillCacheEntry> = new Map();
-    private skillDir = '.mutsumi/skills';
-    private isLoading = false;
-    private skillWatcher?: vscode.FileSystemWatcher;
-    private pendingReload = false;
+    private static instance: SkillManager | null = null;
+    private skills: SkillMetadata[] = [];
+    private disposables: vscode.Disposable[] = [];
+    private watchers: vscode.FileSystemWatcher[] = [];
 
+    /**
+     * Private constructor to enforce singleton pattern
+     */
+    private constructor() {}
+
+    /**
+     * Get the singleton instance of SkillManager
+     * @returns The SkillManager instance
+     */
     public static getInstance(): SkillManager {
         if (!SkillManager.instance) {
             SkillManager.instance = new SkillManager();
@@ -28,237 +46,277 @@ export class SkillManager {
         return SkillManager.instance;
     }
 
-    private constructor() {}
-
-    private log(message: string) {
-        debugLogger.log(`[Skills] ${message}`);
+    /**
+     * Get all discovered skills
+     * @returns Readonly array of skill metadata
+     */
+    public get skillsList(): ReadonlyArray<SkillMetadata> {
+        return Object.freeze([...this.skills]);
     }
 
-    public registerSkillWatcher(context: vscode.ExtensionContext): void {
-        if (this.skillWatcher) {
-            return;
-        }
+    /**
+     * Initialize the skill manager - discover all skills and start watching
+     * @param context - Extension context for registering disposables
+     */
+    public async initialize(context: vscode.ExtensionContext): Promise<void> {
+        // Initial discovery
+        await this.discoverAllSkills();
 
+        // Setup file watchers
+        this.setupWatchers();
+
+        // Register disposables
+        this.disposables.forEach(d => context.subscriptions.push(d));
+        this.watchers.forEach(w => context.subscriptions.push(w));
+    }
+
+    /**
+     * Discover skills from all sources (workspace folders and user home)
+     */
+    private async discoverAllSkills(): Promise<void> {
+        const allSkills: SkillMetadata[] = [];
+
+        // Discover from workspace folders
         const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            return;
+        if (workspaceFolders) {
+            for (const folder of workspaceFolders) {
+                const skills = await this.discoverSkillsFromDirectory(folder.uri);
+                allSkills.push(...skills);
+            }
         }
 
-        const rootUri = workspaceFolders[0].uri;
-        const pattern = new vscode.RelativePattern(rootUri, '.mutsumi/skills/*.skill.md');
-        const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-        this.skillWatcher = watcher;
+        // Discover from user home directory
+        const userHomeSkills = await this.discoverSkillsFromUserHome();
+        allSkills.push(...userHomeSkills);
 
-        const reload = () => {
-            void this.recompileAllSkills().catch(error => {
-                this.log(`Failed to reload skills after change: ${error}`);
-            });
-        };
-
-        context.subscriptions.push(
-            watcher,
-            watcher.onDidCreate(reload),
-            watcher.onDidChange(reload),
-            watcher.onDidDelete(reload)
-        );
+        this.skills = allSkills;
     }
 
-    public async loadSkills(): Promise<void> {
-        if (this.isLoading) {
-            return;
-        }
+    /**
+     * Discover skills from user home directory (~/.agents/skills/)
+     */
+    private async discoverSkillsFromUserHome(): Promise<SkillMetadata[]> {
+        const homeDir = os.homedir();
+        const homeUri = vscode.Uri.file(homeDir);
+        return this.discoverSkillsFromDirectory(homeUri);
+    }
 
-        this.isLoading = true;
-        
+    /**
+     * Discover skills from a specific directory (baseDir/.agents/skills/)
+     * @param baseUri - Base directory URI to search from
+     */
+    private async discoverSkillsFromDirectory(baseUri: vscode.Uri): Promise<SkillMetadata[]> {
+        const skillsDir = vscode.Uri.joinPath(baseUri, '.agents', 'skills');
+        const skills: SkillMetadata[] = [];
+
         try {
-            const newSkills = new Map<string, ITool>();
-            
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (!workspaceFolders || workspaceFolders.length === 0) {
-                return;
-            }
-            const rootUri = workspaceFolders[0].uri;
+            // Check if skills directory exists
+            await vscode.workspace.fs.stat(skillsDir);
 
-            const skillDirUri = vscode.Uri.joinPath(rootUri, this.skillDir);
+            // Read all subdirectories
+            const entries = await vscode.workspace.fs.readDirectory(skillsDir);
 
-            try {
-                await vscode.workspace.fs.stat(skillDirUri);
-            } catch {
-                return; 
-            }
-
-            const entries = await vscode.workspace.fs.readDirectory(skillDirUri);
-            
             for (const [name, type] of entries) {
-                if (type === vscode.FileType.File && name.endsWith('.skill.md')) {
-                    await this.processSkillFile(name, skillDirUri, newSkills);
+                if (type === vscode.FileType.Directory) {
+                    const skillFileUri = vscode.Uri.joinPath(skillsDir, name, 'SKILL.md');
+                    const skill = await this.parseSkillFile(skillFileUri);
+                    if (skill) {
+                        skills.push(skill);
+                    }
                 }
             }
-            
-            this.skills = newSkills;
-            this.log(`Loaded ${this.skills.size} skills.`);
-
-        } catch (error) {
-            this.log(`Fatal error in loadSkills: ${error}`);
-            console.error('Error loading skills:', error);
-        } finally {
-            this.isLoading = false;
-            if (this.pendingReload) {
-                this.pendingReload = false;
-                await this.recompileAllSkills();
-            }
-        }
-    }
-
-    public async recompileAllSkills(): Promise<void> {
-        if (this.isLoading) {
-            this.pendingReload = true;
-            return;
+        } catch {
+            // Directory doesn't exist or error reading, return empty array
         }
 
-        this.skillCache.clear();
-        await this.loadSkills();
+        return skills;
     }
 
-    private async processSkillFile(
-        filename: string, 
-        skillDirUri: vscode.Uri, 
-        targetMap: Map<string, ITool>
-    ) {
-        const skillName = filename.replace('.skill.md', '');
-        const sourceFileUri = vscode.Uri.joinPath(skillDirUri, filename);
-        
+    /**
+     * Parse a SKILL.md file and extract metadata
+     * @param skillFileUri - URI to the SKILL.md file
+     * @returns SkillMetadata if valid, null otherwise
+     */
+    private async parseSkillFile(skillFileUri: vscode.Uri): Promise<SkillMetadata | null> {
         try {
-            // Read source file to extract front matter
-            const sourceBytes = await vscode.workspace.fs.readFile(sourceFileUri);
-            const sourceContent = new TextDecoder().decode(sourceBytes);
-            const sourceStat = await vscode.workspace.fs.stat(sourceFileUri);
+            const content = await vscode.workspace.fs.readFile(skillFileUri);
+            const decodedContent = new TextDecoder().decode(content);
 
-            const parsed = matter(sourceContent);
-            const description = parsed.data?.Description || '';
-            const params = parsed.data?.Params || [];
-            const body = parsed.content;
+            // Parse front-matter using gray-matter
+            const parsed = matter(decodedContent);
+            const data = parsed.data || {};
 
-            // Store in memory cache
-            this.skillCache.set(skillName, {
-                metadata: { description, params },
-                content: body,
-                mtime: sourceStat.mtime,
-                sourceUri: sourceFileUri
-            });
+            // Extract required fields, discard others
+            const name = data.name;
+            const description = data.description;
 
-            // Register skill tool
-            this.registerSkillTool(skillName, description, params, targetMap);
+            // Validate required fields
+            if (typeof name !== 'string' || !name.trim()) {
+                return null;
+            }
+            if (typeof description !== 'string' || !description.trim()) {
+                return null;
+            }
 
-        } catch (e) {
-            this.log(`Failed to process skill ${filename}: ${e}`);
+            return {
+                name: name.trim(),
+                description: description.trim(),
+                uri: skillFileUri
+            };
+        } catch {
+            // File doesn't exist or parse error
+            return null;
         }
     }
 
-    private registerSkillTool(
-        name: string, 
-        description: string, 
-        params: string[], 
-        targetMap: Map<string, ITool>
-    ) {
-        const properties: Record<string, any> = {};
-        params.forEach(p => {
-            properties[p] = { type: 'string' };
-        });
+    /**
+     * Setup file system watchers for all workspace skill directories
+     */
+    private setupWatchers(): void {
+        // Clear existing watchers
+        this.watchers.forEach(w => w.dispose());
+        this.watchers = [];
 
-        const tool: ITool = {
-            name: name,
-            definition: {
-                type: 'function',
-                function: {
-                    name: name,
-                    description: description,
-                    parameters: {
-                        type: 'object',
-                        properties: properties,
-                        required: params
-                    }
-                }
-            },
-            execute: async (args: any, contextData: ToolContext) => {
-                try {
-                    // Check if we need to refresh the skill from source
-                    const cached = this.skillCache.get(name);
-                    if (!cached) {
-                        throw new Error(`Skill ${name} not found in cache`);
-                    }
+        // Watch workspace folders
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders) {
+            for (const folder of workspaceFolders) {
+                const pattern = new vscode.RelativePattern(
+                    folder,
+                    '.agents/skills/*/SKILL.md'
+                );
+                const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
-                    // Check source file mtime
-                    const sourceStat = await vscode.workspace.fs.stat(cached.sourceUri);
-                    let currentContent = cached.content;
-                    let currentParams = cached.metadata.params;
-                    
-                    if (sourceStat.mtime > cached.mtime) {
-                        // Refresh from source
-                        const sourceBytes = await vscode.workspace.fs.readFile(cached.sourceUri);
-                        const sourceContent = new TextDecoder().decode(sourceBytes);
-                        const parsed = matter(sourceContent);
-                        
-                        currentContent = parsed.content;
-                        currentParams = parsed.data?.Params || [];
-                        
-                        // Update cache
-                        this.skillCache.set(name, {
-                            ...cached,
-                            content: currentContent,
-                            metadata: {
-                                ...cached.metadata,
-                                params: currentParams
-                            },
-                            mtime: sourceStat.mtime
-                        });
-                    }
+                watcher.onDidCreate(uri => this.handleSkillFileCreated(uri));
+                watcher.onDidChange(uri => this.handleSkillFileChanged(uri));
+                watcher.onDidDelete(uri => this.handleSkillFileDeleted(uri));
 
-                    // Use TemplateEngine to render the skill content
-                    const workspaceFolders = vscode.workspace.workspaceFolders;
-                    let rootUri: vscode.Uri;
-                    if (workspaceFolders && workspaceFolders.length > 0) {
-                        rootUri = workspaceFolders[0].uri;
-                    } else {
-                        // Fallback: use the first allowed URI if available, otherwise use filesystem root
-                        const allowedUris = contextData.allowedUris || [];
-                        if (allowedUris.length > 0) {
-                            try {
-                                rootUri = vscode.Uri.parse(allowedUris[0]);
-                            } catch {
-                                rootUri = vscode.Uri.file('/');
-                            }
-                        } else {
-                            rootUri = vscode.Uri.file('/');
-                        }
-                    }
-                    
-                    const allowedUris = contextData.allowedUris || ['/'];
-                    
-                    const { renderedText } = await TemplateEngine.render(
-                        currentContent,
-                        args,
-                        rootUri,
-                        allowedUris,
-                        'INLINE'
-                    );
-
-                    return renderedText.trim();
-                } catch (e: any) {
-                    const msg = `Error executing skill ${name}: ${e.message}`;
-                    this.log(msg);
-                    return msg;
-                }
-            },
-            prettyPrint: (_args: any) => {
-                return `🔓 Mutsumi unlocked skill ${name}`;
+                this.watchers.push(watcher);
             }
-        };
+        }
 
-        targetMap.set(name, tool);
+        // Watch user home directory
+        const homeDir = os.homedir();
+        const homeUri = vscode.Uri.file(homeDir);
+        const homePattern = new vscode.RelativePattern(
+            homeUri,
+            '.agents/skills/*/SKILL.md'
+        );
+        const homeWatcher = vscode.workspace.createFileSystemWatcher(homePattern);
+
+        homeWatcher.onDidCreate(uri => this.handleSkillFileCreated(uri));
+        homeWatcher.onDidChange(uri => this.handleSkillFileChanged(uri));
+        homeWatcher.onDidDelete(uri => this.handleSkillFileDeleted(uri));
+
+        this.watchers.push(homeWatcher);
     }
 
-    public getTools(): ITool[] {
-        return Array.from(this.skills.values());
+    /**
+     * Handle new SKILL.md file creation
+     */
+    private async handleSkillFileCreated(uri: vscode.Uri): Promise<void> {
+        const skill = await this.parseSkillFile(uri);
+        if (skill) {
+            // Remove existing skill with same URI if exists
+            this.skills = this.skills.filter(s => s.uri.toString() !== skill.uri.toString());
+            this.skills.push(skill);
+        }
+    }
+
+    /**
+     * Handle SKILL.md file modification
+     */
+    private async handleSkillFileChanged(uri: vscode.Uri): Promise<void> {
+        const skill = await this.parseSkillFile(uri);
+        const uriString = uri.toString();
+        const existingIndex = this.skills.findIndex(s => s.uri.toString() === uriString);
+
+        if (skill) {
+            if (existingIndex >= 0) {
+                // Update existing
+                this.skills[existingIndex] = skill;
+            } else {
+                // Add new
+                this.skills.push(skill);
+            }
+        } else if (existingIndex >= 0) {
+            // Invalid skill after change, remove it
+            this.skills.splice(existingIndex, 1);
+        }
+    }
+
+    /**
+     * Handle SKILL.md file deletion
+     */
+    private handleSkillFileDeleted(uri: vscode.Uri): void {
+        const uriString = uri.toString();
+        this.skills = this.skills.filter(s => s.uri.toString() !== uriString);
+    }
+
+    /**
+     * Dispose all resources
+     */
+    public dispose(): void {
+        this.watchers.forEach(w => w.dispose());
+        this.watchers = [];
+        this.disposables.forEach(d => d.dispose());
+        this.disposables = [];
+        SkillManager.instance = null;
+    }
+
+    /**
+     * Force refresh all skills (useful for manual refresh)
+     */
+    public async refresh(): Promise<void> {
+        await this.discoverAllSkills();
+    }
+
+    /**
+     * Generate a Markdown JSON code block containing only active skills.
+     * This can be stored in AgentMetadata.activeSkills to persist skill selections.
+     * 
+     * Only skills whose name is in activeSkillNames will be included in the output.
+     * Each skill will have name, description, and uri fields.
+     * 
+     * @param activeSkillNames - Optional array of skill names that are active.
+     *                           If undefined or empty, returns empty array.
+     * @returns Markdown string with JSON code block containing active skills info
+     * @example
+     * When a skill from the Installed Skills list may be applicable to the current scenario:
+     * 1. Immediately read_file the skill's SKILL.md file to determine if it is truly appropriate
+     * 2. If it can indeed solve the problem, execute the task following the steps and tool usage described within
+     * 3. Skill files may contain specific instructions, tool call specifications, or output format requirements
+     * 
+     * ```json
+     * [
+     *   {"name": "skill1", "description": "desc1", "uri": "file:///path/to/SKILL.md"},
+     *   {"name": "skill2", "description": "desc2", "uri": "file:///path/to/SKILL.md"}
+     * ]
+     * ```
+     */
+    public generateSkillsMarkdown(activeSkillNames?: string[]): string {
+        // Create a Set for O(1) lookup, default to empty set if undefined
+        const activeSet = activeSkillNames ? new Set(activeSkillNames) : new Set<string>();
+
+        // Filter only active skills and build output array with uri string
+        const activeSkills = this.skills
+            .filter(skill => activeSet.has(skill.name))
+            .map(skill => ({
+                name: skill.name,
+                description: skill.description,
+                uri: skill.uri.toString()
+            }));
+
+        // Build the instruction text
+        const instructionText = `When a skill from the Installed Skills list may be applicable to the current scenario:
+1. Immediately read_file the skill's SKILL.md file to determine if it is truly appropriate
+2. If it can indeed solve the problem, execute the task following the steps and tool usage described within
+3. Skill files may contain specific instructions, tool call specifications, or output format requirements`;
+
+        // Serialize to JSON with indentation
+        const jsonContent = JSON.stringify(activeSkills, null, 2);
+
+        // Combine instruction and JSON code block
+        return instructionText + '\n\n```json\n' + jsonContent + '\n```';
     }
 }

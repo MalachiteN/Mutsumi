@@ -26,6 +26,8 @@ export interface AgentMetadata {
     contextItems?: ContextItem[];
     /** List of active rule filenames for this agent */
     activeRules?: string[];
+    /** List of active skill filenames for this agent */
+    activeSkills?: string[];
     /** Persisted macro definitions (macro name to macro value mapping) */
     macroContext?: Record<string, string>;
     /** List of sub-agent UUIDs created by this agent */

@@ -5,15 +5,15 @@ import { ContextTreeDataProvider } from './contextTreeProvider';
 
 /**
  * @description Context item type definition
- * @typedef {('rule' | 'macro' | 'file' | 'category')} ContextItemType
+ * @typedef {('rule' | 'macro' | 'file' | 'category' | 'skill')} ContextItemType
  */
-export type ContextItemType = 'rule' | 'macro' | 'file' | 'category';
+export type ContextItemType = 'rule' | 'macro' | 'file' | 'category' | 'skill';
 
 /**
  * @description Category type definition for grouping context items
- * @typedef {('rules' | 'macros' | 'files')} CategoryType
+ * @typedef {('rules' | 'macros' | 'files' | 'skills')} CategoryType
  */
-export type CategoryType = 'rules' | 'macros' | 'files';
+export type CategoryType = 'rules' | 'macros' | 'files' | 'skills';
 
 /**
  * @description Context item data interface, defining the basic information of context tree items
@@ -26,7 +26,7 @@ export interface ContextItemData {
     key: string;
     /** @description Content of the context item (for rules, macros, and files) */
     content?: string;
-    /** @description Whether the rule is active (only for rules) */
+    /** @description Whether the rule/skill is active (only for rules and skills) */
     isActive?: boolean;
     /** @description Category type (only for category nodes) */
     category?: CategoryType;
@@ -82,6 +82,8 @@ export class ContextTreeItem extends vscode.TreeItem {
             switch (category) {
                 case 'rules':
                     return new vscode.ThemeIcon('book');
+                case 'skills':
+                    return new vscode.ThemeIcon('symbol-color');
                 case 'macros':
                     return new vscode.ThemeIcon('symbol-field');
                 case 'files':
@@ -92,6 +94,12 @@ export class ContextTreeItem extends vscode.TreeItem {
         }
 
         if (type === 'rule') {
+            return isActive
+                ? new vscode.ThemeIcon('star-full')
+                : new vscode.ThemeIcon('star-empty');
+        }
+
+        if (type === 'skill') {
             return isActive
                 ? new vscode.ThemeIcon('star-full')
                 : new vscode.ThemeIcon('star-empty');
@@ -120,6 +128,8 @@ export class ContextTreeItem extends vscode.TreeItem {
             switch (category) {
                 case 'rules':
                     return 'categoryRules';
+                case 'skills':
+                    return 'categorySkills';
                 case 'macros':
                     return 'categoryMacros';
                 case 'files':
@@ -131,6 +141,10 @@ export class ContextTreeItem extends vscode.TreeItem {
 
         if (type === 'rule') {
             return isActive ? 'ruleActive' : 'ruleInactive';
+        }
+
+        if (type === 'skill') {
+            return isActive ? 'skillActive' : 'skillInactive';
         }
 
         if (type === 'macro') {
@@ -156,6 +170,8 @@ export class ContextTreeItem extends vscode.TreeItem {
             switch (category) {
                 case 'rules':
                     return 'Rules: Active context rules for Agents';
+                case 'skills':
+                    return 'Skills: Active context skills for Agents';
                 case 'macros':
                     return 'Macros: Reusable text snippets';
                 case 'files':
@@ -169,7 +185,7 @@ export class ContextTreeItem extends vscode.TreeItem {
 
         // Type label
         let typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
-        if (type === 'rule' && isActive !== undefined) {
+        if ((type === 'rule' || type === 'skill') && isActive !== undefined) {
             typeLabel += isActive ? ' (Active)' : ' (Inactive)';
         }
         md.appendMarkdown(`**${typeLabel}**: \`${this.data.key}\`\n\n`);
@@ -195,6 +211,13 @@ export function registerContextCommands(
     context: vscode.ExtensionContext,
     contextTreeDataProvider: ContextTreeDataProvider
 ): void {
+    // Register refresh context tree command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.refreshContextTree', async () => {
+            await contextTreeDataProvider.refreshAll();
+            vscode.window.showInformationMessage('Context tree refreshed');
+        })
+    );
     // Register view context item command
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.viewContextItem', async (args: { type: string; key: string; content?: string }) => {
@@ -236,6 +259,29 @@ export function registerContextCommands(
                     }
                 } catch (error) {
                     displayContent = `Error reading rule: ${error}`;
+                }
+            } else if (args.type === 'skill') {
+                // Skills: read skill file and display as markdown (no TemplateEngine expansion)
+                try {
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                    if (workspaceFolder) {
+                        const skillUri = vscode.Uri.joinPath(workspaceFolder.uri, '.agents', 'skills', args.key, 'SKILL.md');
+                        const skillContent = await vscode.workspace.fs.readFile(skillUri);
+                        const skillText = new TextDecoder().decode(skillContent);
+                        displayContent = skillText;
+                    }
+                } catch (error) {
+                    // Try user home directory
+                    try {
+                        const os = require('os');
+                        const homeDir = os.homedir();
+                        const skillUri = vscode.Uri.file(require('path').join(homeDir, '.agents', 'skills', args.key, 'SKILL.md'));
+                        const skillContent = await vscode.workspace.fs.readFile(skillUri);
+                        const skillText = new TextDecoder().decode(skillContent);
+                        displayContent = skillText;
+                    } catch (innerError) {
+                        displayContent = `Error reading skill: ${error}`;
+                    }
                 }
             } else if (args.type === 'file') {
                 // Files: find in contextItems and render with TemplateEngine
@@ -308,6 +354,49 @@ export function registerContextCommands(
             // Update notebook metadata
             const edit = new vscode.WorkspaceEdit();
             const newMetadata = { ...metadata, activeRules };
+            edit.set(notebook.uri, [vscode.NotebookEdit.updateNotebookMetadata(newMetadata)]);
+            await vscode.workspace.applyEdit(edit);
+
+            // Refresh the tree view
+            contextTreeDataProvider.refresh();
+        })
+    );
+
+    // Register toggle skill command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.toggleSkill', async (item: ContextTreeItem) => {
+            if (item.data.type !== 'skill' || !item.data.key) {
+                return;
+            }
+
+            const notebookEditor = vscode.window.activeNotebookEditor;
+            if (!notebookEditor) {
+                return;
+            }
+
+            const notebook = notebookEditor.notebook;
+            const metadata = notebook.metadata as AgentMetadata | undefined;
+            if (!metadata) {
+                return;
+            }
+
+            const activeSkills = metadata.activeSkills || [];
+            const skillName = item.data.key;
+            const index = activeSkills.indexOf(skillName);
+
+            if (index === -1) {
+                // Add to active skills
+                activeSkills.push(skillName);
+                vscode.window.showInformationMessage(`Skill "${item.data.key}" activated`);
+            } else {
+                // Remove from active skills
+                activeSkills.splice(index, 1);
+                vscode.window.showInformationMessage(`Skill "${item.data.key}" deactivated`);
+            }
+
+            // Update notebook metadata
+            const edit = new vscode.WorkspaceEdit();
+            const newMetadata = { ...metadata, activeSkills };
             edit.set(notebook.uri, [vscode.NotebookEdit.updateNotebookMetadata(newMetadata)]);
             await vscode.workspace.applyEdit(edit);
 

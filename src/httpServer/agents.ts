@@ -5,6 +5,7 @@ import { AgentOrchestrator } from '../agent/agentOrchestrator';
 import { AgentRegistry } from '../agent/registry';
 import { initializeRules } from '../contextManagement/prompts';
 import { getAvailableRules } from './utils';
+import { MutsumiSerializer } from '../notebook/serializer';
 import type { AgentContext, AgentMetadata } from '../types';
 
 export interface CreateAgentDependencies {
@@ -53,30 +54,15 @@ export function createCreateAgentHandler(
             // Collect all workspace root URIs
             const allWorkspaceUris = vscode.workspace.workspaceFolders?.map(f => f.uri.toString()) || [root.toString()];
 
-            // Read VS Code configuration to get default model
-            const config = vscode.workspace.getConfiguration('mutsumi');
-            const defaultModel = config.get<string>('defaultModel');
-
-            // Create initial content with the generated UUID
-            const agentContext: AgentContext = {
-                metadata: {
-                    uuid: uuid,
-                    name: 'New Agent',
-                    created_at: new Date().toISOString(),
-                    parent_agent_id: null,
-                    allowed_uris: allWorkspaceUris,
-                    model: defaultModel || undefined,
-                    contextItems: [],
-                    activeRules: allRules
-                },
-                context: []
-            };
-            const initialContent = new TextEncoder().encode(JSON.stringify(agentContext, null, 2));
+            // Create initial content using MutsumiSerializer (reuses logic from extension.ts)
+            const initialContent = MutsumiSerializer.createDefaultContent(allWorkspaceUris, allRules, uuid);
 
             // Write the file
             await vscode.workspace.fs.writeFile(newFileUri, initialContent);
 
             // Register the agent in the registry
+            // Parse metadata from the generated content to ensure consistency
+            const agentContext = JSON.parse(new TextDecoder().decode(initialContent)) as AgentContext;
             await AgentOrchestrator.getInstance().notifyNotebookDocumentOpened(uuid, newFileUri, agentContext.metadata);
 
             res.status(201).json({
