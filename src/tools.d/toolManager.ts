@@ -9,7 +9,6 @@ import { lsTool } from './tools/ls';
 import { shellExecTool } from './tools/shell_exec';
 import { editFileSearchReplaceTool } from './tools/edit_file_search_replace';
 import { editFileFullReplaceTool } from './tools/edit_file_full_replace';
-
 import { partiallyReadByRangeTool, partiallyReadAroundKeywordTool } from './tools/read_partial';
 import { searchFileContainsKeywordTool, searchFileNameIncludesTool } from './tools/search_fs';
 import { getFileSizeTool, getEnvVarTool, systemInfoTool } from './tools/system_info';
@@ -18,7 +17,7 @@ import { selfForkTool, taskFinishTool, getAvailableModelsTool } from './tools/ag
 import { projectOutlineTool } from './tools/project_outline';
 import { getWarningErrorTool } from './tools/get_warning_error';
 import { queryCodebaseTool } from './tools/rag';
-
+import * as vscode from 'vscode';
 import OpenAI from 'openai';
 
 /**
@@ -165,6 +164,11 @@ export class ToolRegistry {
     static initialize(): void {
         if (this.initialized) return;
 
+        // Check if embedding endpoint is configured
+        const config = vscode.workspace.getConfiguration('mutsumi');
+        const embeddingEndpoint = config.get<string>('embeddingEndpoint') ?? '';
+        const isRagEnabled = embeddingEndpoint.trim() !== '';
+
         // Register all common tools
         this.commonTools = [
             readFileTool,
@@ -183,10 +187,14 @@ export class ToolRegistry {
             createNewFileTool,
             projectOutlineTool,
             getWarningErrorTool,
-            queryCodebaseTool,
             selfForkTool,
             getAvailableModelsTool
         ];
+
+        // Only add RAG tool if embedding endpoint is configured
+        if (isRagEnabled) {
+            this.commonTools.push(queryCodebaseTool);
+        }
 
         this.initialized = true;
     }

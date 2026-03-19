@@ -2,6 +2,11 @@ tsconfig.json
 .mutsumi/
 .vscode/
 .continue/
+.VSCodeCounter/
+.agents/
 .github/
 doc/
+src/
 *.tsbuildinfo
+skills-lock.json
+.gitignore

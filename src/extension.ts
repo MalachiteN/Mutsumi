@@ -68,39 +68,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const ragService = await RagService.getInstance(context);
     context.subscriptions.push(ragService);
 
-    // 1. 启动时对所有工作区执行增量更新
-    for (const wf of vscode.workspace.workspaceFolders ?? []) {
-        ragService.updateWorkspace(wf.uri).catch(err => {
-            debugLogger.log(`[RAG] Failed to update workspace on startup: ${err}`);
-        });
+    // 只在 RAG 启用时执行索引更新和注册文件监听器
+    if (ragService.isEmbeddingEnabled()) {
+        // 1. 启动时对所有工作区执行增量更新
+        for (const wf of vscode.workspace.workspaceFolders ?? []) {
+            ragService.updateWorkspace(wf.uri).catch(err => {
+                debugLogger.log(`[RAG] Failed to update workspace on startup: ${err}`);
+            });
+        }
+
+        // 2. 文件保存时更新其所在代码库（防抖处理）
+        const pendingUpdates = new Map<string, NodeJS.Timeout>();
+        context.subscriptions.push(
+            vscode.workspace.onDidSaveTextDocument(doc => {
+                const uri = doc.uri;
+                // 忽略缓存目录
+                if (uri.fsPath.includes('.mutsumi')) {
+                    return;
+                }
+                const wsFolder = vscode.workspace.getWorkspaceFolder(uri);
+                if (!wsFolder) { return; }
+
+                const wsKey = wsFolder.uri.toString();
+                // 清除之前的定时器
+                const existing = pendingUpdates.get(wsKey);
+                if (existing) { clearTimeout(existing); }
+                // 500ms 防抖后执行更新
+                const timer = setTimeout(() => {
+                    pendingUpdates.delete(wsKey);
+                    ragService.updateWorkspace(wsFolder.uri).catch(err => {
+                        debugLogger.log(`[RAG] Failed to update workspace on save: ${err}`);
+                    });
+                }, 500);
+                pendingUpdates.set(wsKey, timer);
+            })
+        );
     }
-
-    // 2. 文件保存时更新其所在代码库（防抖处理）
-    const pendingUpdates = new Map<string, NodeJS.Timeout>();
-    context.subscriptions.push(
-        vscode.workspace.onDidSaveTextDocument(doc => {
-            const uri = doc.uri;
-            // 忽略缓存目录
-            if (uri.fsPath.includes('.mutsumi')) {
-                return;
-            }
-            const wsFolder = vscode.workspace.getWorkspaceFolder(uri);
-            if (!wsFolder) { return; }
-
-            const wsKey = wsFolder.uri.toString();
-            // 清除之前的定时器
-            const existing = pendingUpdates.get(wsKey);
-            if (existing) { clearTimeout(existing); }
-            // 500ms 防抖后执行更新
-            const timer = setTimeout(() => {
-                pendingUpdates.delete(wsKey);
-                ragService.updateWorkspace(wsFolder.uri).catch(err => {
-                    debugLogger.log(`[RAG] Failed to update workspace on save: ${err}`);
-                });
-            }, 500);
-            pendingUpdates.set(wsKey, timer);
-        })
-    );
 
     // 0. Initialize Agent Registry from disk
     // This is the first step to ensure registry is populated before any UI logic runs

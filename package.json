@@ -346,6 +346,11 @@
                     "type": "string",
                     "default": "moonshotai/kimi-k2.5",
                     "description": "Model used for compressing conversations. If empty, falls back to titleGeneratorModel then defaultModel"
+                },
+                "mutsumi.embeddingEndpoint": {
+                    "type": "string",
+                    "default": "",
+                    "description": "OpenAI-compatible embedding endpoint URL (e.g., http://localhost:1234/v1/embeddings). If empty, RAG features will be disabled."
                 }
             }
         }
@@ -376,7 +381,6 @@
         "diff": "^8.0.3",
         "express": "^5.2.1",
         "gray-matter": "^4.0.3",
-        "node-llama-cpp": "^3.17.1",
         "openai": "^6.17.0",
         "preprocess": "^3.2.0",
         "sqlite-vec": "^0.1.7-alpha.2",
