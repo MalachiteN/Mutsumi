@@ -1,4 +1,5 @@
 node_modules/
+.VSCodeCounter/
 out/
 assets/tree-sitter/*.wasm
 .continue/

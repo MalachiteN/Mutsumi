@@ -16,14 +16,26 @@ import { sha256, f32buf, mkChunk, lineChunks } from "./utils";
 import { debugLogger } from "../../debugLogger";
 import { CodebaseService, type OutlineNode } from "../service";
 
-// 动态导入 node-llama-cpp (ESM 模块)
-type LlamaModule = typeof import("node-llama-cpp");
-type Llama = Awaited<ReturnType<LlamaModule['getLlama']>>;
-type LlamaModel = Awaited<ReturnType<Llama['loadModel']>>;
-type LlamaEmbeddingContext = Awaited<ReturnType<LlamaModel['createEmbeddingContext']>>;
+/**
+ * OpenAI 兼容的 embedding API 响应格式
+ */
+interface EmbeddingResponse {
+  object?: string;
+  data: Array<{
+    object?: string;
+    embedding: number[];
+    index?: number;
+  }>;
+  model?: string;
+  usage?: {
+    prompt_tokens?: number;
+    total_tokens?: number;
+  };
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RagService - 支持远程工作区的内存型 RAG 服务
+//  使用外部 OpenAI 兼容 embedding 端点
 // ════════════════════════════════════════════════════════════════════════════
 
 interface WorkspaceDbEntry {
@@ -70,29 +82,8 @@ export class RagService implements vscode.Disposable {
   private readonly queue = new TaskQueue(5);
   private readonly subs: vscode.Disposable[] = [];
 
-  private llamaModule!: LlamaModule;
-  private llama!: Llama;
-  private model!: LlamaModel;
-  private embedCtx!: LlamaEmbeddingContext;
-  private dim = 0; // embedding 维度
-
-  // llama.cpp 不保证并发安全
-  private llamaLock: Promise<void> = Promise.resolve();
-  private async withLlamaLock<T>(fn: () => Promise<T>): Promise<T> {
-    const prev = this.llamaLock;
-    let release!: () => void;
-
-    this.llamaLock = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-
-    await prev;
-    try {
-      return await fn();
-    } finally {
-      release();
-    }
-  }
+  private embeddingEndpoint: string = "";
+  private dim = 0; // embedding 维度 (从配置获取或探测)
 
   // 定期保存的间隔（30秒）
   private readonly SAVE_INTERVAL = 30000;
@@ -111,40 +102,26 @@ export class RagService implements vscode.Disposable {
   private async boot(): Promise<void> {
     this.log("Booting…");
 
-    // 1. 动态导入 ESM 模块 node-llama-cpp
-    this.llamaModule = await import("node-llama-cpp");
+    // 1. 读取 embedding 端点配置
+    const config = vscode.workspace.getConfiguration("mutsumi");
+    this.embeddingEndpoint = config.get<string>("embeddingEndpoint") ?? "";
 
-    // 2. 自动检测并使用最佳 GPU（Metal/CUDA/Vulkan），无 GPU 时回退到 CPU
-    this.llama = await this.llamaModule.getLlama({ gpu: "auto" });
-
-    // 3. 加载 GGUF 模型（扩展本地资源，可用 fs）
-    const embDir = path.join(this.extCtx.extensionPath, "assets", "embedding");
-    if (!fs.existsSync(embDir)) {
-      throw new Error(`[RagService] 目录不存在: ${embDir}`);
+    if (!this.embeddingEndpoint || this.embeddingEndpoint.trim() === "") {
+      this.log("No embedding endpoint configured. RAG features are disabled.");
+      return;
     }
-    const gguf = fs.readdirSync(embDir).find((f) => f.endsWith(".gguf"));
-    if (!gguf) {
-      throw new Error(`[RagService] assets/embedding/ 中没有 .gguf 嵌入模型`);
-    }
-    this.log(`Loading model: ${gguf}`);
-    this.model = await this.llama.loadModel({
-      modelPath: path.join(embDir, gguf),
-      gpuLayers: "auto", // 自动决定加载到 GPU 的层数
-    });
 
-    this.embedCtx = await this.model.createEmbeddingContext();
-
+    this.log(`Using embedding endpoint: ${this.embeddingEndpoint}`);
     // 探测嵌入维度
-    const probe = await this.embedCtx.getEmbeddingFor("dim");
-    this.dim = probe.vector.length;
+    this.dim = await this.detectEmbeddingDimension();
     this.log(`Embedding dimension = ${this.dim}`);
 
-    // 4. 为每个工作区加载数据库（从远程读到内存）
+    // 2. 为每个工作区加载数据库（从远程读到内存）
     for (const wf of vscode.workspace.workspaceFolders ?? []) {
       await this.loadDb(wf.uri);
     }
 
-    // 5. 监听工作区变化
+    // 3. 监听工作区变化
     this.subs.push(
       vscode.workspace.onDidChangeWorkspaceFolders(async (e) => {
         for (const a of e.added) await this.loadDb(a.uri);
@@ -152,10 +129,10 @@ export class RagService implements vscode.Disposable {
       })
     );
 
-    // 6. 启动定期保存定时器
+    // 4. 启动定期保存定时器
     this.startPeriodicSave();
 
-    // 7. 注册进程退出前保存
+    // 5. 注册进程退出前保存
     this.subs.push({
       dispose: () => {
         this.stopPeriodicSave();
@@ -164,6 +141,48 @@ export class RagService implements vscode.Disposable {
     });
 
     this.log("Boot complete.");
+  }
+
+  /**
+   * 探测 embedding 维度
+   * 发送一个测试请求来获取向量的维度
+   */
+  private async detectEmbeddingDimension(): Promise<number> {
+    try {
+      const response = await fetch(this.embeddingEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          input: "dimension test",
+          model: "embedding-model" // 某些端点需要 model 参数
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json() as EmbeddingResponse;
+      // OpenAI 兼容格式: data[0].embedding
+      if (data.data && data.data[0] && Array.isArray(data.data[0].embedding)) {
+        return data.data[0].embedding.length;
+      }
+      throw new Error("Unexpected response format from embedding endpoint");
+    } catch (err: any) {
+      this.log(`Failed to detect embedding dimension: ${err.message}`);
+      throw new Error(
+        `无法从 embedding 端点探测向量维度。请检查 mutsumi.embeddingEndpoint 配置是否正确。`
+      );
+    }
+  }
+
+  /**
+   * 检查 RAG 服务是否启用了 embedding 功能
+   */
+  public isEmbeddingEnabled(): boolean {
+    return !!this.embeddingEndpoint && this.embeddingEndpoint.trim() !== "" && this.dim > 0;
   }
 
   // ── 数据库生命周期 ────────────────────────────────────────────────────
@@ -254,7 +273,7 @@ export class RagService implements vscode.Disposable {
       throw err;
     }
 
-    // vec0 向量虚拟表
+    // vec0 向量虚拟表 - 使用探测到的维度
     try {
       db.exec(
         `CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
@@ -376,6 +395,12 @@ export class RagService implements vscode.Disposable {
   // ════════════════════════════════════════════════════════════════════════
 
   async updateWorkspace(wsUri: vscode.Uri): Promise<void> {
+    // 如果没有配置 embedding 端点，跳过整个更新流程
+    if (!this.isEmbeddingEnabled()) {
+      this.log(`Skipping workspace update - no embedding endpoint configured`);
+      return;
+    }
+
     const entry = this.workspaceDbMap.get(wsUri.toString());
     if (!entry) {
       throw new Error(`Database not loaded for workspace ${wsUri.toString()}`);
@@ -532,6 +557,12 @@ export class RagService implements vscode.Disposable {
         }
       }
     })();
+
+    // 检查 embedding 是否可用
+    if (!this.isEmbeddingEnabled()) {
+      this.log(`[ProcessFile] Embedding disabled, skipping ${toEmbed.length} embeddings for: ${rel}`);
+      return;
+    }
 
     const embeddings: { chunk: ChunkInfo; vec: readonly number[] }[] = [];
     for (let i = 0; i < toEmbed.length; i++) {
@@ -701,7 +732,7 @@ export class RagService implements vscode.Disposable {
     // 太短直接丢
     if (t.length < 3) return false;
 
-    // 至少要有“字母 / 数字 / 下划线 / CJK”
+    // 至少要有"字母 / 数字 / 下划线 / CJK"
     return /[\p{L}\p{N}_$]/u.test(t);
   }
 
@@ -745,7 +776,7 @@ export class RagService implements vscode.Disposable {
         continue;
       }
 
-      // 3. 叶子节点前的 gap：只切“cursor 到 leaf.startLine-1”
+      // 3. 叶子节点前的 gap：只切"cursor 到 leaf.startLine-1"
       if (leaf.startLine > cursor) {
         const gapText = lines.slice(cursor, leaf.startLine).join("\n");
         if (this.shouldKeepChunkText(gapText)) {
@@ -777,21 +808,45 @@ export class RagService implements vscode.Disposable {
 
 
   // ════════════════════════════════════════════════════════════════════════
-  //  Embedding 辅助
+  //  Embedding 辅助 - 使用外部 OpenAI 兼容端点
   // ════════════════════════════════════════════════════════════════════════
 
   private async embed(text: string): Promise<readonly number[]> {
-    return this.withLlamaLock(async () => {
-      const result = await this.embedCtx.getEmbeddingFor(text);
+    if (!this.isEmbeddingEnabled()) {
+      throw new Error("[RAG] Embedding service is not configured");
+    }
 
-      // 深拷贝，避免底层复用/覆盖内部 buffer
-      const vec = Array.from(result.vector);
+    try {
+      const response = await fetch(this.embeddingEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          input: text,
+          model: "embedding-model" // 某些端点需要 model 参数，但通常会被忽略
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json() as EmbeddingResponse;
+      
+      // OpenAI 兼容格式: data[0].embedding
+      if (!data.data || !data.data[0] || !Array.isArray(data.data[0].embedding)) {
+        throw new Error("Unexpected response format from embedding endpoint");
+      }
+
+      const vec = data.data[0].embedding as number[];
 
       // 验证嵌入向量有效性
       if (!vec || vec.length === 0) {
         throw new Error(`[RAG] 嵌入失败: 返回空向量`);
       }
 
+      // 验证维度匹配
       if (vec.length !== this.dim) {
         throw new Error(
           `[RAG] 嵌入失败: 维度不匹配, got=${vec.length}, expected=${this.dim}`
@@ -816,7 +871,9 @@ export class RagService implements vscode.Disposable {
       }
 
       return vec;
-    });
+    } catch (err: any) {
+      throw new Error(`[RAG] Embedding request failed: ${err.message}`);
+    }
   }
 
 
@@ -829,6 +886,11 @@ export class RagService implements vscode.Disposable {
     query: string,
     topK = 10
   ): Promise<ChunkResult[]> {
+    // 检查 embedding 是否可用
+    if (!this.isEmbeddingEnabled()) {
+      throw new Error("RAG embedding service is not configured. Please set mutsumi.embeddingEndpoint in settings.");
+    }
+
     const entry = this.workspaceDbMap.get(wsUri.toString());
     if (!entry) {
       throw new Error(`Database not loaded for workspace ${wsUri.toString()}`);
@@ -890,13 +952,6 @@ export class RagService implements vscode.Disposable {
     this.workspaceDbMap.clear();
 
     for (const d of this.subs) d.dispose();
-
-    try {
-      this.embedCtx?.dispose();
-    } catch { /* */ }
-    try {
-      this.model?.dispose();
-    } catch { /* */ }
 
     RagService.instance = null;
   }
