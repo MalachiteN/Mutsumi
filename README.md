@@ -67,7 +67,7 @@ Mutsumi 采用六阶段动态上下文管理架构：
 
 ```markdown
 @[src/main.ts]                      ← 引用文件
-@[src/utils.ts:10-20]               ← 引用指定行数
+@[src/utils.ts:10:20]               ← 引用指定行数
 @[read_file{"uri": "path/to/file"}] ← 预执行工具
 ```
 
