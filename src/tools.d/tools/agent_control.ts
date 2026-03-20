@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ITool, ToolContext } from '../interface';
+import { getModelsConfig } from '../../utils';
 import { AgentOrchestrator } from '../../agent/agentOrchestrator';
 import { resolveUri } from '../utils';
 
@@ -148,8 +149,7 @@ export const getAvailableModelsTool: ITool = {
     },
     execute: async (_args: any, _context: ToolContext) => {
         try {
-            const config = vscode.workspace.getConfiguration('mutsumi');
-            const models = config.get<Record<string, string>>('models', {});
+            const models = getModelsConfig();
             
             const modelEntries = Object.entries(models);
             if (modelEntries.length === 0) {

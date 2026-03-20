@@ -4,6 +4,7 @@
  */
 
 import * as vscode from 'vscode';
+import { getModelsConfig } from '../../utils';
 
 /**
  * Register the select model command.
@@ -23,8 +24,7 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
                 return;
             }
             
-            const config = vscode.workspace.getConfiguration('mutsumi');
-            const modelsConfig = config.get<Record<string, string>>('models', {});
+            const modelsConfig = getModelsConfig();
             const modelNames = Object.keys(modelsConfig);
             
             if (modelNames.length === 0) {
