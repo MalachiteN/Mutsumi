@@ -83,12 +83,18 @@ export async function buildInteractionHistory(
     }
 
     // Extract and merge macros
-    // 1. Load persisted macros from metadata
-    const persistedMacros = metadata.macroContext || {};
-    // 2. Extract new macros from current prompt
+    const persistedMacroItems = (metadata.contextItems || []).filter(item => item.type === 'macro');
+    const persistedMacros: Record<string, string> = {};
+    for (const item of persistedMacroItems) {
+        persistedMacros[item.key] = item.content;
+    }
     const localMacros = extractMacroDefinitions(currentPrompt);
-    // 3. Merge (local overrides persisted)
     const macros = { ...persistedMacros, ...localMacros };
+    const macroContextItems: ContextItem[] = Object.entries(macros).map(([key, content]) => ({
+        type: 'macro' as const,
+        key,
+        content,
+    }));
 
     // 1. Static System Prompt (Now includes Rules)
     const activeRules = metadata.activeRules;
@@ -132,7 +138,7 @@ export async function buildInteractionHistory(
     );
 
     const finalItemsToDisplay: ContextItem[] = [];
-    const newContextItemsForMetadata: ContextItem[] = [...persistedItems];
+    const newContextItemsForMetadata: ContextItem[] = persistedItems.filter(item => item.type === 'file');
 
     for (const item of currentContext) {
         if (item.type === 'file') {
@@ -183,6 +189,8 @@ export async function buildInteractionHistory(
             finalItemsToDisplay.push(item);
         }
     }
+
+    newContextItemsForMetadata.push(...macroContextItems);
 
     // 3. Build Message History from session
     const history = await session.getHistory();
