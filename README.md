@@ -16,42 +16,45 @@
   <!-- <img src="assets/demo.gif" alt="Mutsumi Demo" width="800"> -->
 </div>
 
-Mutsumi 是一款 VS Code LLM Agent 插件，采用**子母 Agent 范式**，将复杂任务拆解为多个子任务并行处理，让 LLM 的注意力始终聚焦于关键之处。
+Mutsumi 是一款 VS Code LLM Agent 插件，与 VS Code 深度集成，致力于对上下文空间的完全掌控，让 LLM 的注意力始终聚焦于关键之处。同时，设计上也考虑到了对 API 调用次数、Tokens 消耗的尽量节省。
+
+<img width="1000" alt="Image" src="assets/Notebook.png" />
 
 ---
 
 ## ✨ 核心特性
 
-### 🥳 子母 Agent 范式（Multi-Agent）
-
-不同于传统单对话流的长对话模式，Mutsumi 实现了**多 Agent 协作**系统：
-
-- **任务分治能力** — 将复杂任务分解为多个子任务，由子 Agent 并行处理
-- **避免注意力稀释** — 防止长对话导致的生成质量降低
-- **边栏调度中心** — 通过侧边栏集中管理所有 Agent 会话
-
 ### 📝 Notebook 原生体验
 
 告别传统侧边栏对话，Mutsumi 利用 **NotebookSerializer**：
 
+<img width="1000" alt="Image" src="assets/Multiwindow.png" />
+
 - **VSCode 编辑器窗格** — Agent 对话页面作为 `.mtm` 文件的 Notebook Editor，与其他文件并排打开
 - **灵活窗口布局** — 支持分屏、多窗口，自由组织工作空间
-- **持久化会话** — 对话历史持久化到 Notebook 数据，随时恢复工作状态
+- **持久化会话** — 对话历史持久化到 Notebook 数据，可用 git 管理，可分享，可随时恢复工作状态
 
-### 🔄 动态上下文系统
+### 工具调用与文件引用预执行
 
-Mutsumi 采用六阶段动态上下文管理架构：
+当用户已知 LLM 必然需要某段文件内容或工具执行结果时，可以预先执行工具调用或文件引用，将结果插入上下文的幽灵块中，令 LLM 不必浪费宝贵的上下文预算来推理出自己需要调用工具，再浪费宝贵的 API 额度去反复发送会话历史记录。
 
-1. 环境与宏初始化 — 加载持久化的上下文状态和宏定义
-2. System Prompt 构建 — 集成 Rules 和运行时环境
-3. 用户输入解析 — TemplateEngine 递归处理文件引用
-4. 增量快照与版本控制 — 智能检测变更，节省 Token
-5. 持久化与元数据更新 — 保存幽灵块到 Cell Metadata
-6. 最终消息组装 — 前缀一致，最大化利用 LLM 的 KV Cache
+<img width="1000" alt="Image" src="assets/Generate.gif" />
+
+```markdown
+@[src/main.ts]                      ← 引用文件
+@[src/utils.ts:10:20]               ← 引用指定行数
+@[read_file{"uri": "path/to/file"}] ← 预执行工具
+```
+
+上下文中间件会保持跟踪被引文件的最新版本及其哈希。若哈希相比最新版本未变，则会注入一条让 Agent 回溯历史记录的命令；哈希变化，则会注入最新版本文件内容，并 bump version。
+
+Rules 或被引文件也可以使用 @[] schema 递归插入文件或预执行工具。例如 [我们的默认 Rules 文件](assets/default.md)。
 
 ### 🛠️ 预处理器与宏支持
 
-引用文件、Rules 和 Skills 支持**预处理器命令**。用户使用 `@{define 宏名, 值}` 一类的语句定义宏，然后可调用如下包含预处理器命令的文件：
+引用文件、Rules 支持**预处理器命令**。
+
+用户使用 `@{define 宏名, 值}` 一类的语句定义宏，然后可调用如下包含预处理器命令的文件：
 
 ```markdown
 <!-- @ifdef xxx -->
@@ -61,23 +64,55 @@ Mutsumi 采用六阶段动态上下文管理架构：
 
 本项目使用 [`preprocess`](https://github.com/jsoverson/preprocess) 库实现强大的预处理能力。
 
-### 工具调用与文件引用预执行
+### 🔍 可观测性
 
-当用户已知 LLM 必然需要某段文件内容或工具执行结果时，可以预先执行工具调用或文件引用，将结果插入上下文的幽灵块中，令 LLM 不必浪费宝贵的上下文预算来推理出自己需要调用工具，再浪费宝贵的API额度去反复发送会话历史记录。
+在发送会话历史记录到 OpenAI Compatible 端点之前，就可以预先查看待发送内容的装配结果，不用等到已花费 Tokens 生成了低质量内容才发现上下文组装失误。
 
-```markdown
-@[src/main.ts]                      ← 引用文件
-@[src/utils.ts:10:20]               ← 引用指定行数
-@[read_file{"uri": "path/to/file"}] ← 预执行工具
-```
+<img width="1000" alt="Image" src="assets/DebugContext.gif" />
+
+同样的，也可以预先查看 RAG 搜索的结果。
+
+### 🌘 多主题颜色兼容
+
+兼容深色主题和浅色主题，气泡底纹颜色自动变化：
+
+<img width="1000" alt="Image" src="assets/Themes.gif" />
 
 ### 🌐 多工作区原生支持
 
-几乎所有工具操作都原生支持**多工作区**，兼容：
+几乎所有工具操作都原生支持**多工作区**：
 
-- 多根工作区（Multi-root Workspaces）
+<img width="1000" alt="Image" src="assets/Multiroot.png" />
+
+兼容的工作区类型包括但不限于：
+
+- 多根工作区
 - 其他插件的 `FileSystemProvider` 特殊 schema
 - 任何支持读写的虚拟文件系统
+
+### 🔓 解锁无限能力
+
+兼容 Anthropic 提出的 Skills 机制，而不止于此。
+
+<img width="1000" alt="Image" src="assets/Skills.png" />
+
+它会自动读取：
+
+- 你的**家目录**下的 `.agents/skills/*/SKILL.md`
+- 当前多根工作区下的**每个**工作区根目录下的 `.agents/skills/*/SKILL.md`
+
+来注册 Skills。
+
+### 🥳 子母 Agent 范式
+
+不同于传统单对话流的长对话模式，Mutsumi 实现了**多 Agent 协作**系统：
+
+<img width="1000" alt="Image" src="assets/Fork.gif" />
+
+- **任务分治能力** — 将复杂任务分解为多个子任务，由子 Agent 并行处理
+- **避免注意力稀释** — 防止单一会话长上下文 Softmax 导致的生成质量降低
+- **边栏调度中心** — 通过侧边栏集中管理所有 Agent 会话
+- **可控与可审计性** — 需审批启动，可编辑 Prompt，可打断，可对话更正
 
 ---
 
@@ -97,7 +132,9 @@ code --install-extension mutsumi-【版本号】.vsix
 
 ### 配置
 
-如果你使用一般的中转 API，在 VS Code 设置中配置 `mutsumi.apiKey`、`mutsumi.baseUrl` 等，即可开始使用。
+如果你使用自己的中转 API，在 VS Code 设置中配置 `mutsumi.apiKey`、`mutsumi.baseUrl` 等，即可开始使用。注意，你可能需要覆盖默认 `mutsumi.models` 对象。
+
+不过，本 Agent 框架专门围绕 Kimi K2.5 基模调性优化设计，推荐使用 [zenmux](https://zenmux.ai) 聚合平台或 [Kimi 开放平台](https://platform.moonshot.cn/) 使用 Kimi K2.5。
 
 ### 创建第一个 Agent
 
@@ -113,7 +150,7 @@ code --install-extension mutsumi-【版本号】.vsix
 Mutsumi 提供丰富的内置工具，支持智能任务执行：
 
 - **文件操作** — `read_file`, `edit_file`, `create_file`, `ls`, `get_file_size`
-- **代码搜索** — `search_file_contains_keyword`, `search_file_name_includes`, `project_outline`
+- **代码搜索** — `search_file_contains_keyword`, `search_file_name_includes`, `project_outline`, `query_codebase`
 - **执行控制** — `shell_exec`, `git_cmd`, `get_env_var`, `system_info`
 - **文件编辑** — `edit_file_search_replace`, `edit_file_full_replace`
 - **Agent 编排** — `self_fork`, `get_available_models`, `task_finish`
@@ -121,6 +158,15 @@ Mutsumi 提供丰富的内置工具，支持智能任务执行：
 ---
 
 ## 📝 动态上下文技术详解
+
+Mutsumi 采用六阶段动态上下文管理架构：
+
+1. 环境与宏初始化 — 加载持久化的上下文状态和宏定义
+2. System Prompt 构建 — 集成 Rules 和运行时环境
+3. 用户输入解析 — TemplateEngine 递归处理文件引用
+4. 增量快照与版本控制 — 智能检测变更，节省 Token
+5. 持久化与元数据更新 — 保存幽灵块到 Cell Metadata
+6. 最终消息组装 — 前缀一致，最大化利用 LLM 的 KV Cache
 
 ### 递归文件引用与工具预执行的解析
 
@@ -174,9 +220,11 @@ Mutsumi 提供丰富的内置工具，支持智能任务执行：
 | 项目 | 版本 | 许可证 | 用途 |
 |------|------|--------|------|
 | [openai](https://github.com/openai/openai-node) | ^6.17.0 | Apache-2.0 | OpenAI API 客户端 |
+| [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | ^12.8.0 | MIT | SQLite 数据库引擎 |
+| [sqlite-vec](https://github.com/asg017/sqlite-vec) | ^0.1.7-alpha.2 | MIT | SQLite 向量扩展，用于 RAG |
 | [diff](https://github.com/kpdecker/jsdiff) | ^8.0.3 | BSD-3-Clause | 文本差异对比 |
 | [gray-matter](https://github.com/jonschlinkert/gray-matter) | ^4.0.3 | MIT | Markdown 元数据解析 |
-| [preprocess](https://github.com/jsoverson/preprocess) | ^3.2.0 | MIT | 文件预处理器宏 |
+| [preprocess](https://github.com/jsoverson/preprocess) | ^3.2.0 | Apache-2.0 | 文件预处理器宏 |
 | [uuid](https://github.com/uuidjs/uuid) | ^9.0.1 | MIT | UUID 生成 |
 | [web-tree-sitter](https://github.com/tree-sitter/tree-sitter) | ^0.22.2 | MIT | 语法树解析 |
 
