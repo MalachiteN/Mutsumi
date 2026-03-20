@@ -151,7 +151,7 @@ Mutsumi 提供丰富的内置工具，支持智能任务执行：
 
 - **文件操作** — `read_file`, `edit_file`, `create_file`, `ls`, `get_file_size`
 - **代码搜索** — `search_file_contains_keyword`, `search_file_name_includes`, `project_outline`, `query_codebase`
-- **执行控制** — `shell_exec`, `git_cmd`, `get_env_var`, `system_info`
+- **执行控制** — `shell`, `get_env_var`, `system_info`
 - **文件编辑** — `edit_file_search_replace`, `edit_file_full_replace`
 - **Agent 编排** — `self_fork`, `get_available_models`, `task_finish`
 
