@@ -28,8 +28,7 @@ export interface AgentMetadata {
     activeRules?: string[];
     /** List of active skill filenames for this agent */
     activeSkills?: string[];
-    /** Persisted macro definitions (macro name to macro value mapping) */
-    macroContext?: Record<string, string>;
+    
     /** List of sub-agent UUIDs created by this agent */
     sub_agents_list?: string[];
 }
@@ -155,7 +154,7 @@ export interface AgentStateInfo {
  */
 export interface ContextItem {
     /** Type of context item */
-    type: 'file' | 'tool' | 'rule';
+    type: 'file' | 'tool' | 'rule' | 'macro';
     /** Key identifier (file path, tool name, or rule name) */
     key: string;
     /** Content or execution result */

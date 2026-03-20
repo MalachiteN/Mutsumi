@@ -247,7 +247,12 @@ export function registerContextCommands(
                         const ruleText = new TextDecoder().decode(ruleContent);
                         
                         // Render with TemplateEngine using macro context
-                        const macroContext = metadata.macroContext || {};
+                        const macroContext: Record<string, string> = {};
+                        for (const item of metadata.contextItems || []) {
+                            if (item.type === 'macro') {
+                                macroContext[item.key] = item.content;
+                            }
+                        }
                         const { renderedText } = await TemplateEngine.render(
                             ruleText,
                             macroContext,
@@ -291,7 +296,12 @@ export function registerContextCommands(
                     // Render with TemplateEngine using macro context
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                     if (workspaceFolder) {
-                        const macroContext = metadata.macroContext || {};
+                        const macroContext: Record<string, string> = {};
+                        for (const item of metadata.contextItems || []) {
+                            if (item.type === 'macro') {
+                                macroContext[item.key] = item.content;
+                            }
+                        }
                         const { renderedText } = await TemplateEngine.render(
                             fileItem.content,
                             macroContext,
@@ -419,16 +429,16 @@ export function registerContextCommands(
 
             const notebook = notebookEditor.notebook;
             const metadata = notebook.metadata as AgentMetadata | undefined;
-            if (!metadata || !metadata.macroContext) {
+            if (!metadata || !metadata.contextItems) {
                 return;
             }
 
-            const macroContext = { ...metadata.macroContext };
-            delete macroContext[item.data.key];
+            // Filter out the macro to be deleted
+            const newContextItems = metadata.contextItems.filter(ci => !(ci.type === 'macro' && ci.key === item.data.key));
 
             // Update notebook metadata
             const edit = new vscode.WorkspaceEdit();
-            const newMetadata = { ...metadata, macroContext };
+            const newMetadata = { ...metadata, contextItems: newContextItems };
             edit.set(notebook.uri, [vscode.NotebookEdit.updateNotebookMetadata(newMetadata)]);
             await vscode.workspace.applyEdit(edit);
 

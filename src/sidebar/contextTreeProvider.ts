@@ -205,7 +205,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
     /**
      * @description Builds context items from the current notebook's metadata
-     * Reads activeRules, activeSkills, macroContext, and contextItems from metadata and builds tree items
+     * Reads activeRules, activeSkills, and contextItems from metadata and builds tree items
      * @private
      * @returns {Object} Object containing four arrays: rules, skills, macros, files
      */
@@ -227,7 +227,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
         const activeRulesRaw = metadata.activeRules;
         const activeSkillsRaw = metadata.activeSkills;
-        const macroContext = metadata.macroContext || {};
         const contextItems = metadata.contextItems || [];
 
         // Build rule items - show all available rules with active state
@@ -267,16 +266,18 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
             ));
         }
 
-        // Build macro items
-        for (const [macroName, macroValue] of Object.entries(macroContext)) {
-            macros.push(new ContextTreeItem(
-                {
-                    type: 'macro',
-                    key: macroName,
-                    content: macroValue
-                },
-                vscode.TreeItemCollapsibleState.None
-            ));
+        // Build macro items from contextItems
+        for (const contextItem of contextItems) {
+            if (contextItem.type === 'macro') {
+                macros.push(new ContextTreeItem(
+                    {
+                        type: 'macro',
+                        key: contextItem.key,
+                        content: contextItem.content
+                    },
+                    vscode.TreeItemCollapsibleState.None
+                ));
+            }
         }
 
         // Build file items from contextItems
