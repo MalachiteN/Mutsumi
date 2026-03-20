@@ -3,11 +3,11 @@
     "displayName": "Mutsumi",
     "description": "Multi-Agent Notebook Environment",
     "author": {
-        "name": "MalachiteN",
+        "name": "Malachite",
         "email": "malachiten@outlook.com",
         "url": "https://github.com/MalachiteN"
     },
-    "publisher": "MalachiteN",
+    "publisher": "Malachite",
     "repository": "github:MalachiteN/Mutsumi",
     "icon": "assets/icon.png",
     "version": "0.0.1",
@@ -21,7 +21,7 @@
     "activationEvents": [
         "onNotebook:mutsumi-notebook"
     ],
-    "main": "./out/extension.js",
+    "main": "./dist/extension.js",
     "contributes": {
         "viewsContainers": {
             "activitybar": [
@@ -348,11 +348,14 @@
         }
     },
     "scripts": {
-        "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./",
-        "package": "vsce package",
-        "install-local": "npm run package && code --install-extension my-agent-0.0.1.vsix --force && echo '安装完成，请在 VS Code 中执行 Developer: Reload Window'"
+        "vscode:prepublish": "npm run package",
+        "compile": "npm run check-types && node esbuild.js",
+        "check-types": "npx tsc --noEmit",
+        "watch": "npm-run-all -p watch:*",
+        "watch:esbuild": "node esbuild.js --watch",
+        "watch:tsc": "npx tsc --noEmit --watch",
+        "package": "npm install && npm run check-types && node esbuild.js --production && npm prune --production",
+        "install-local": "vsce package && code --install-extension mutsumi-0.0.1.vsix --force && echo '安装完成，请在 VS Code 中执行 Developer: Reload Window'"
     },
     "devDependencies": {
         "@electron/rebuild": "^4.0.3",
@@ -362,21 +365,22 @@
         "@types/vscode": "^1.108.1",
         "electron": "^39.0.0",
         "electron-rebuild": "^3.2.9",
-        "typescript": "^5.0.0"
-    },
-    "dependencies": {
+        "esbuild": "^0.25.0",
+        "npm-run-all": "^4.1.5",
         "@types/diff": "^8.0.0",
         "@types/express": "^5.0.6",
-        "@types/vscode": "^1.108.1",
-        "better-sqlite3": "^12.8.0",
         "body-parser": "^2.2.2",
         "diff": "^8.0.3",
         "express": "^5.2.1",
         "gray-matter": "^4.0.3",
         "openai": "^6.17.0",
         "preprocess": "^3.2.0",
-        "sqlite-vec": "^0.1.7-alpha.2",
         "uuid": "^9.0.1",
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "better-sqlite3": "^12.8.0",
+        "sqlite-vec": "^0.1.7-alpha.2",
         "web-tree-sitter": "^0.22.2"
     }
 }

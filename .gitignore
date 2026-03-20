@@ -1,6 +1,7 @@
 node_modules/
 .VSCodeCounter/
 out/
+dist/
 assets/tree-sitter/*.wasm
 .continue/
 .agents/
