@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { getModelsConfig } from '../utils';
 import { AgentStateInfo, ContextItem } from '../types';
 
 /**
@@ -169,7 +170,7 @@ export class AgentFileOperations {
         // Get configuration for default model
         const config = vscode.workspace.getConfiguration('mutsumi');
         const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
-        const availableModels = config.get<Record<string, string>>('models', {});
+        const availableModels = getModelsConfig();
         const availableModelNames = Object.keys(availableModels);
 
         const selectedModel = (model && availableModelNames.includes(model)) ? model : defaultModel;

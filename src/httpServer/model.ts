@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { Request, Response } from 'express';
+import { getModelsConfig } from '../utils';
 import { getAgentFromRegistry } from './utils';
 import type { AgentContext } from '../types';
 
@@ -22,8 +23,7 @@ export async function handleSetModel(req: Request, res: Response): Promise<void>
     }
 
     // Validate model exists in configuration
-    const config = vscode.workspace.getConfiguration('mutsumi');
-    const models = config.get<Record<string, string>>('models', {});
+    const models = getModelsConfig();
     const availableModels = Object.keys(models);
 
     if (!availableModels.includes(model)) {

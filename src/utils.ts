@@ -3,6 +3,46 @@
  * @module utils
  */
 
+import * as vscode from 'vscode';
+
+/**
+ * Default models configuration used when user hasn't configured any models.
+ * @description These are the built-in default models that will be used
+ * when the mutsumi.models setting is empty.
+ */
+const DEFAULT_MODELS: Record<string, string> = {
+    "openai/gpt-4.1-nano": "质量极差，仅用于生成对话标题",
+    "moonshotai/kimi-k2.5": "经济性好，适合普通编码任务，且经过为多Agent编排子任务的针对性后训练",
+    "stepfun/step-3.5-flash": "有时有幻觉，只适合非重要任务，如执行简单具体的指令、修改简单的配置文件等",
+    "google/gemini-3-pro-preview": "超贵，但智能极高、上下文窗口最大，适合无法分解、非常复杂的任务，或开始新项目前为整个项目设计长远架构和开发计划",
+    "anthropic/claude-haiku-4.5": "略贵，适合阅读代码库、生成可信度高的模块概览或文档",
+    "openai/gpt-5.2-codex": "比claude-haiku贵一点，但值得，用于复杂工程实现",
+    "volcengine/doubao-seed-2.0-code": "价格实惠，用来写代码，能力约等于 claude-haiku"
+};
+
+/**
+ * Gets the models configuration from VS Code settings.
+ * @description Returns user-configured models if available, otherwise returns
+ * the built-in default models. This allows users to override defaults by
+ * configuring the mutsumi.models setting.
+ * @returns {Record<string, string>} Models configuration (model name -> label)
+ * @example
+ * const models = getModelsConfig();
+ * console.log(Object.keys(models)); // ['moonshotai/kimi-k2.5', ...]
+ */
+export function getModelsConfig(): Record<string, string> {
+    const config = vscode.workspace.getConfiguration('mutsumi');
+    const models = config.get<Record<string, string>>('models', {});
+    
+    // If user has configured models (non-empty object), use them
+    if (Object.keys(models).length > 0) {
+        return models;
+    }
+    
+    // Otherwise return default models
+    return DEFAULT_MODELS;
+}
+
 /**
  * Sanitizes a string to be safe for use as a file name.
  * @description Removes or replaces characters that are invalid in file systems
