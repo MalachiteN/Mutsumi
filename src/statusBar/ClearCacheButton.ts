@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getToolCacheSize } from '../tools.d/cache';
+import { getToolCacheSize, onDidChangeCache } from '../tools.d/cache';
 
 /**
  * Status bar button for clearing tool cache.
@@ -19,6 +19,11 @@ export class ClearCacheButton implements vscode.Disposable {
         
         this.statusBarItem.tooltip = 'Click to clear tool result cache';
         this.statusBarItem.command = 'mutsumi.clearToolCache';
+        
+        // Subscribe to cache changes to update the button
+        this.disposables.push(
+            onDidChangeCache(() => this.update())
+        );
         
         this.update();
         this.statusBarItem.show();
