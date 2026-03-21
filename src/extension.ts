@@ -23,6 +23,7 @@ import { HeadlessAdapter } from './adapters/headlessAdapter';
 import { ToolRegistry } from './tools.d/toolManager';
 import { HttpServer } from './httpServer';
 import { debugLogger } from './debugLogger';
+import { registerStatusBarItems } from './statusBar';
 
 /**
  * Checks if a file exists at the given URI.
@@ -277,6 +278,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
         )
     );
+
+    // Register status bar items
+    registerStatusBarItems(context);
 
     // 5. Commands
     registerCommands(context);

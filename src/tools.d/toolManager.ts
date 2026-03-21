@@ -19,6 +19,13 @@ import { getWarningErrorTool } from './tools/get_warning_error';
 import { queryCodebaseTool } from './tools/rag';
 import * as vscode from 'vscode';
 import OpenAI from 'openai';
+import {
+    getCachedResult,
+    setCachedResult
+} from './cache';
+
+// Re-export cache functions for convenience
+export { getToolCacheSize, clearToolCache } from './cache';
 
 /**
  * Tool set configuration for different agent types.
@@ -113,6 +120,19 @@ export class ToolSet {
             return `🔧 Tool Call: ${name}`;
         }
         return tool.prettyPrint(args);
+    }
+
+    /**
+     * Gets whether a tool should have its results cached.
+     * @param {string} name - Tool name
+     * @returns {boolean} True if the tool should be cached
+     */
+    getShouldCache(name: string): boolean {
+        const tool = this.tools.get(name);
+        if (!tool) {
+            return false;
+        }
+        return tool.shouldCache ?? false;
     }
 
     /**
@@ -220,9 +240,19 @@ export class ToolRegistry {
 }
 
 /**
- * Legacy ToolManager for backward compatibility.
+ * Global ToolManager for operations not tied to any specific Agent.
  * @class ToolManager
- * @deprecated Use ToolSet for per-agent tool combinations.
+ * @description
+ * This singleton provides tool execution and metadata access for operations
+ * that are not associated with any specific Agent instance. It is used by:
+ * - Context pre-execution (templateEngine, context building)
+ * - Notebook serialization (pretty-printing tool calls)
+ * - Code completion (listing available tools)
+ *
+ * Unlike ToolSet which is per-Agent and configurable, ToolManager provides
+ * a global, shared interface to all tools. It also manages the global tool
+ * result cache, ensuring cache hits across all contexts (Agent execution
+ * and pre-execution alike).
  */
 export class ToolManager {
     /** Singleton instance */
@@ -233,7 +263,6 @@ export class ToolManager {
      * Gets the singleton instance of ToolManager.
      * @static
      * @returns {ToolManager} The singleton instance
-     * @deprecated Use ToolSet directly for new code.
      */
     public static getInstance(): ToolManager {
         if (!ToolManager.instance) {
@@ -245,13 +274,12 @@ export class ToolManager {
     /**
      * Creates a new ToolManager instance.
      * @constructor
-     * @deprecated Use ToolSet directly.
      */
     constructor() {
         if (!ToolManager.instance) {
             ToolManager.instance = this;
         }
-        // Default tool set for sub-agents (includes task_finish)
+        // Default tool set includes all common tools + task_finish
         this.toolSet = new ToolSet({
             includeCommon: true,
             includeTaskFinish: true
@@ -260,10 +288,8 @@ export class ToolManager {
 
     /**
      * Gets tool definitions formatted for OpenAI API.
-     * @description Legacy method for backward compatibility.
      * @param {boolean} isSubAgent - Whether requesting for a sub-agent
      * @returns {OpenAI.Chat.ChatCompletionTool[]} Array of tool definitions
-     * @deprecated Use ToolSet.getDefinitions() instead.
      */
     public getToolsDefinitions(isSubAgent: boolean): OpenAI.Chat.ChatCompletionTool[] {
         // Create appropriate tool set based on agent type
@@ -276,7 +302,12 @@ export class ToolManager {
 
     /**
      * Executes a tool with the given arguments and context.
-     * @deprecated Use ToolSet.execute() instead.
+     * Results are automatically cached if the tool has shouldCache enabled.
+     * @param {string} name - Tool name
+     * @param {any} args - Tool arguments
+     * @param {ToolContext} context - Execution context
+     * @param {boolean} isSubAgent - Whether this is for a sub-agent
+     * @returns {Promise<string>} Tool execution result
      */
     public async executeTool(
         name: string,
@@ -288,12 +319,31 @@ export class ToolManager {
             includeCommon: true,
             includeTaskFinish: isSubAgent
         });
-        return await toolSet.execute(name, args, context);
+
+        const shouldCache = toolSet.getShouldCache(name);
+
+        if (shouldCache) {
+            const cached = getCachedResult(name, args);
+            if (cached !== undefined) {
+                return cached;
+            }
+        }
+
+        const result = await toolSet.execute(name, args, context);
+
+        if (shouldCache) {
+            setCachedResult(name, args, result);
+        }
+
+        return result;
     }
 
     /**
      * Gets the pretty print string for a tool call.
-     * @deprecated Use ToolSet.getPrettyPrint() instead.
+     * @param {string} name - Tool name
+     * @param {any} args - Tool arguments
+     * @param {boolean} isSubAgent - Whether this is for a sub-agent
+     * @returns {string} Human-readable description
      */
     public getPrettyPrint(name: string, args: any, isSubAgent: boolean): string {
         const toolSet = new ToolSet({
@@ -305,7 +355,9 @@ export class ToolManager {
 
     /**
      * Gets the rendering configuration for a tool.
-     * @deprecated Use ToolSet.getRenderingConfig() instead.
+     * @param {string} name - Tool name
+     * @param {boolean} isSubAgent - Whether this is for a sub-agent
+     * @returns {Object | undefined} Rendering configuration
      */
     public getToolRenderingConfig(name: string, isSubAgent: boolean): { argsToCodeBlock?: string[]; codeBlockFilePaths?: (string | undefined)[] } | undefined {
         const toolSet = new ToolSet({
