@@ -9,6 +9,16 @@ import { ToolContext } from '../tools.d/interface';
 import { AgentMessage } from '../types';
 import { UIRenderer } from './uiRenderer';
 import { IAgentSession } from '../adapters/interfaces';
+import {
+    clearToolCache as clearCache,
+    getToolCacheSize as getCacheSize,
+    getCachedResult,
+    setCachedResult,
+    logCacheContents
+} from '../tools.d/cache';
+
+// Re-export for statusBar
+export { clearToolCache, getToolCacheSize } from '../tools.d/cache';
 
 /**
  * Callbacks for UI updates and termination signaling.
@@ -108,9 +118,21 @@ export class ToolExecutor {
                 }
             };
 
+            const shouldCache = this.toolSet.getShouldCache(toolName);
+
             let toolResult = '';
             try {
-                toolResult = await this.toolSet.execute(toolName, toolArgs, context);
+                if (shouldCache) {
+                    const cached = getCachedResult(toolName, toolArgs);
+                    if (cached !== undefined) {
+                        toolResult = cached;
+                    } else {
+                        toolResult = await this.toolSet.execute(toolName, toolArgs, context);
+                        setCachedResult(toolName, toolArgs, toolResult);
+                    }
+                } else {
+                    toolResult = await this.toolSet.execute(toolName, toolArgs, context);
+                }
             } catch (err: any) {
                 toolResult = `Error executing tool: ${err.message}`;
             }

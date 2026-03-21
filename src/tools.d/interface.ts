@@ -39,4 +39,10 @@ export interface ITool {
      * Used to determine the language for syntax highlighting.
      */
     codeBlockFilePaths?: (string | undefined)[];
+    /**
+     * Optional: Whether tool results should be cached.
+     * Tools that depend on external state (like file system, network, etc.)
+     * can set this to true to allow result caching.
+     */
+    shouldCache?: boolean;
 }

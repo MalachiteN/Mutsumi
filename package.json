@@ -178,6 +178,12 @@
                 "title": "Refresh Context Tree",
                 "category": "Mutsumi",
                 "icon": "$(refresh)"
+            },
+            {
+                "command": "mutsumi.clearToolCache",
+                "title": "Clear Tool Cache",
+                "category": "Mutsumi",
+                "icon": "$(clear-all)"
             }
         ],
         "menus": {

@@ -178,7 +178,8 @@ export const systemInfoTool: ITool = {
     },
     prettyPrint: (_args: any) => {
         return `💻 Mutsumi checked system info`;
-    }
+    },
+    shouldCache: true
 };
 
 export const getFileSizeTool: ITool = {
