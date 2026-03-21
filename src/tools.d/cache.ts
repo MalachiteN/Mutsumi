@@ -12,12 +12,22 @@
  * not on which Agent is requesting them.
  */
 
+import * as vscode from 'vscode';
 import { debugLogger } from '../debugLogger';
 
 /** Global tool result cache Map */
 const toolResultCache = new Map<string, string>();
 
 const CACHE_LOG_PREFIX = '[ToolCache]';
+
+/** Event emitter for cache changes */
+const _onDidChangeCache = new vscode.EventEmitter<void>();
+
+/**
+ * Event that fires when the tool cache is modified or cleared.
+ * Use this to listen for cache changes instead of directly importing this module.
+ */
+export const onDidChangeCache: vscode.Event<void> = _onDidChangeCache.event;
 
 /**
  * Unified logging function for tool cache operations.
@@ -45,12 +55,8 @@ export function generateCacheKey(toolName: string, args: any): string {
 export function clearToolCache(): void {
     cacheLog(`Clearing cache. Previous size: ${toolResultCache.size}`);
     toolResultCache.clear();
-    // Update status bar button (break dependency loop)
-    void import('../statusBar/ClearCacheButton.js').then(m => {
-        m.ClearCacheButton.getInstance().update();
-    }).catch(() => {
-        // ignore
-    });
+    // Fire event to notify listeners (e.g., status bar button)
+    _onDidChangeCache.fire();
 }
 
 /**
@@ -107,10 +113,6 @@ export function setCachedResult(toolName: string, args: any, result: string): vo
     const key = generateCacheKey(toolName, args);
     toolResultCache.set(key, result);
     cacheLog(`Stored result for "${toolName}" - cache size: ${toolResultCache.size}`);
-    // Update status bar button (break dependency loop)
-    void import('../statusBar/ClearCacheButton.js').then(m => {
-        m.ClearCacheButton.getInstance().update();
-    }).catch(() => {
-        // ignore
-    });
+    // Fire event to notify listeners (e.g., status bar button)
+    _onDidChangeCache.fire();
 }
