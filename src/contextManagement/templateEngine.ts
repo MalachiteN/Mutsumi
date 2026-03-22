@@ -22,6 +22,7 @@ export class TemplateEngine {
      * @param rootUri - Workspace root URI
      * @param allowedUris - Allowed URIs for security
      * @param mode - Parse mode (INLINE or APPEND)
+     * @param processingStack - Stack of URIs being processed (for circular reference detection)
      * @returns {Promise<{ renderedText: string; collectedItems: ContextItem[] }>}
      */
     static async render(
@@ -29,7 +30,8 @@ export class TemplateEngine {
         context: Record<string, any>,
         rootUri: vscode.Uri,
         allowedUris: string[],
-        mode: 'INLINE' | 'APPEND' = 'INLINE'
+        mode: 'INLINE' | 'APPEND' = 'INLINE',
+        processingStack: string[] = []
     ): Promise<{ renderedText: string; collectedItems: ContextItem[] }> {
         const collectedItems: ContextItem[] = [];
         
@@ -44,7 +46,8 @@ export class TemplateEngine {
             rootUri,
             allowedUris,
             mode,
-            collectedItems
+            collectedItems,
+            processingStack
         );
 
         return { renderedText, collectedItems };
@@ -59,7 +62,8 @@ export class TemplateEngine {
         rootUri: vscode.Uri,
         allowedUris: string[],
         mode: 'INLINE' | 'APPEND',
-        collectedItems: ContextItem[]
+        collectedItems: ContextItem[],
+        processingStack: string[] = []
     ): Promise<string> {
         if (!text.includes('@[')) return text;
 
@@ -105,7 +109,8 @@ export class TemplateEngine {
                     allowedUris,
                     mode,
                     collectedItems,
-                    text.substring(start, endIdx + 1)
+                    text.substring(start, endIdx + 1),
+                    processingStack
                 );
             }
 
@@ -184,12 +189,29 @@ export class TemplateEngine {
         allowedUris: string[],
         mode: 'INLINE' | 'APPEND',
         collectedItems: ContextItem[],
-        originalTag: string
+        originalTag: string,
+        processingStack: string[] = []
     ): Promise<string> {
         try {
             // Preprocess the path to handle macros
             const processedPath = pp.preprocess(content, context, { type: 'html' });
             const { uri, startLine, endLine } = parseReference(processedPath, rootUri);
+
+            // Check for circular references
+            const uriKey = uri.toString();
+            if (processingStack.includes(uriKey)) {
+                const errorMessage = `> Error: Circular reference detected: ${processingStack.join(' -> ')} -> ${uriKey}`;
+                if (mode === 'INLINE') {
+                    return errorMessage;
+                } else {
+                    collectedItems.push({
+                        type: 'file',
+                        key: processedPath,
+                        content: errorMessage
+                    });
+                    return originalTag;
+                }
+            }
             
             // Read file content
             const rawContent = await readResource(uri, startLine, endLine);
@@ -212,7 +234,8 @@ export class TemplateEngine {
                 context,
                 rootUri,
                 allowedUris,
-                'INLINE'
+                'INLINE',
+                [...processingStack, uriKey]
             );
 
             if (mode === 'INLINE') {
