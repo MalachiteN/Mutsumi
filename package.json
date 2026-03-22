@@ -10,7 +10,7 @@
     "publisher": "Malachite",
     "repository": "github:MalachiteN/Mutsumi",
     "icon": "assets/icon.png",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "engines": {
         "vscode": "^1.108.0"
     },
@@ -360,8 +360,8 @@
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",
         "watch:tsc": "npx tsc --noEmit --watch",
-        "package": "npm install && npm run check-types && node esbuild.js --production && npm prune --production",
-        "install-local": "vsce package && code --install-extension mutsumi-0.0.1.vsix --force && echo '安装完成，请在 VS Code 中执行 Developer: Reload Window'"
+        "package": "npm run check-types && node esbuild.js --production && npm prune --production",
+        "package-local": "vsce package && npm install"
     },
     "devDependencies": {
         "@electron/rebuild": "^4.0.3",
