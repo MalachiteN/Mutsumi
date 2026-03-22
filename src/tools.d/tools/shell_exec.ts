@@ -1,9 +1,18 @@
 import { ITool, ToolContext } from '../interface';
 import { resolveUri } from '../utils';
 import { requestApproval } from '../permission';
+import { toolsLogger } from '../toolsLogger';
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
+
+/**
+ * Format a log line with timestamp.
+ */
+function shellLogger(message: string): void {
+    const timestamp = new Date().toLocaleTimeString();
+    toolsLogger.logLine(`[${timestamp}] [shell] ${message}`);
+}
 
 export const shellExecTool: ITool = {
     name: 'shell',
@@ -63,20 +72,57 @@ export const shellExecTool: ITool = {
                 return 'User rejected the shell command execution.';
             }
 
-            // Execution
-            const execOptions: cp.ExecOptions = { cwd };
-            if (shellPath) {
-                execOptions.shell = shellPath;
-            }
+            // Log command start
+            shellLogger(`Command: ${cmd}`);
+            shellLogger(`Working directory: ${cwd}`);
+            shellLogger(`Shell: ${shellName}`);
+            shellLogger('--- Execution Start ---');
+
+            // Execution using spawn for streaming output
+            const spawnOptions: cp.SpawnOptions = { 
+                cwd,
+                shell: shellPath || true  // true = system default shell, or specify path
+            };
 
             return new Promise((resolve) => {
-                cp.exec(cmd, execOptions, (error, stdout, stderr) => {
-                    const outputParts = [];
+                const child = cp.spawn(cmd, [], spawnOptions);
+                
+                let stdout = '';
+                let stderr = '';
+
+                // Stream stdout to logger and buffer
+                child.stdout?.on('data', (chunk: Buffer) => {
+                    const text = chunk.toString();
+                    toolsLogger.log(text);
+                    stdout += text;
+                });
+
+                // Stream stderr to logger and buffer
+                child.stderr?.on('data', (chunk: Buffer) => {
+                    const text = chunk.toString();
+                    toolsLogger.log(text);
+                    stderr += text;
+                });
+
+                // Handle process exit
+                child.on('exit', (code, signal) => {
+                    const signalInfo = signal ? ` (signal: ${signal})` : '';
+                    shellLogger('--- Execution End ---');
+                    shellLogger(`Exit code: ${code !== null ? code : 'null'}${signalInfo}`);
+
+                    const outputParts = [`Exit Code: ${code}`];
+
                     if (stdout) outputParts.push(`STDOUT:\n${stdout}`);
                     if (stderr) outputParts.push(`STDERR:\n${stderr}`);
-                    if (error) outputParts.push(`ERROR:\n${error.message}`);
-                    
-                    resolve(outputParts.join('\n').trim() || 'Command executed with no output.');
+                    if (signal) outputParts.push(`Signal: ${signal}`);
+
+                    resolve(outputParts.join('\n\n').trim());
+                });
+
+                // Handle spawn errors (e.g., command not found)
+                child.on('error', (err) => {
+                    shellLogger(`--- Execution Error: ${err.message} ---`);
+                    resolve(`Exit Code: -1\n\nERROR:\n${err.message}`);
                 });
             });
 

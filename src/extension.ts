@@ -23,6 +23,7 @@ import { HeadlessAdapter } from './adapters/headlessAdapter';
 import { ToolRegistry } from './tools.d/toolManager';
 import { HttpServer } from './httpServer';
 import { debugLogger } from './debugLogger';
+import { toolsLogger } from './tools.d/toolsLogger';
 import { registerStatusBarItems } from './statusBar';
 
 /**
@@ -54,6 +55,9 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     // Initialize Debug Logger first so other modules can use it
     debugLogger.initialize(context);
+
+    // Initialize Tools Logger for streaming tool output
+    toolsLogger.initialize(context);
 
     // Initialize ToolRegistry (required for the new ToolSet architecture)
     ToolRegistry.initialize();

@@ -72,24 +72,35 @@ export class SkillManager {
 
     /**
      * Discover skills from all sources (workspace folders and user home)
+     * Skills from earlier workspace folders have higher priority than later ones.
+     * User home skills have the lowest priority.
      */
     private async discoverAllSkills(): Promise<void> {
-        const allSkills: SkillMetadata[] = [];
+        const skillMap = new Map<string, SkillMetadata>();
+
+        // Helper to insert skills with name-based deduplication (first wins)
+        const insertSkills = (skills: SkillMetadata[]) => {
+            for (const skill of skills) {
+                if (!skillMap.has(skill.name)) {
+                    skillMap.set(skill.name, skill);
+                }
+            }
+        };
 
         // Discover from workspace folders
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders) {
             for (const folder of workspaceFolders) {
                 const skills = await this.discoverSkillsFromDirectory(folder.uri);
-                allSkills.push(...skills);
+                insertSkills(skills);
             }
         }
 
         // Discover from user home directory
         const userHomeSkills = await this.discoverSkillsFromUserHome();
-        allSkills.push(...userHomeSkills);
+        insertSkills(userHomeSkills);
 
-        this.skills = allSkills;
+        this.skills = Array.from(skillMap.values());
     }
 
     /**
