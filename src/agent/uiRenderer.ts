@@ -184,9 +184,6 @@ export class UIRenderer {
             argsContent += '\n';
             for (const [key, value] of Object.entries(regularArgs)) {
                  // Use JSON.stringify for values to handle escaping (newlines, quotes) and complex types
-                 // But remove outer quotes if it's a string for cleaner display? 
-                 // User asked for: - `key`: `value`
-                 // If value has newlines, JSON.stringify converts them to \n which is what we want (escaped)
                  const valStr = JSON.stringify(value);
                  argsContent += `- \`${key}\`: \`${valStr}\`\n`;
             }
@@ -196,9 +193,7 @@ export class UIRenderer {
         if (toolResult !== undefined) {
             resultBlock = `
 **Result:**
-\`\`\`\`
-${toolResult}
-\`\`\`\`
+<pre><code>${toolResult}</code></pre>
 `;
         }
 
