@@ -3,238 +3,239 @@
 
   <h1>🥳 Mutsumi</h1>
   
-  <p><strong>VS Code 多 Agent 笔记本环境</strong></p>
+  <p><strong>Multi-Agent Notebook Environment for VS Code</strong></p>
   
-  <!-- TODO: 在此处添加 Shields.io 徽章 -->
+  <!-- TODO: Add Shields.io badges here -->
   <!--
   [![Version](https://img.shields.io/visual-studio-marketplace/v/MalachiteN.mutsumi)](https://marketplace.visualstudio.com/items?itemName=MalachiteN.mutsumi)
   -->
   [![License](https://img.shields.io/github/license/MalachiteN/Mutsumi)](LICENSE)
   [![VS Code Version](https://img.shields.io/badge/VS%20Code-%5E1.108.0-blue)](https://code.visualstudio.com/)
   
-  <!-- TODO: 在此处添加演示 GIF/截图 -->
+  <!-- TODO: Add demo GIF/screenshot here -->
   <!-- <img src="assets/demo.gif" alt="Mutsumi Demo" width="800"> -->
 </div>
 
-Mutsumi 是一款 VS Code LLM Agent 插件，与 VS Code 深度集成，致力于对上下文空间的完全掌控，让 LLM 的注意力始终聚焦于关键之处。同时，设计上也考虑到了对 API 调用次数、Tokens 消耗的尽量节省。
+[中文版](README_zh.md)
+
+Mutsumi is a VS Code LLM Agent extension, deeply integrated with VS Code, committed to complete control over the context space, keeping LLM attention always focused on what matters. It is also designed with consideration for minimizing API call counts and Token consumption.
 
 <img width="1000" alt="Image" src="assets/Notebook.png" />
 
 ---
 
-## ✨ 核心特性
+## ✨ Core Features
 
-### 📝 Notebook 原生体验
+### 📝 Native Notebook Experience
 
-告别传统侧边栏对话，Mutsumi 利用 **NotebookSerializer**：
+Say goodbye to traditional sidebar conversations. Mutsumi leverages **NotebookSerializer**:
 
 <img width="1000" alt="Image" src="assets/Multiwindow.png" />
 
-- **VSCode 编辑器窗格** — Agent 对话页面作为 `.mtm` 文件的 Notebook Editor，与其他文件并排打开
-- **灵活窗口布局** — 支持分屏、多窗口，自由组织工作空间
-- **持久化会话** — 对话历史持久化到 Notebook 数据，可用 git 管理，可分享，可随时恢复工作状态
+- **VS Code Editor Panes** — Agent conversation pages as Notebook Editors for `.mtm` files, opening side-by-side with other files
+- **Flexible Window Layouts** — Supports split-screen and multiple windows for free workspace organization
+- **Persistent Sessions** — Conversation history persisted to Notebook data, manageable with git, shareable, and allowing state restoration anytime
 
-### 工具调用与文件引用预执行
+### Tool Invocation and File Reference Pre-execution
 
-当用户已知 LLM 必然需要某段文件内容或工具执行结果时，可以预先执行工具调用或文件引用，将结果插入上下文的幽灵块中，令 LLM 不必浪费宝贵的上下文预算来推理出自己需要调用工具，再浪费宝贵的 API 额度去反复发送会话历史记录。
+When the user knows the LLM will inevitably need certain file content or tool execution results, tools can be pre-executed or files referenced, inserting results into ghost blocks in the context. This saves the LLM from wasting precious context budget reasoning about needed tool calls, and wasting valuable API quota repeatedly sending conversation history.
 
 <img width="1000" alt="Image" src="assets/Generate.gif" />
 
 ```markdown
-@[src/main.ts]                      ← 引用文件
-@[src/utils.ts:10:20]               ← 引用指定行数
-@[read_file{"uri": "path/to/file"}] ← 预执行工具
+@[src/main.ts]                      ← Reference file
+@[src/utils.ts:10:20]               ← Reference specific line range
+@[read_file{"uri": "path/to/file"}] ← Pre-execute tool
 ```
 
-上下文中间件会保持跟踪被引文件的最新版本及其哈希。若哈希相比最新版本未变，则会注入一条让 Agent 回溯历史记录的命令；哈希变化，则会注入最新版本文件内容，并 bump version。
+Context middleware tracks the latest version and hash of referenced files. If the hash is unchanged from the latest version, a command is injected for the Agent to trace back through historical records; if the hash changes, the latest file content is injected and version bumped.
 
-Rules 或被引文件也可以使用 @[] schema 递归插入文件或预执行工具。例如 [我们的默认 Rules 文件](assets/default.md)。
+Rules or referenced files can also recursively insert files or pre-execute tools using the `@[]` schema. For example, [our default Rules file](assets/default_en.md).
 
-### 🛠️ 预处理器与宏支持
+### 🛠️ Preprocessor and Macro Support
 
-引用文件、Rules 支持**预处理器命令**。
+Referenced files and Rules support **preprocessor commands**.
 
-用户使用 `@{define 宏名, 值}` 一类的语句定义宏，然后可调用如下包含预处理器命令的文件：
+Users define macros using statements like `@{define macro_name, value}`, and can then invoke files containing preprocessor commands:
 
 ```markdown
 <!-- @ifdef xxx -->
-如果定义了宏xxx，那么这一行将对Agent可见
+If macro xxx is defined, this line will be visible to the Agent
 <!-- @endif -->
 ```
 
-本项目使用 [`preprocess`](https://github.com/jsoverson/preprocess) 库实现强大的预处理能力。
+This project uses the [`preprocess`](https://github.com/jsoverson/preprocess) library for powerful preprocessing capabilities.
 
-### 🔍 可观测性
+### 🔍 Observability
 
-在发送会话历史记录到 OpenAI Compatible 端点之前，就可以预先查看待发送内容的装配结果，不用等到已花费 Tokens 生成了低质量内容才发现上下文组装失误。
+Before sending conversation history to OpenAI Compatible endpoints, you can preview the assembled content in advance—no need to wait until Tokens have been spent generating low-quality content before discovering context assembly errors.
 
 <img width="1000" alt="Image" src="assets/DebugContext.gif" />
 
-同样的，也可以预先查看 RAG 搜索的结果。
+Similarly, you can also preview RAG search results in advance.
 
-### 🌘 多主题颜色兼容
+### 🌘 Multi-Theme Compatibility
 
-兼容深色主题和浅色主题，气泡底纹颜色自动变化：
+Compatible with both dark and light themes, with bubble background colors changing automatically:
 
 <img width="1000" alt="Image" src="assets/Themes.gif" />
 
-### 🌐 多工作区原生支持
+### 🌐 Native Multi-Workspace Support
 
-几乎所有工具操作都原生支持**多工作区**：
+Almost all tool operations natively support **multi-workspace**:
 
 <img width="1000" alt="Image" src="assets/Multiroot.png" />
 
-兼容的工作区类型包括但不限于：
+Compatible workspace types include but are not limited to:
 
-- 多根工作区
-- 其他插件的 `FileSystemProvider` 特殊 schema
-- 任何支持读写的虚拟文件系统
+- Multi-root workspaces
+- Special schemas from other extensions' `FileSystemProvider`
+- Any virtual file system supporting read/write
 
-### 🔓 解锁无限能力
+### 🔓 Unlock Unlimited Capabilities
 
-兼容 Anthropic 提出的 Skills 机制，而不止于此。
+Compatible with Anthropic's proposed Skills mechanism, and beyond.
 
 <img width="1000" alt="Image" src="assets/Skills.png" />
 
-它会自动读取：
+It automatically reads:
 
-- 你的**家目录**下的 `.agents/skills/*/SKILL.md`
-- 当前多根工作区下的**每个**工作区根目录下的 `.agents/skills/*/SKILL.md`
+- `SKILL.md` files under `~/.agents/skills/*/` in your **home directory**
+- `SKILL.md` files under `.agents/skills/*/` in **each** workspace root of the current multi-root workspace
 
-来注册 Skills。
+to register Skills.
 
-### 🥳 子母 Agent 范式
+### 🥳 Parent-Child Agent Paradigm
 
-不同于传统单对话流的长对话模式，Mutsumi 实现了**多 Agent 协作**系统：
+Unlike traditional single-conversation long-dialogue modes, Mutsumi implements a **multi-Agent collaboration** system:
 
 <img width="1000" alt="Image" src="assets/Fork.gif" />
 
-- **任务分治能力** — 将复杂任务分解为多个子任务，由子 Agent 并行处理
-- **避免注意力稀释** — 防止单一会话长上下文 Softmax 导致的生成质量降低
-- **边栏调度中心** — 通过侧边栏集中管理所有 Agent 会话
-- **可控与可审计性** — 需审批启动，可编辑 Prompt，可打断，可对话更正
+- **Task Decomposition Capability** — Break complex tasks into multiple sub-tasks, processed in parallel by sub-Agents
+- **Prevent Attention Dilution** — Avoid generation quality degradation caused by Softmax over long context in single sessions
+- **Sidebar Dispatch Center** — Centralized management of all Agent sessions through the sidebar
+- **Controllability and Auditability** — Requires approval to start, editable Prompts, can be interrupted, can be corrected through conversation
 
 ---
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 安装
+### Installation
 
 ```bash
-# 从源码构建
+# Build from source
 npm install
-npm run compile
 vsce package
 
-# 本地安装到 VS Code
-code --install-extension mutsumi-【版本号】.vsix
+# Install locally to VS Code
+code --install-extension mutsumi-[version].vsix
 ```
 
-### 配置
+### Configuration
 
-如果你使用自己的中转 API，在 VS Code 设置中配置 `mutsumi.apiKey`、`mutsumi.baseUrl` 等，即可开始使用。注意，你可能需要覆盖默认 `mutsumi.models` 对象。
+If you use your own proxy API, configure `mutsumi.apiKey`, `mutsumi.baseUrl`, etc. in VS Code settings to start using. Note that you may need to override the default `mutsumi.models` object.
 
-不过，本 Agent 框架专门围绕 Kimi K2.5 基模调性优化设计，推荐使用 [zenmux](https://zenmux.ai) 聚合平台或 [Kimi 开放平台](https://platform.moonshot.cn/) 使用 Kimi K2.5。
+However, this Agent framework is specifically designed and optimized around the Kimi K2.5 base model. It is recommended to use [zenmux](https://zenmux.ai) aggregation platform or [Kimi Open Platform](https://platform.moonshot.cn/) to use Kimi K2.5.
 
-### 创建第一个 Agent
+### Create Your First Agent
 
-1. 按 Ctrl+Shift+P 打开命令面板
-2. 点击 **Mutsumi: New Agent** 创建新会话
-3. 在 `.mtm` 笔记本文件中开始对话
-4. 使用 `@[文件路径]` 语法引用代码文件
+1. Press Ctrl+Shift+P to open the Command Palette
+2. Click **Mutsumi: New Agent** to create a new session
+3. Start the conversation in the `.mtm` notebook file
+4. Use the `@[file_path]` syntax to reference code files
 
 ---
 
-## 🛠️ 内置工具
+## 🛠️ Built-in Tools
 
-Mutsumi 提供丰富的内置工具，支持智能任务执行：
+Mutsumi provides rich built-in tools for intelligent task execution:
 
-- **文件操作** — `read_file`, `edit_file`, `create_file`, `ls`, `get_file_size`
-- **代码搜索** — `search_file_contains_keyword`, `search_file_name_includes`, `project_outline`, `query_codebase`
-- **执行控制** — `shell`, `get_env_var`, `system_info`
-- **文件编辑** — `edit_file_search_replace`, `edit_file_full_replace`
-- **Agent 编排** — `self_fork`, `get_available_models`, `task_finish`
+- **File Operations** — `read_file`, `edit_file`, `create_file`, `ls`, `get_file_size`
+- **Code Search** — `search_file_contains_keyword`, `search_file_name_includes`, `project_outline`, `query_codebase`
+- **Execution Control** — `shell`, `get_env_var`, `system_info`
+- **File Editing** — `edit_file_search_replace`, `edit_file_full_replace`
+- **Agent Orchestration** — `self_fork`, `get_available_models`, `task_finish`
 
 ---
 
-## 📝 动态上下文技术详解
+## 📝 Dynamic Context Technology Deep Dive
 
-Mutsumi 采用六阶段动态上下文管理架构：
+Mutsumi adopts a six-phase dynamic context management architecture:
 
-1. 环境与宏初始化 — 加载持久化的上下文状态和宏定义
-2. System Prompt 构建 — 集成 Rules 和运行时环境
-3. 用户输入解析 — TemplateEngine 递归处理文件引用
-4. 增量快照与版本控制 — 智能检测变更，节省 Token
-5. 持久化与元数据更新 — 保存幽灵块到 Cell Metadata
-6. 最终消息组装 — 前缀一致，最大化利用 LLM 的 KV Cache
+1. Environment and Macro Initialization — Load persisted context state and macro definitions
+2. System Prompt Construction — Integrate Rules and runtime environment
+3. User Input Parsing — TemplateEngine recursively processes file references
+4. Incremental Snapshots and Version Control — Intelligent change detection to save Tokens
+5. Persistence and Metadata Update — Save ghost blocks to Cell Metadata
+6. Final Message Assembly — Consistent prefix to maximize LLM KV Cache utilization
 
-### 递归文件引用与工具预执行的解析
+### Recursive File Reference and Tool Pre-execution Parsing
 
-使用 `@[路径]` 语法，TemplateEngine 会递归解析嵌套引用，并预执行工具调用：
+Using the `@[path]` syntax, the TemplateEngine recursively parses nested references and pre-executes tool calls:
 
 ```
-用户输入: "阅读 @[doc/main.md]"
+User Input: "Read @[doc/main.md]"
     ↓
-发现 @[doc/main.md] → 读取文件、运行预处理器
+Discover @[doc/main.md] → Read file, run preprocessor
     ↓
-发现内部引用 @[doc/utils.md] → 递归解析
+Discover internal reference @[doc/utils.md] → Recursively parse
     ↓
-返回展开后的完整内容（main.md 已包含 utils.md）
+Return expanded complete content (main.md already contains utils.md)
     ↓
-发现其中包括的 @[ls{"uri": "path/to/codebase"}] → 预执行工具
+Discover included @[ls{"uri": "path/to/codebase"}] → Pre-execute tool
 ```
 
-**APPEND 模式**（顶层）：内容收集到幽灵块  
-**INLINE 模式**（递归层）：内容直接替换原标签嵌入父文件
+**APPEND Mode** (top-level): Content collected into ghost blocks  
+**INLINE Mode** (recursive layers): Content directly replaces original tags and embeds into parent file
 
-### 幽灵块（Ghost Block）结构
+### Ghost Block Structure
 
 ````markdown
 <content_reference>
-以下是用户使用@引用的文件（或其最新版本状态）：
+The following are files referenced by the user via @ (or their latest version status):
 
 # Source: src/utils.ts (v1)
 > Content unchanged. See previous version (v1).
 
 # Source: src/new-feature.ts (v2)
 ```typescript
-... (完整的新内容) ...
+... (complete new content) ...
 ```
 </content_reference>
 ````
 
-### 宏的生命周期
+### Macro Lifecycle
 
-- **定义**：`@{define KEY, VALUE}`
-- **作用域**：空间上影响 Prompt、文件路径、文件内容、工具参数
-- **持久化**：写入 Notebook Metadata，跨轮次永久有效
+- **Definition**: `@{define KEY, VALUE}`
+- **Scope**: Affects Prompts, file paths, file content, and tool parameters spatially
+- **Persistence**: Written to Notebook Metadata, permanently effective across rounds
 
 ---
 
 ## 🙏 Credits
 
-本项目使用以下开源项目及其许可证声明：
+This project uses the following open source projects and their license declarations:
 
-### 核心依赖
+### Core Dependencies
 
-| 项目 | 版本 | 许可证 | 用途 |
-|------|------|--------|------|
-| [openai](https://github.com/openai/openai-node) | ^6.17.0 | Apache-2.0 | OpenAI API 客户端 |
-| [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | ^12.8.0 | MIT | SQLite 数据库引擎 |
-| [sqlite-vec](https://github.com/asg017/sqlite-vec) | ^0.1.7-alpha.2 | MIT | SQLite 向量扩展，用于 RAG |
-| [diff](https://github.com/kpdecker/jsdiff) | ^8.0.3 | BSD-3-Clause | 文本差异对比 |
-| [gray-matter](https://github.com/jonschlinkert/gray-matter) | ^4.0.3 | MIT | Markdown 元数据解析 |
-| [preprocess](https://github.com/jsoverson/preprocess) | ^3.2.0 | Apache-2.0 | 文件预处理器宏 |
-| [uuid](https://github.com/uuidjs/uuid) | ^9.0.1 | MIT | UUID 生成 |
-| [web-tree-sitter](https://github.com/tree-sitter/tree-sitter) | ^0.22.2 | MIT | 语法树解析 |
+| Project | Version | License | Purpose |
+|---------|---------|---------|---------|
+| [openai](https://github.com/openai/openai-node) | ^6.17.0 | Apache-2.0 | OpenAI API client |
+| [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | ^12.8.0 | MIT | SQLite database engine |
+| [sqlite-vec](https://github.com/asg017/sqlite-vec) | ^0.1.7-alpha.2 | MIT | SQLite vector extension for RAG |
+| [diff](https://github.com/kpdecker/jsdiff) | ^8.0.3 | BSD-3-Clause | Text diff comparison |
+| [gray-matter](https://github.com/jonschlinkert/gray-matter) | ^4.0.3 | MIT | Markdown metadata parsing |
+| [preprocess](https://github.com/jsoverson/preprocess) | ^3.2.0 | Apache-2.0 | File preprocessor macros |
+| [uuid](https://github.com/uuidjs/uuid) | ^9.0.1 | MIT | UUID generation |
+| [web-tree-sitter](https://github.com/tree-sitter/tree-sitter) | ^0.22.2 | MIT | Syntax tree parsing |
 
-感谢所有开源贡献者！🙏
+Thanks to all open source contributors! 🙏
 
 ---
 
-## 📄 许可证
+## 📄 License
 
-本项目采用 [Apache License 2.0](LICENSE) 开源许可证。
+This project is licensed under [Apache License 2.0](LICENSE).
 
 ---
 
