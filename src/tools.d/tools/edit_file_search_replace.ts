@@ -10,20 +10,27 @@ export const editFileSearchReplaceTool: ITool = {
         type: 'function',
         function: {
             name: 'edit_file_search_replace',
-            description: 'Replace parts of a file using one or more SEARCH/REPLACE blocks. Multiple blocks are supported and will be applied in order. The format of each SEARCH/REPLACE block is below: \n<<<<<<<SEARCH\n...\n=======\n...\n>>>>>>>REPLACE\n\nMultiple blocks example:\n<<<<<<<SEARCH\noldText1\n=======\nnewText1\n>>>>>>>REPLACE\n\n<<<<<<<SEARCH\noldText2\n=======\nnewText2\n>>>>>>>REPLACE',
+            description: 'Replace parts of a file using search and replace. The search_replace parameter specifies the content to be replaced, and new_content specifies the replacement content.',
             parameters: {
                 type: 'object',
                 properties: { 
                     uri: { type: 'string' }, 
-                    search_replace: { type: 'string' } 
+                    search_replace: { 
+                        type: 'string',
+                        description: 'The content to search for and replace in the file.'
+                    },
+                    new_content: {
+                        type: 'string',
+                        description: 'The new content to replace the search content with.'
+                    }
                 },
-                required: ['uri', 'search_replace']
+                required: ['uri', 'search_replace', 'new_content']
             }
         }
     },
     execute: async (args: any, context: ToolContext) => {
-        if (!args.uri || !args.search_replace) {
-            return 'Error: Missing arguments (uri, search_replace).';
+        if (!args.uri || args.search_replace === undefined || args.new_content === undefined) {
+            return 'Error: Missing arguments (uri, search_replace, new_content).';
         }
 
         const uri = resolveUri(args.uri);
@@ -39,89 +46,39 @@ export const editFileSearchReplaceTool: ITool = {
             return `Error reading file: ${e.message}`;
         }
 
-        // Parse and apply multiple search/replace blocks
-        const searchMarker = '<<<<<<<SEARCH';
-        const midMarker = '=======';
-        const endMarker = '>>>>>>>REPLACE';
+        const search = args.search_replace;
+        const replace = args.new_content;
 
-        const blocks: Array<{ search: string; replace: string }> = [];
-        let currentPos = 0;
-        const blockContent = args.search_replace;
-
-        // Parse all blocks
-        while (currentPos < blockContent.length) {
-            const searchStart = blockContent.indexOf(searchMarker, currentPos);
-            if (searchStart === -1) {
-                break;
-            }
-
-            const midStart = blockContent.indexOf(midMarker, searchStart);
-            if (midStart === -1) {
-                return 'Error: Invalid search_replace format. Missing ======= marker.';
-            }
-
-            const endStart = blockContent.indexOf(endMarker, midStart);
-            if (endStart === -1) {
-                return 'Error: Invalid search_replace format. Missing >>>>>>>REPLACE marker.';
-            }
-
-            const searchContent = blockContent.substring(searchStart + searchMarker.length, midStart).trim();
-            const replaceContent = blockContent.substring(midStart + midMarker.length, endStart).trim();
-
-            if (searchContent === '') {
-                return 'Error: SEARCH block cannot be empty.';
-            }
-
-            blocks.push({ search: searchContent, replace: replaceContent });
-            currentPos = endStart + endMarker.length;
-        }
-
-        if (blocks.length === 0) {
-            return 'Error: No valid SEARCH/REPLACE blocks found. Use:\n<<<<<<<SEARCH\n...\n=======\n...\n>>>>>>>REPLACE';
-        }
-
-        // Apply all replacements in order
-        let newContent = originalContent;
+        // Normalize for line ending handling
         const normalize = (s: string) => s.replace(/\r\n/g, '\n');
-        let appliedCount = 0;
-        let errors: string[] = [];
 
-        for (const block of blocks) {
-            const { search, replace } = block;
+        let newContent = originalContent;
+        let applied = false;
+
+        if (originalContent.includes(search)) {
+            newContent = originalContent.replace(search, replace);
+            applied = true;
+        } else {
+            // Try normalized version (handle different line endings)
+            const normContent = normalize(originalContent);
+            const normSearch = normalize(search);
             
-            if (newContent.includes(search)) {
-                newContent = newContent.replace(search, replace);
-                appliedCount++;
-            } else {
-                // Try normalized version (handle different line endings)
-                const normContent = normalize(newContent);
-                const normSearch = normalize(search);
-                
-                if (normContent.includes(normSearch)) {
-                    newContent = normContent.replace(normSearch, replace);
-                    appliedCount++;
-                } else {
-                    errors.push(`Could not find SEARCH block:\n${search.substring(0, 200)}${search.length > 200 ? '...' : ''}`);
-                }
+            if (normContent.includes(normSearch)) {
+                newContent = normContent.replace(normSearch, replace);
+                applied = true;
             }
         }
 
-        // Report errors if any block failed
-        if (errors.length > 0) {
-            const errorMsg = `Error: ${errors.length} block(s) could not be applied:\n\n${errors.join('\n\n')}`;
-            if (appliedCount === 0) {
-                return errorMsg;
-            }
-            // Partial success - return error but don't proceed with edit
-            return `${errorMsg}\n\n(Only ${appliedCount} of ${blocks.length} blocks were applied)`;
+        if (!applied) {
+            return `Error: Could not find the search content in file.\n\nSearch content:\n${search.substring(0, 500)}${search.length > 500 ? '...' : ''}`;
         }
 
         // Delegate to core edit handler
         return handleEdit(args.uri, newContent, context, 'edit_file_search_replace');
     },
     prettyPrint: (args: any) => {
-        return `✏️ Mutsumi edited ${args.uri || '(unknown file)'} (search/replace)`;
+        return `✏️ Mutsumi edited ${args.uri || '(unknown file)'}`;
     },
-    argsToCodeBlock: ['search_replace'],
-    codeBlockFilePaths: ['uri']
+    argsToCodeBlock: ['search_replace', 'new_content'],
+    codeBlockFilePaths: ['uri', 'uri']
 };
