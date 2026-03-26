@@ -191,9 +191,14 @@ export class UIRenderer {
 
         let resultBlock = '';
         if (toolResult !== undefined) {
+            const escapedResult = toolResult
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            
             resultBlock = `
 **Result:**
-<pre><code>${toolResult}</code></pre>
+<pre><code>${escapedResult}</code></pre>
 `;
         }
 
