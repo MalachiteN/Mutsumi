@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import { getModelsConfig } from '../utils';
 import { AgentStateInfo, ContextItem } from '../types';
 
@@ -296,6 +297,55 @@ export class AgentFileOperations {
         } catch (e) {
             console.error('Failed to update parent sub_agents_list:', e);
             return false;
+        }
+    }
+
+    /**
+     * Sanitizes an agent file by generating a new UUID and clearing parent/child relationships.
+     * @static
+     * @description Used when detecting duplicate UUIDs (e.g., copied files). 
+     * Generates new UUID, renames agent to "Copy of {original_name}", clears parent_agent_id and sub_agents_list.
+     * Performs raw JSON file operations without involving Notebook API.
+     * @param {vscode.Uri} uri - URI of the .mtm file to sanitize
+     * @returns {Promise<{ newUuid: string; newMetadata: any }>} The new UUID and updated metadata
+     * @throws {Error} If file is not a .mtm file or if reading/writing fails
+     * @example
+     * const { newUuid, newMetadata } = await AgentFileOperations.sanitizeAgentFile(uri);
+     */
+    public static async sanitizeAgentFile(uri: vscode.Uri): Promise<{ newUuid: string; newMetadata: any }> {
+        // Validate file extension
+        if (!uri.path.endsWith('.mtm')) {
+            throw new Error(`File ${uri.path} is not a .mtm file`);
+        }
+
+        try {
+            // Read file content
+            const content = await vscode.workspace.fs.readFile(uri);
+            const data = JSON.parse(new TextDecoder().decode(content));
+
+            if (!data.metadata) {
+                throw new Error(`Invalid mtm file: missing metadata`);
+            }
+
+            // Generate new UUID
+            const newUuid = uuidv4();
+
+            // Update metadata
+            const originalName = data.metadata.name || 'Unknown Agent';
+            data.metadata.uuid = newUuid;
+            data.metadata.name = `Copy of ${originalName}`;
+            data.metadata.parent_agent_id = null;
+            data.metadata.sub_agents_list = [];
+            data.metadata.created_at = new Date().toISOString();
+
+            // Write back to file
+            const encoded = new TextEncoder().encode(JSON.stringify(data, null, 2));
+            await vscode.workspace.fs.writeFile(uri, encoded);
+
+            return { newUuid, newMetadata: data.metadata };
+        } catch (e) {
+            console.error(`[AgentFileOperations] Failed to sanitize agent file ${uri.path}:`, e);
+            throw e;
         }
     }
 }

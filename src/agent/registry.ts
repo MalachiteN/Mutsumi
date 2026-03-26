@@ -3,8 +3,10 @@
  * @module agent/registry
  */
 
+import * as vscode from 'vscode';
 import { AgentStateInfo } from '../types';
 import { debugLogger } from '../debugLogger';
+import { AgentFileOperations } from './fileOps';
 
 /**
  * Agent Registry - Singleton class for managing agent state information.
@@ -77,6 +79,55 @@ export class AgentRegistry {
         const isUpdate = this.agentRegistry.has(uuid);
         this.agentRegistry.set(uuid, agent);
         debugLogger.log(`[AgentRegistry] ${isUpdate ? 'Updated' : 'Registered'} agent: ${agent.name} (${uuid})`);
+    }
+
+    /**
+     * Sets an agent with conflict detection and resolution.
+     * @description Checks if an agent with the same UUID already exists with a different file URI.
+     * If so, sanitizes the file (generates new UUID, clears relationships) and registers with the new UUID.
+     * @param {AgentStateInfo} agent - Agent state information to store
+     * @returns {Promise<string>} The UUID actually used (may be different from agent.uuid if conflict was resolved)
+     * @example
+     * const finalUuid = await registry.setAgentWithConflictCheck(agent);
+     */
+    public async setAgentWithConflictCheck(agent: AgentStateInfo): Promise<string> {
+        const existing = this.agentRegistry.get(agent.uuid);
+        
+        // Check if there's a conflict: same UUID but different file URI
+        if (existing && existing.fileUri !== agent.fileUri) {
+            debugLogger.log(`[AgentRegistry] UUID conflict detected: ${agent.uuid} exists at ${existing.fileUri}, but trying to register from ${agent.fileUri}`);
+            
+            try {
+                // Sanitize the file to get a new UUID
+                const fileUri = vscode.Uri.parse(agent.fileUri);
+                const { newUuid, newMetadata } = await AgentFileOperations.sanitizeAgentFile(fileUri);
+                
+                // Update agent info with new UUID and metadata
+                agent.uuid = newUuid;
+                agent.name = newMetadata.name;
+                agent.parentId = null;
+                agent.childIds = new Set();
+                
+                debugLogger.log(`[AgentRegistry] File sanitized. New UUID: ${newUuid}, Name: ${agent.name}`);
+                
+                // Register with new UUID
+                this.agentRegistry.set(newUuid, agent);
+                debugLogger.log(`[AgentRegistry] Registered sanitized agent: ${agent.name} (${newUuid})`);
+                return newUuid;
+            } catch (e) {
+                console.error('[AgentRegistry] Failed to sanitize agent file:', e);
+                // Fall back to original behavior if sanitization fails
+                this.agentRegistry.set(agent.uuid, agent);
+                debugLogger.log(`[AgentRegistry] Registered agent (fallback): ${agent.name} (${agent.uuid})`);
+                return agent.uuid;
+            }
+        }
+        
+        // No conflict or same file URI - register normally
+        const isUpdate = this.agentRegistry.has(agent.uuid);
+        this.agentRegistry.set(agent.uuid, agent);
+        debugLogger.log(`[AgentRegistry] ${isUpdate ? 'Updated' : 'Registered'} agent: ${agent.name} (${agent.uuid})`);
+        return agent.uuid;
     }
 
     /**
