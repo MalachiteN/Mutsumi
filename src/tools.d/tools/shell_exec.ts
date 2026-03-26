@@ -62,7 +62,7 @@ export const shellExecTool: ITool = {
             // User Approval via sidebar
             const details = `Command:\n${cmd}\n\nShell: ${shellName}`;
             const approved = await requestApproval(
-                `Execute Shell Command at ${uriInput}`,
+                `Execute "${cmd}" at ${uriInput}`,
                 uriInput,
                 context,
                 details
