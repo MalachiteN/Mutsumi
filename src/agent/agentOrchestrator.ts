@@ -57,15 +57,14 @@ export class AgentOrchestrator {
     /**
      * Initializes the Orchestrator.
      * Loads all existing agent files from disk into the registry at startup.
+     * Handles UUID conflicts (e.g., copied files) by sanitizing them.
      */
     public async initialize(): Promise<void> {
         try {
             const agents = await AgentFileOperations.scanAllAgents();
             for (const agent of agents) {
-                // Ensure we don't overwrite if for some reason already present (though init runs first)
-                if (!this.registry.hasAgent(agent.uuid)) {
-                    this.registry.setAgent(agent.uuid, agent);
-                }
+                // Use conflict check to handle copied files with duplicate UUIDs
+                await this.registry.setAgentWithConflictCheck(agent);
             }
             console.log(`[AgentOrchestrator] Initialized with ${agents.length} agents from disk.`);
         } catch (e) {
@@ -193,42 +192,34 @@ export class AgentOrchestrator {
     /**
      * Notifies that a notebook document has been opened.
      * @description Called when a notebook document is opened (e.g. creating a new agent or opening file).
-     * Ensures the agent is in the registry.
+     * Ensures the agent is in the registry. Handles UUID conflicts (copied files) by sanitizing.
      * @param {string} uuid - Agent UUID
      * @param {vscode.Uri} uri - Document URI
      * @param {any} metadata - Notebook metadata
      */
     public async notifyNotebookDocumentOpened(uuid: string, uri: vscode.Uri, metadata: any): Promise<void> {
-        // We only add to registry if it doesn't exist (e.g. New Agent command)
-        // or update URI if it exists (e.g. file move/rename handled elsewhere but good to be safe)
-        let agent = this.registry.getAgent(uuid);
         const isFinished = !!metadata?.is_task_finished;
         const childIds = new Set<string>(metadata?.sub_agents_list || []);
 
-        if (!agent) {
-            agent = {
-                uuid,
-                parentId: metadata.parent_agent_id || null,
-                name: metadata.name || 'Unknown Agent',
-                fileUri: uri.toString(),
-                isWindowOpen: false, // Default to false, strictly controlled by tab check
-                isRunning: false,
-                isTaskFinished: isFinished,
-                childIds
-            };
-            this.registry.setAgent(uuid, agent);
-        } else {
-            // Update properties that might have changed on disk or via metadata
-            agent.fileUri = uri.toString();
-            // Merge childIds just in case, though mostly controlled by file
-            // Actually, we trust the file/metadata source of truth here
-            agent.childIds = childIds; 
-            if (isFinished) {
-                agent.isTaskFinished = true;
-            }
-            if (metadata.parent_agent_id !== undefined) {
-                agent.parentId = metadata.parent_agent_id;
-            }
+        // Build agent info from metadata
+        let agent: AgentStateInfo = {
+            uuid,
+            parentId: metadata.parent_agent_id || null,
+            name: metadata.name || 'Unknown Agent',
+            fileUri: uri.toString(),
+            isWindowOpen: false, // Default to false, strictly controlled by tab check
+            isRunning: false,
+            isTaskFinished: isFinished,
+            childIds
+        };
+
+        // Use conflict check to handle copied files with duplicate UUIDs
+        // This will sanitize the file and return a new UUID if there's a conflict
+        const finalUuid = await this.registry.setAgentWithConflictCheck(agent);
+
+        // If UUID was changed due to conflict, update our reference
+        if (finalUuid !== uuid) {
+            console.log(`[AgentOrchestrator] Agent registered with new UUID after conflict resolution: ${finalUuid}`);
         }
 
         // Trigger a tab sync to ensure state is consistent with actual tabs.
