@@ -8,6 +8,7 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getModelsConfig } from '../utils';
 import { AgentStateInfo, ContextItem } from '../types';
+import { resolveAgentDefaults } from '../config/resolver';
 
 /**
  * Handles file-based operations for agents.
@@ -125,10 +126,9 @@ export class AgentFileOperations {
      * @param {string | null} parentId - Parent agent ID or null
      * @param {string} [prompt] - Initial prompt for the agent (used for name generation). If undefined or empty, agent name will be "New Agent" and context will be empty.
      * @param {string[]} allowedUris - Allowed URIs for the agent
-     * @param {string} [model] - Model identifier to use
+     * @param {string} [model] - Model identifier to use (overrides agent type default)
      * @param {ContextItem[]} [contextItems] - Context items for the agent
-     * @param {string[]} [activeRules] - Active rules for the agent
-     * @param {string[]} [activeSkills] - Active skills for the agent
+     * @param {string} agentType - Agent type identifier (e.g., 'implementer', 'orchestrator', 'readonly-expert')
      * @returns {Promise<vscode.Uri | undefined>} The created file URI or undefined on failure
      * @example
      * const uri = await AgentFileOperations.createAgentFile(
@@ -136,7 +136,9 @@ export class AgentFileOperations {
      *   'parent-456',
      *   'Process files',
      *   ['/workspace'],
-     *   'gpt-4'
+     *   'gpt-4',
+     *   [],
+     *   'implementer'
      * );
      */
     public static async createAgentFile(
@@ -144,10 +146,9 @@ export class AgentFileOperations {
         parentId: string | null,
         prompt: string | undefined,
         allowedUris: string[],
+        agentType: string,
         model?: string,
-        contextItems?: ContextItem[],
-        activeRules?: string[],
-        activeSkills?: string[]
+        contextItems?: ContextItem[]
     ): Promise<vscode.Uri | undefined> {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri;
         if (!workspaceRoot) {
@@ -168,13 +169,21 @@ export class AgentFileOperations {
             // Directory may already exist
         }
 
-        // Get configuration for default model
+        // Get configuration for default model validation
         const config = vscode.workspace.getConfiguration('mutsumi');
-        const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
+        const vscodeDefaultModel = config.get<string>('defaultModel') || 'moonshotai/kimi-k2.5';
         const availableModels = getModelsConfig();
         const availableModelNames = Object.keys(availableModels);
 
-        const selectedModel = (model && availableModelNames.includes(model)) ? model : defaultModel;
+        // Resolve agent type defaults using centralized resolver
+        const defaults = resolveAgentDefaults(agentType, {
+            model
+        });
+
+        // Validate model against available models
+        const selectedModel = (defaults.model && availableModelNames.includes(defaults.model)) 
+            ? defaults.model 
+            : vscodeDefaultModel;
 
         // Determine name and context based on prompt
         const hasPrompt = prompt && prompt.trim().length > 0;
@@ -192,8 +201,9 @@ export class AgentFileOperations {
                 model: selectedModel,
                 sub_agents_list: [],  // New agent starts with empty sub-agent list
                 contextItems: contextItems || [],
-                activeRules: activeRules || [],
-                activeSkills: activeSkills || []
+                activeRules: defaults.rules,
+                activeSkills: defaults.skills,
+                agentType: agentType  // Store the agent type in metadata
             },
             context: context
         };

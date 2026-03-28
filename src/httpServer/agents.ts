@@ -6,6 +6,7 @@ import { AgentRegistry } from '../agent/registry';
 import { initializeRules } from '../contextManagement/prompts';
 import { getAvailableRules } from './utils';
 import { MutsumiSerializer } from '../notebook/serializer';
+import { resolveAgentDefaults, validateEntryAgentType } from '../config/resolver';
 import type { AgentContext, AgentMetadata } from '../types';
 
 export interface CreateAgentDependencies {
@@ -43,8 +44,32 @@ export function createCreateAgentHandler(
             // Initialize rules
             await initializeRules(deps.extensionUri, root);
 
-            // Get all existing rules to initialize the agent with all rules enabled
+            // Get agentType from request body (default to 'implementer')
+            const agentType = (req.body?.agentType as string | undefined) || 'implementer';
+
+            // Validate agentType
+            const validation = validateEntryAgentType(agentType);
+            if (!validation.valid) {
+                res.status(400).json({
+                    status: 'error',
+                    content: validation.error
+                });
+                return;
+            }
+
+            // Get available rules for filtering
             const allRules = await getAvailableRules();
+
+            // Get requested rules and skills from request body
+            const requestedRules = req.body?.rules as string[] | undefined;
+            const requestedSkills = req.body?.skills as string[] | undefined;
+
+            // Resolve agent defaults using centralized resolver
+            const defaults = resolveAgentDefaults(agentType, {
+                rules: requestedRules,
+                skills: requestedSkills,
+                availableRules: allRules
+            });
 
             // Generate UUID for the new agent
             const uuid = uuidv4();
@@ -54,8 +79,14 @@ export function createCreateAgentHandler(
             // Collect all workspace root URIs
             const allWorkspaceUris = vscode.workspace.workspaceFolders?.map(f => f.uri.toString()) || [root.toString()];
 
-            // Create initial content using MutsumiSerializer (reuses logic from extension.ts)
-            const initialContent = MutsumiSerializer.createDefaultContent(allWorkspaceUris, allRules, uuid);
+            // Create initial content using MutsumiSerializer with agentType metadata
+            const initialContent = MutsumiSerializer.createDefaultContent(
+                allWorkspaceUris,
+                agentType,
+                defaults.rules,
+                uuid,
+                defaults.skills
+            );
 
             // Write the file
             await vscode.workspace.fs.writeFile(newFileUri, initialContent);
@@ -69,6 +100,7 @@ export function createCreateAgentHandler(
                 status: 'created',
                 uuid: uuid,
                 name: agentContext.metadata.name,
+                agentType: agentType,
                 fileUri: newFileUri.toString(),
                 content: 'New agent created successfully.'
             });

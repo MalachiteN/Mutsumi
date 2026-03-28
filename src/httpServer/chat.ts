@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import express = require('express');
 import { AgentRunner } from '../agent/agentRunner';
 import { MutsumiSerializer } from '../notebook/serializer';
-import { createMainAgentToolSet, createSubAgentToolSet } from '../tools.d/toolManager';
+import { ToolSet, ToolRegistry, createToolSetForAgent } from '../tools.d/toolManager';
 import { getAgentFromRegistry } from './utils';
 import type { HeadlessAdapter } from '../adapters/headlessAdapter';
 import type { AgentSessionConfig } from '../adapters/interfaces';
@@ -81,8 +81,29 @@ export async function handleChat(
     const allowedUris = metadata?.allowed_uris || ['/'];
     const isSubAgent = !!metadata?.parent_agent_id;
 
-    // Create appropriate tool set based on agent type
-    const toolSet = isSubAgent ? createSubAgentToolSet() : createMainAgentToolSet();
+    // Create tool set using the new Agent Type System
+    if (!metadata?.agentType) {
+        res.status(500).json({ 
+            status: 'error', 
+            content: 'Agent has no agentType. All agents must have a valid agentType defined in their metadata.' 
+        });
+        return;
+    }
+
+    let toolSet: ToolSet;
+    try {
+        toolSet = createToolSetForAgent(
+            metadata.agentType,
+            metadata.uuid,
+            metadata.parent_agent_id
+        );
+    } catch (err: any) {
+        res.status(500).json({ 
+            status: 'error', 
+            content: `Failed to create tool set: ${err.message}` 
+        });
+        return;
+    }
 
     // Create session config
     const sessionConfig: AgentSessionConfig = {

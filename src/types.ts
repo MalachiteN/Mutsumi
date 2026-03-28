@@ -28,6 +28,8 @@ export interface AgentMetadata {
     activeRules?: string[];
     /** List of active skill filenames for this agent */
     activeSkills?: string[];
+    /** Agent type identifier for role-based configuration */
+    agentType?: string;
     
     /** List of sub-agent UUIDs created by this agent */
     sub_agents_list?: string[];

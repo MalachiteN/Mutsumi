@@ -6,6 +6,7 @@ import { ToolManager } from '../tools.d/toolManager';
 import { v4 as uuidv4 } from 'uuid';
 import { UIRenderer } from '../agent/uiRenderer';
 import { debugLogger } from '../debugLogger';
+import { resolveAgentDefaults } from '../config/resolver';
 
 // ============================================================================
 // Core Data Structures (VSCode-agnostic)
@@ -425,6 +426,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
     /**
      * @description Create default notebook content
      * @param {string[]} allowedUris - List of allowed URIs
+     * @param {string} [agentType] - Optional agent type identifier (e.g., 'implementer', 'orchestrator', 'readonly-expert')
      * @param {string[]} activeRules - Optional list of active rules to start with
      * @param {string} [uuid] - Optional UUID for the agent. If not provided, a new UUID will be generated.
      * @param {string[]} [activeSkills] - Optional list of active skills to start with
@@ -432,13 +434,21 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
      * @static
      * 
      * @example
-     * const content = MutsumiSerializer.createDefaultContent(['/workspace/project'], ['default.md']);
+     * const content = MutsumiSerializer.createDefaultContent(['/workspace/project'], 'implementer', ['default.md']);
      * await vscode.workspace.fs.writeFile(uri, content);
      */
-    static createDefaultContent(allowedUris: string[], activeRules?: string[], uuid?: string, activeSkills?: string[]): Uint8Array {
-        // Read VS Code configuration to get default model
-        const config = vscode.workspace.getConfiguration('mutsumi');
-        const defaultModel = config.get<string>('defaultModel');
+    static createDefaultContent(
+        allowedUris: string[], 
+        agentType: string,
+        activeRules?: string[], 
+        uuid?: string, 
+        activeSkills?: string[]
+    ): Uint8Array {
+        // Resolve agent type defaults using centralized resolver
+        const defaults = resolveAgentDefaults(agentType, {
+            rules: activeRules,
+            skills: activeSkills
+        });
 
         const raw: AgentContext = {
             metadata: {
@@ -447,10 +457,11 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 created_at: new Date().toISOString(),
                 parent_agent_id: null,
                 allowed_uris: allowedUris,
-                model: defaultModel || undefined,
+                model: defaults.model,
                 contextItems: [],
-                activeRules: activeRules,
-                activeSkills: activeSkills
+                activeRules: defaults.rules,
+                activeSkills: defaults.skills,
+                agentType: agentType
             },
             context: []
         };

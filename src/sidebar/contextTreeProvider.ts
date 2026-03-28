@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { AgentMetadata, ContextItem } from '../types';
 import { SkillManager, SkillMetadata } from '../contextManagement/skillManager';
 import { ContextTreeItem, ContextItemData, ContextItemType, CategoryType } from './contextTreeItem';
+import { collectRulesRecursively } from '../contextManagement/prompts';
 
 /**
  * @description Context tree data provider, implements VSCode TreeDataProvider interface
@@ -23,7 +24,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     /** @description Current notebook document reference */
     private _currentNotebook?: vscode.NotebookDocument;
 
-    /** @description All available rules from .mutsumi/rules directory */
+    /** @description All available rules from .mutsumi/rules directory (recursively collected with full paths) */
     private _allRules: string[] = [];
 
     /** @description All available skills from SkillManager */
@@ -71,6 +72,11 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
             return Promise.resolve(element.children);
         }
 
+        // If element is a directory node, return its children
+        if (element.data.type === 'directory') {
+            return Promise.resolve(element.children);
+        }
+
         // Leaf nodes have no children
         return Promise.resolve([]);
     }
@@ -94,7 +100,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
     /**
      * @description Refreshes the list of available rules from the workspace
-     * Reads all .md files from .mutsumi/rules directory and updates _allRules
+     * Recursively reads all .md files from .mutsumi/rules directory and subdirectories
      * @returns {Promise<void>}
      */
     async refreshRules(): Promise<void> {
@@ -105,7 +111,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
                 return;
             }
 
-            this._allRules = await getAvailableRules(workspaceFolder);
+            this._allRules = await getAvailableRulesRecursive(workspaceFolder);
         } catch (error) {
             console.error('Failed to refresh rules:', error);
             this._allRules = [];
@@ -210,43 +216,33 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
      * @returns {Object} Object containing four arrays: rules, skills, macros, files
      */
     private _buildContextItems(): { rules: ContextTreeItem[]; skills: ContextTreeItem[]; macros: ContextTreeItem[]; files: ContextTreeItem[] } {
-        const rules: ContextTreeItem[] = [];
         const skills: ContextTreeItem[] = [];
         const macros: ContextTreeItem[] = [];
         const files: ContextTreeItem[] = [];
 
         if (!this._currentNotebook) {
-            return { rules, skills, macros, files };
+            return { rules: this._buildRuleTree(), skills, macros, files };
         }
 
         // Get metadata from the notebook
         const metadata = this._currentNotebook.metadata as AgentMetadata | undefined;
         if (!metadata) {
-            return { rules, skills, macros, files };
+            return { rules: this._buildRuleTree(), skills, macros, files };
         }
 
         const activeRulesRaw = metadata.activeRules;
         const activeSkillsRaw = metadata.activeSkills;
         const contextItems = metadata.contextItems || [];
 
-        // Build rule items - show all available rules with active state
+        // Build hierarchical rule tree
         // If activeRules is undefined/null, all rules are active by default
         // If activeRules is an array (even empty), only those in the array are active
         const activeRules = activeRulesRaw || [];
         const activeRulesSet = new Set(activeRules);
         const defaultAllActive = activeRulesRaw === undefined || activeRulesRaw === null;
-        
-        for (const ruleName of this._allRules) {
-            const isActive = defaultAllActive || activeRulesSet.has(ruleName);
-            rules.push(new ContextTreeItem(
-                {
-                    type: 'rule',
-                    key: ruleName.replace('.md', ''),
-                    isActive
-                },
-                vscode.TreeItemCollapsibleState.None
-            ));
-        }
+
+        // Build rule tree structure
+        const rules = this._buildRuleTree(activeRulesSet, defaultAllActive);
 
         // Build skill items - show all available skills with active state
         // If activeSkills is undefined/null, all skills are inactive by default (different from rules)
@@ -295,46 +291,147 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
         return { rules, skills, macros, files };
     }
-}
 
-/**
- * @description Gets all available rules from the workspace's .mutsumi/rules directory
- * Reads all .md files and returns their names
- * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder to read from
- * @returns {Promise<string[]>} Array of rule file names
- * @example
- * const rules = await getAvailableRules(workspaceFolder);
- * // Returns ['rule1.md', 'rule2.md', ...]
- */
-export async function getAvailableRules(workspaceFolder: vscode.WorkspaceFolder): Promise<string[]> {
-    const rules: string[] = [];
-    
-    try {
-        const rulesUri = vscode.Uri.joinPath(workspaceFolder.uri, '.mutsumi', 'rules');
-        
-        // Check if the directory exists
-        try {
-            await vscode.workspace.fs.stat(rulesUri);
-        } catch {
-            // Directory doesn't exist
-            return rules;
-        }
+    /**
+     * @description Builds hierarchical tree structure from flat rule paths
+     * @private
+     * @param {Set<string>} activeRulesSet - Set of active rule paths
+     * @param {boolean} defaultAllActive - Whether all rules are active by default
+     * @returns {ContextTreeItem[]} Array of tree items (directories and files)
+     */
+    private _buildRuleTree(
+        activeRulesSet: Set<string> = new Set(),
+        defaultAllActive: boolean = true
+    ): ContextTreeItem[] {
+        // Group entries by directory
+        const rootNodes: ContextTreeItem[] = [];
+        const dirMap = new Map<string, ContextTreeItem[]>();
 
-        // Read directory contents
-        const entries = await vscode.workspace.fs.readDirectory(rulesUri);
-        
-        // Filter for .md files
-        for (const [name, type] of entries) {
-            if (type === vscode.FileType.File && name.endsWith('.md')) {
-                rules.push(name);
+        // First pass: create all directory nodes and group file nodes
+        for (const fullPath of this._allRules) {
+            const isActive = defaultAllActive || activeRulesSet.has(fullPath);
+            const lastSlashIndex = fullPath.lastIndexOf('/');
+            const dirPath = lastSlashIndex > 0 ? fullPath.substring(0, lastSlashIndex) : '';
+            const fileName = lastSlashIndex > 0 ? fullPath.substring(lastSlashIndex + 1) : fullPath;
+            const nameWithoutExt = fileName.replace('.md', '');
+
+            if (dirPath === '') {
+                // Root level file
+                rootNodes.push(new ContextTreeItem(
+                    {
+                        type: 'rule',
+                        key: nameWithoutExt,
+                        fullPath: fullPath,
+                        isActive
+                    },
+                    vscode.TreeItemCollapsibleState.None
+                ));
+            } else {
+                // File in subdirectory
+                const fileNode = new ContextTreeItem(
+                    {
+                        type: 'rule',
+                        key: nameWithoutExt,
+                        fullPath: fullPath,
+                        isActive
+                    },
+                    vscode.TreeItemCollapsibleState.None
+                );
+
+                // Get or create directory entry
+                let dirChildren = dirMap.get(dirPath);
+                if (!dirChildren) {
+                    dirChildren = [];
+                    dirMap.set(dirPath, dirChildren);
+                }
+                dirChildren.push(fileNode);
             }
         }
 
-        // Sort alphabetically
-        rules.sort();
+        // Second pass: create directory nodes and build hierarchy
+        // Sort directory paths by depth (deepest first) to ensure children are created before parents
+        const sortedDirPaths = Array.from(dirMap.keys()).sort((a, b) => {
+            const depthA = a.split('/').length;
+            const depthB = b.split('/').length;
+            return depthB - depthA;
+        });
+
+        for (const dirPath of sortedDirPaths) {
+            const children = dirMap.get(dirPath)!;
+            const dirName = dirPath.split('/').pop() || dirPath;
+
+            // Check if this directory has any active children
+            const hasActiveChildren = children.some(child => child.data.isActive);
+
+            const dirNode = new ContextTreeItem(
+                {
+                    type: 'directory',
+                    key: dirName,
+                    fullPath: dirPath,
+                    isActive: hasActiveChildren
+                },
+                vscode.TreeItemCollapsibleState.Collapsed
+            );
+            dirNode.children = children;
+
+            // Determine parent directory path
+            const parentPath = dirPath.split('/').slice(0, -1).join('/');
+
+            if (parentPath === '') {
+                // This is a top-level directory
+                rootNodes.push(dirNode);
+            } else {
+                // Add to parent directory
+                const parentChildren = dirMap.get(parentPath);
+                if (parentChildren) {
+                    parentChildren.push(dirNode);
+                } else {
+                    // Parent directory doesn't exist yet, create it
+                    dirMap.set(parentPath, [dirNode]);
+                }
+            }
+        }
+
+        // Sort root nodes: directories first, then files, both alphabetically
+        rootNodes.sort((a, b) => {
+            const aIsDir = a.data.type === 'directory';
+            const bIsDir = b.data.type === 'directory';
+            if (aIsDir && !bIsDir) return -1;
+            if (!aIsDir && bIsDir) return 1;
+            return a.data.key.localeCompare(b.data.key);
+        });
+
+        return rootNodes;
+    }
+}
+
+/**
+ * @description Gets all available rules from the workspace's .mutsumi/rules directory recursively
+ * Reads all .md files from the directory and its subdirectories
+ * @param {vscode.WorkspaceFolder} workspaceFolder - The workspace folder to read from
+ * @returns {Promise<string[]>} Array of rule file paths (e.g., ['test.md', 'default/main.md'])
+ */
+export async function getAvailableRulesRecursive(workspaceFolder: vscode.WorkspaceFolder): Promise<string[]> {
+    const rulesDir = vscode.Uri.joinPath(workspaceFolder.uri, '.mutsumi', 'rules');
+    
+    try {
+        // Check if the directory exists
+        try {
+            await vscode.workspace.fs.stat(rulesDir);
+        } catch {
+            // Directory doesn't exist
+            return [];
+        }
+
+        // Use collectRulesRecursively to get all markdown files
+        const ruleFiles = await collectRulesRecursively(rulesDir, rulesDir);
+        
+        // Extract just the names (which are relative paths) and sort
+        const paths = ruleFiles.map(({ name }) => name).sort();
+        
+        return paths;
     } catch (error) {
         console.error('Failed to get available rules:', error);
+        return [];
     }
-
-    return rules;
 }
