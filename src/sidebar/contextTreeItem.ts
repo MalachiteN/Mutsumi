@@ -7,7 +7,7 @@ import { ContextTreeDataProvider } from './contextTreeProvider';
  * @description Context item type definition
  * @typedef {('rule' | 'macro' | 'file' | 'category' | 'skill')} ContextItemType
  */
-export type ContextItemType = 'rule' | 'macro' | 'file' | 'category' | 'skill';
+export type ContextItemType = 'rule' | 'macro' | 'file' | 'category' | 'skill' | 'directory';
 
 /**
  * @description Category type definition for grouping context items
@@ -22,8 +22,10 @@ export type CategoryType = 'rules' | 'macros' | 'files' | 'skills';
 export interface ContextItemData {
     /** @description Type of the context item */
     type: ContextItemType;
-    /** @description Unique key/identifier of the context item */
+    /** @description Unique key/identifier of the context item (display name) */
     key: string;
+    /** @description Full path for rules/files in subdirectories (e.g., 'default/main.md', 'default/sub') */
+    fullPath?: string;
     /** @description Content of the context item (for rules, macros, and files) */
     content?: string;
     /** @description Whether the rule/skill is active (only for rules and skills) */
@@ -61,11 +63,11 @@ export class ContextTreeItem extends vscode.TreeItem {
         this.tooltip = this.buildTooltip();
 
         // For non-category types, set command to view the context item
-        if (data.type !== 'category') {
+        if (data.type !== 'category' && data.type !== 'directory') {
             this.command = {
                 command: 'mutsumi.viewContextItem',
                 title: 'View Context Item',
-                arguments: [{ type: data.type, key: data.key, content: data.content }]
+                arguments: [{ type: data.type, key: data.key, fullPath: data.fullPath, content: data.content }]
             };
         }
     }
@@ -113,6 +115,10 @@ export class ContextTreeItem extends vscode.TreeItem {
             return new vscode.ThemeIcon('file');
         }
 
+        if (type === 'directory') {
+            return new vscode.ThemeIcon('folder');
+        }
+
         return new vscode.ThemeIcon('question');
     }
 
@@ -155,6 +161,10 @@ export class ContextTreeItem extends vscode.TreeItem {
             return 'file';
         }
 
+        if (type === 'directory') {
+            return 'directory';
+        }
+
         return 'contextItem';
     }
 
@@ -189,6 +199,11 @@ export class ContextTreeItem extends vscode.TreeItem {
             typeLabel += isActive ? ' (Active)' : ' (Inactive)';
         }
         md.appendMarkdown(`**${typeLabel}**: \`${this.data.key}\`\n\n`);
+
+        // Show full path if available (for rules in subdirectories)
+        if (this.data.fullPath && this.data.fullPath !== this.data.key) {
+            md.appendMarkdown(`*Path*: \`${this.data.fullPath}\`\n\n`);
+        }
 
         // Content preview
         if (content) {
@@ -239,10 +254,13 @@ export function registerContextCommands(
                 displayContent = `@{define ${args.key}, "${args.content || ''}"}`;
             } else if (args.type === 'rule') {
                 // Rules: read file and render with TemplateEngine
+                // Use fullPath if available (for rules in subdirectories), otherwise use key
                 try {
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                     if (workspaceFolder) {
-                        const ruleUri = vscode.Uri.joinPath(workspaceFolder.uri, '.mutsumi', 'rules', `${args.key}.md`);
+                        // Determine the file path: use fullPath from args if available, otherwise construct from key
+                        const ruleFileName = (args as any).fullPath || `${args.key}.md`;
+                        const ruleUri = vscode.Uri.joinPath(workspaceFolder.uri, '.mutsumi', 'rules', ruleFileName);
                         const ruleContent = await vscode.workspace.fs.readFile(ruleUri);
                         const ruleText = new TextDecoder().decode(ruleContent);
                         
@@ -348,17 +366,18 @@ export function registerContextCommands(
             }
 
             const activeRules = metadata.activeRules || [];
-            const ruleName = item.data.key + '.md';
+            // Use fullPath if available (for rules in subdirectories), otherwise use key
+            const ruleName = item.data.fullPath || `${item.data.key}.md`;
             const index = activeRules.indexOf(ruleName);
 
             if (index === -1) {
                 // Add to active rules
                 activeRules.push(ruleName);
-                vscode.window.showInformationMessage(`Rule "${item.data.key}" activated`);
+                vscode.window.showInformationMessage(`Rule "${ruleName}" activated`);
             } else {
                 // Remove from active rules
                 activeRules.splice(index, 1);
-                vscode.window.showInformationMessage(`Rule "${item.data.key}" deactivated`);
+                vscode.window.showInformationMessage(`Rule "${ruleName}" deactivated`);
             }
 
             // Update notebook metadata

@@ -5,22 +5,41 @@ import { TemplateEngine } from './templateEngine';
 import { withRuleParsingMode } from '../tools.d/permission';
 
 /**
- * @description Initialize rules directory and default rules file
+ * @description Initialize rules directory and default rules files
+ * Creates .mutsumi/rules/default/ and copies default rules from assets if the directory is empty
  */
 export async function initializeRules(extensionUri: vscode.Uri, workspaceUri: vscode.Uri) {
     const rulesDir = vscode.Uri.joinPath(workspaceUri, '.mutsumi', 'rules');
+    const defaultRulesDir = vscode.Uri.joinPath(rulesDir, 'default');
+    const assetsDir = vscode.Uri.joinPath(extensionUri, 'assets', 'default');
+
     try {
-        await vscode.workspace.fs.createDirectory(rulesDir);
+        // Ensure .mutsumi/rules/default/ directory exists (mkdir -p behavior)
+        await vscode.workspace.fs.createDirectory(defaultRulesDir);
 
-        const assetsDir = vscode.Uri.joinPath(extensionUri, 'assets');
-
-        // Copy if default.md doesn't exist
-        const mainDefaultUri = vscode.Uri.joinPath(rulesDir, 'default.md');
+        // Check if default rules directory is empty
+        let isEmpty = false;
         try {
-            await vscode.workspace.fs.stat(mainDefaultUri);
+            const entries = await vscode.workspace.fs.readDirectory(defaultRulesDir);
+            isEmpty = entries.length === 0;
         } catch {
-            const assetDefaultUri = vscode.Uri.joinPath(assetsDir, 'default.md');
-            await vscode.workspace.fs.copy(assetDefaultUri, mainDefaultUri, { overwrite: false });
+            isEmpty = true;
+        }
+
+        // If empty, copy all files from assets/default/
+        if (isEmpty) {
+            const assetFiles = await vscode.workspace.fs.readDirectory(assetsDir);
+            for (const [fileName, fileType] of assetFiles) {
+                if (fileType === vscode.FileType.File && fileName.endsWith('.md')) {
+                    const sourceUri = vscode.Uri.joinPath(assetsDir, fileName);
+                    const targetUri = vscode.Uri.joinPath(defaultRulesDir, fileName);
+                    try {
+                        await vscode.workspace.fs.copy(sourceUri, targetUri, { overwrite: false });
+                    } catch (e) {
+                        console.warn(`Failed to copy ${fileName}:`, e);
+                    }
+                }
+            }
         }
     } catch (e) {
         console.error('Failed to initialize rules from assets', e);
@@ -28,15 +47,42 @@ export async function initializeRules(extensionUri: vscode.Uri, workspaceUri: vs
 }
 
 /**
- * @description Get system prompt (identity, sub-agent info, and rules)
+ * @description Recursively collect all markdown rule files from a directory
+ * @param dirUri - Directory to scan
+ * @param baseUri - Base URI for calculating relative paths
+ * @returns Array of objects containing relative name and file URI
+ */
+export async function collectRulesRecursively(dirUri: vscode.Uri, baseUri: vscode.Uri): Promise<{name: string, uri: vscode.Uri}[]> {
+    const results: {name: string, uri: vscode.Uri}[] = [];
+    try {
+        const entries = await vscode.workspace.fs.readDirectory(dirUri);
+        for (const [entryName, entryType] of entries) {
+            const entryUri = vscode.Uri.joinPath(dirUri, entryName);
+            if (entryType === vscode.FileType.Directory) {
+                const subResults = await collectRulesRecursively(entryUri, baseUri);
+                results.push(...subResults);
+            } else if (entryType === vscode.FileType.File && entryName.endsWith('.md')) {
+                const relativePath = dirUri.path.replace(baseUri.path, '').replace(/^\//, '');
+                const fullName = relativePath ? `${relativePath}/${entryName}` : entryName;
+                results.push({ name: fullName, uri: entryUri });
+            }
+        }
+    } catch (e) {
+        console.error('Error reading rules directory', e);
+    }
+    return results;
+}
+
+/**
+ * Builds system prompt containing runtime context, allowed URIs, completion obligations, and rules.
+ * For non-root agents (isSubAgent=true), includes task_finish obligation.
  */
 export async function getSystemPrompt(
-    workspaceUri: vscode.Uri, 
-    allowedUris: string[], 
-    rulesItems: ContextItem[], 
+    workspaceUri: vscode.Uri,
+    allowedUris: string[],
+    rulesItems: ContextItem[],
     isSubAgent?: boolean
 ): Promise<string> {
-    // Only return static identity and runtime context
     let prompt = `### Runtime Context
 Current Allowed URIs: ${JSON.stringify(allowedUris)}`;
 
@@ -76,35 +122,33 @@ export async function getRulesContext(
     const items: ContextItem[] = [];
 
     try {
-        const files = await vscode.workspace.fs.readDirectory(rulesDir);
-        files.sort((a, b) => a[0].localeCompare(b[0]));
+        const ruleFiles = await collectRulesRecursively(rulesDir, rulesDir);
+        ruleFiles.sort((a, b) => a.name.localeCompare(b.name));
 
-        for (const [name, type] of files) {
+        for (const { name, uri } of ruleFiles) {
             if (activeRules && !activeRules.includes(name)) {
                 continue;
             }
-            if (type === vscode.FileType.File && name.endsWith('.md')) {
-                const fileUri = vscode.Uri.joinPath(rulesDir, name);
-                const content = await vscode.workspace.fs.readFile(fileUri);
-                const decodedContent = new TextDecoder().decode(content);
 
-                // Use TemplateEngine.render with INLINE mode to expand rules
-                const { renderedText: expandedContent } = await withRuleParsingMode(() =>
-                    TemplateEngine.render(
-                        decodedContent,
-                        context || {},
-                        workspaceUri,
-                        allowedUris,
-                        'INLINE'
-                    )
-                );
+            const content = await vscode.workspace.fs.readFile(uri);
+            const decodedContent = new TextDecoder().decode(content);
 
-                items.push({
-                    type: 'rule',
-                    key: name,
-                    content: expandedContent
-                });
-            }
+            // Use TemplateEngine.render with INLINE mode to expand rules
+            const { renderedText: expandedContent } = await withRuleParsingMode(() =>
+                TemplateEngine.render(
+                    decodedContent,
+                    context || {},
+                    workspaceUri,
+                    allowedUris,
+                    'INLINE'
+                )
+            );
+
+            items.push({
+                type: 'rule',
+                key: name,
+                content: expandedContent
+            });
         }
     } catch (e) {
         console.error('Error reading rules', e);

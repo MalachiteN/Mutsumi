@@ -14,7 +14,7 @@ import { activateEditSupport } from './tools.d/edit_file';
 import { ReferenceCompletionProvider } from './notebook/completionProvider';
 import { CodebaseService } from './codebase/service';
 import { RagService } from './codebase/rag/service';
-import { initializeRules } from './contextManagement/prompts';
+import { initializeRules, collectRulesRecursively } from './contextManagement/prompts';
 import { ImagePasteProvider } from './contextManagement/imagePasteProvider';
 import { SkillManager } from './contextManagement/skillManager';
 import { sanitizeFileName } from './utils';
@@ -25,6 +25,13 @@ import { HttpServer } from './httpServer';
 import { debugLogger } from './debugLogger';
 import { toolsLogger } from './tools.d/toolsLogger';
 import { registerStatusBarItems } from './statusBar';
+
+// Agent Type System imports
+import { loadMutsumiConfig, configFileExists } from './config/loader';
+import { DEFAULT_MUTSUMI_CONFIG } from './config/types';
+import { ToolSetRegistry } from './registry/toolSetRegistry';
+import { AgentTypeRegistry } from './registry/agentTypeRegistry';
+import { resolveAgentDefaults, getEntryAgentTypes } from './config/resolver';
 
 /**
  * Checks if a file exists at the given URI.
@@ -61,6 +68,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Initialize ToolRegistry (required for the new ToolSet architecture)
     ToolRegistry.initialize();
+
+    // Initialize Agent Type System (Config + Registries)
+    // 1. Load Mutsumi configuration (merges user config with defaults)
+    const mutsumiConfig = await loadMutsumiConfig();
+    debugLogger.log('[Extension] Mutsumi config loaded successfully');
+
+    // 1.5. If no config file exists, write the default config to workspace
+    // This completes the bootstrap loop by persisting the built-in defaults
+    const hasConfigFile = await configFileExists();
+    if (!hasConfigFile) {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0];
+        if (workspaceRoot) {
+            try {
+                const mutsumiDir = vscode.Uri.joinPath(workspaceRoot.uri, '.mutsumi');
+                await vscode.workspace.fs.createDirectory(mutsumiDir);
+                
+                const configUri = vscode.Uri.joinPath(mutsumiDir, 'config.json');
+                const configContent = new TextEncoder().encode(
+                    JSON.stringify(DEFAULT_MUTSUMI_CONFIG, null, 2)
+                );
+                await vscode.workspace.fs.writeFile(configUri, configContent);
+                debugLogger.log('[Extension] Default config written to .mutsumi/config.json');
+            } catch (err) {
+                debugLogger.log(`[Extension] Failed to write default config: ${err}`);
+            }
+        }
+    }
+
+    // 2. Initialize ToolSetRegistry with configured tool sets
+    const toolSetRegistry = ToolSetRegistry.getInstance();
+    toolSetRegistry.initialize(mutsumiConfig.toolSets);
+    debugLogger.log('[Extension] ToolSetRegistry initialized');
+
+    // 3. Initialize AgentTypeRegistry with configured agent types
+    const agentTypeRegistry = AgentTypeRegistry.getInstance();
+    agentTypeRegistry.initialize(
+        mutsumiConfig.agentTypes,
+        Object.keys(mutsumiConfig.toolSets)
+    );
+    debugLogger.log('[Extension] AgentTypeRegistry initialized');
 
     // Initialize SkillManager
     const skillManager = SkillManager.getInstance();
@@ -306,6 +353,37 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 vscode.window.showErrorMessage('Please open a workspace folder first.');
                 return;
             }
+
+            // AgentType Step 1: Show QuickPick for Agent Type Selection
+            const entryTypes = getEntryAgentTypes();
+
+            if (entryTypes.length === 0) {
+                vscode.window.showErrorMessage('No entry agent types available. Please check your configuration.');
+                return;
+            }
+
+            // Build QuickPick items with descriptions
+            const typeItems = entryTypes.map(({ name, config }) => ({
+                label: name,
+                description: `${config.toolSets.join('+')}`,
+                detail: `Model: ${config.defaultModel} | Rules: ${config.defaultRules.length} | Skills: ${config.defaultSkills.length}`,
+                typeName: name
+            }));
+
+            // Show QuickPick for agent type selection
+            const selectedType = await vscode.window.showQuickPick(typeItems, {
+                placeHolder: 'Select an agent type to create',
+                title: 'Mutsumi: New Agent'
+            });
+
+            if (!selectedType) {
+                // User cancelled
+                return;
+            }
+
+            const selectedAgentType = selectedType.typeName;
+
+            // AgentType Step 2: Create Agent with Selected Type Defaults
             const root = wsFolders[0].uri;
             const agentDir = vscode.Uri.joinPath(root, '.mutsumi');
             try { 
@@ -316,29 +394,45 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
             await initializeRules(context.extensionUri, root);
 
-            // Get all existing rules to initialize the agent with all rules enabled
+            // Get all existing rules from the workspace (recursively)
             let allRules: string[] = [];
             try {
                 const rulesDir = vscode.Uri.joinPath(root, '.mutsumi', 'rules');
-                const entries = await vscode.workspace.fs.readDirectory(rulesDir);
-                allRules = entries
-                    .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.md'))
-                    .map(([name]) => name);
+                const ruleFiles = await collectRulesRecursively(rulesDir, rulesDir);
+                allRules = ruleFiles.map(({ name }) => name);
             } catch {
                 // Ignore if rules dir doesn't exist yet
             }
+
+            // Resolve agent defaults using centralized resolver
+            const defaults = resolveAgentDefaults(selectedAgentType, {
+                availableRules: allRules
+            });
 
             const name = `agent-${Date.now()}.mtm`;
             const newFileUri = vscode.Uri.joinPath(agentDir, name);
             
             // Collect all workspace root URIs in standard format (e.g., file:///c:/...)
             const allWorkspaceUris = vscode.workspace.workspaceFolders?.map(f => f.uri.toString()) || [root.toString()];
-            const initialContent = MutsumiSerializer.createDefaultContent(allWorkspaceUris, allRules);
+
+            // Create default content with agent type and its defaults
+            const initialContent = MutsumiSerializer.createDefaultContent(
+                allWorkspaceUris,
+                selectedAgentType,
+                defaults.rules,
+                undefined, // Let it generate a new UUID
+                defaults.skills
+            );
             
             await vscode.workspace.fs.writeFile(newFileUri, initialContent);
             await vscode.window.showNotebookDocument(
                 await vscode.workspace.openNotebookDocument(newFileUri),
                 { preview: false }
+            );
+
+            // Show confirmation message with agent type info
+            vscode.window.showInformationMessage(
+                `Created ${selectedAgentType} agent with ${defaults.rules.length} rules and ${defaults.skills.length} skills`
             );
         })
     );

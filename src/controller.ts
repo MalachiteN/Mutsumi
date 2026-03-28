@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { createMainAgentToolSet, createSubAgentToolSet } from './tools.d/toolManager';
+import { ToolSet, ToolRegistry, createToolSetForAgent } from './tools.d/toolManager';
 import { AgentRunner } from './agent/agentRunner';
 import { AgentOrchestrator } from './agent/agentOrchestrator';
 import { NotebookAdapter } from './adapters/notebookAdapter';
@@ -63,24 +63,6 @@ export class AgentController {
     }
 
     /**
-     * Creates the appropriate tool set for an agent based on its metadata.
-     * @description 
-     * - Main agents (parent_agent_id is null/undefined): All common tools, NO task_finish
-     * - Sub-agents (parent_agent_id is set): All common tools + task_finish
-     * @private
-     * @param {AgentMetadata} metadata - Agent metadata
-     * @returns {ToolSet} Appropriate tool set for the agent type
-     */
-    private createToolSetForAgent(metadata: AgentMetadata) {
-        const isSubAgent = !!metadata?.parent_agent_id;
-        if (isSubAgent) {
-            return createSubAgentToolSet(); // Includes task_finish
-        } else {
-            return createMainAgentToolSet(); // No task_finish
-        }
-    }
-
-    /**
      * Processes a single notebook cell.
      * @description Loads configuration, initializes execution, creates adapter session,
      * runs the agent loop, and saves interaction metadata.
@@ -120,62 +102,82 @@ export class AgentController {
             return;
         }
 
-        // Create appropriate tool set based on agent type
-        const toolSet = this.createToolSetForAgent(notebook.metadata as AgentMetadata);
-
-        const abortController = new AbortController();
-        const tokenDisposable = session.token.onCancellationRequested(() => {
-            abortController.abort();
-        });
+        // Get metadata and create tool set using the new Agent Type System
+        const metadata = notebook.metadata as AgentMetadata;
+        
+        if (!metadata?.agentType) {
+            await session.replaceOutput(
+                `Error: Agent has no agentType. All agents must have a valid agentType defined in their metadata.`
+            );
+            (session as any).end(false);
+            return;
+        }
 
         try {
-            const runner = new AgentRunner(
-                { apiKey, baseUrl, model },
-                toolSet,
-                session
+            const toolSet = createToolSetForAgent(
+                metadata.agentType,
+                metadata.uuid,
+                metadata.parent_agent_id
             );
 
-            const { messages: history } = await buildInteractionHistory(session);
-            const newMessages = await runner.run(abortController, history);
-
-            if (newMessages.length > 0) {
-                // Update session history and persist
-                // This delegates metadata updates (both Cell and Notebook) to the adapter
-                session.setHistory([...history, ...newMessages]);
-                await session.save();
-            }
-
-            (session as any).end(true);
-        } catch (err: any) {
-            const isCancellation = 
-                err.name === 'APIUserAbortError' ||
-                err.name === 'AbortError' || 
-                session.token.isCancellationRequested;
-
-            if (isCancellation) {
-                (session as any).end(false); 
-                return;
-            }
-
-            // Network/API errors are handled in AgentRunner to preserve stream history
-            // Only show notification here as a fallback for unhandled errors
-            const errorMessage = err.message || String(err);
-            console.error('Agent execution error:', err);
-            
-            vscode.window.showErrorMessage(
-                `Mutsumi Error: ${errorMessage}`,
-                'Copy Details'
-            ).then(selection => {
-                if (selection === 'Copy Details') {
-                    vscode.env.clipboard.writeText(err.stack || errorMessage);
-                }
+            const abortController = new AbortController();
+            const tokenDisposable = session.token.onCancellationRequested(() => {
+                abortController.abort();
             });
 
-            // Do NOT replace output - preserve any streamed content that was displayed
-            // The AgentRunner should have already appended an error indicator to the UI
+            try {
+                const runner = new AgentRunner(
+                    { apiKey, baseUrl, model },
+                    toolSet,
+                    session
+                );
+
+                const { messages: history } = await buildInteractionHistory(session);
+                const newMessages = await runner.run(abortController, history);
+
+                if (newMessages.length > 0) {
+                    // Update session history and persist
+                    // This delegates metadata updates (both Cell and Notebook) to the adapter
+                    session.setHistory([...history, ...newMessages]);
+                    await session.save();
+                }
+
+                (session as any).end(true);
+            } catch (err: any) {
+                const isCancellation = 
+                    err.name === 'APIUserAbortError' ||
+                    err.name === 'AbortError' || 
+                    session.token.isCancellationRequested;
+
+                if (isCancellation) {
+                    (session as any).end(false); 
+                    return;
+                }
+
+                // Network/API errors are handled in AgentRunner to preserve stream history
+                // Only show notification here as a fallback for unhandled errors
+                const errorMessage = err.message || String(err);
+                console.error('Agent execution error:', err);
+                
+                vscode.window.showErrorMessage(
+                    `Mutsumi Error: ${errorMessage}`,
+                    'Copy Details'
+                ).then(selection => {
+                    if (selection === 'Copy Details') {
+                        vscode.env.clipboard.writeText(err.stack || errorMessage);
+                    }
+                });
+
+                // Do NOT replace output - preserve any streamed content that was displayed
+                // The AgentRunner should have already appended an error indicator to the UI
+                (session as any).end(false);
+            } finally {
+                tokenDisposable.dispose();
+            }
+        } catch (err: any) {
+            // Error from createToolSetForAgent (e.g., unknown agent type)
+            await session.replaceOutput(`Error: ${err.message}`);
             (session as any).end(false);
-        } finally {
-            tokenDisposable.dispose();
         }
     }
 }

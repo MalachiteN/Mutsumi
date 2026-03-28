@@ -127,13 +127,21 @@ try {
 
 ### 3. 工具系统
 
-**工具集分类：**
+**能力模型：**
 
-| 工具集 | 用途 |
-|--------|------|
-| 主 Agent 工具集 | 主 Agent 使用，不含 `task_finish` |
-| 子 Agent 工具集 | 子 Agent 使用，含 `task_finish` |
-| 空工具集 | 特殊场景 |
+工具能力由配置中的 `toolSets` 字段定义，基础组合包括：
+- `read` - 文件读取、搜索、信息查询（只读）
+- `deliver` - 文件写入、编辑、shell 执行（写入操作）
+- `fork` - Agent 编排（`self_fork`, `get_agent_types`）
+
+AgentType 通过组合这些工具集定义能力边界。例如：
+- `implementer`: `['read', 'deliver', 'fork']`
+- `readonly-expert`: `['read']`
+- `orchestrator`: `['read', 'fork']`
+
+**非根 Agent 的完成义务：**
+
+存在 `parent_agent_id` 的 Agent（即通过 `self_fork` 创建的 Agent）运行时额外获得 `task_finish` 工具，用于向父 Agent 报告完成状态。
 
 **审批流程：**
 

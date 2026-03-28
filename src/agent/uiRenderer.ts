@@ -81,7 +81,7 @@ export class UIRenderer {
      * HTML for each pending tool call.
      * @param {any[]} partialToolCalls - Array of partial tool call objects
      * @param {ToolSet} toolSet - Tool set instance for looking up tool metadata
-     * @param {boolean} isSubAgent - Whether the caller is a sub-agent (deprecated, kept for compatibility)
+     * @param {boolean} _isSubAgent - Whether the caller is a non-root/child session
      * @returns {string} Formatted HTML string containing all pending tool calls
      */
     public formatPendingToolCalls(

@@ -1,5 +1,5 @@
 /**
- * @fileoverview Tool manager for registering and executing agent tools.
+ * @fileoverview Tool manager for agent tools.
  * @module toolManager
  */
 
@@ -13,10 +13,12 @@ import { partiallyReadByRangeTool, partiallyReadAroundKeywordTool } from './tool
 import { searchFileContainsKeywordTool, searchFileNameIncludesTool } from './tools/search_fs';
 import { getFileSizeTool, getEnvVarTool, systemInfoTool } from './tools/system_info';
 import { mkdirTool, createNewFileTool } from './tools/fs_write_ops';
-import { selfForkTool, taskFinishTool, getAvailableModelsTool } from './tools/agent_control';
+import { selfForkTool, taskFinishTool, getAgentTypesTool } from './tools/agent_control';
 import { projectOutlineTool } from './tools/project_outline';
 import { getWarningErrorTool } from './tools/get_warning_error';
 import { queryCodebaseTool } from './tools/rag';
+import { AgentTypeRegistry } from '../registry/agentTypeRegistry';
+import { ToolSetRegistry } from '../registry/toolSetRegistry';
 import * as vscode from 'vscode';
 import OpenAI from 'openai';
 import {
@@ -165,6 +167,15 @@ export class ToolSet {
     getToolNames(): string[] {
         return Array.from(this.tools.keys());
     }
+
+    /**
+     * Adds a tool to this tool set dynamically.
+     * Used for special cases like injecting task_finish for sub-agents.
+     * @param {ITool} tool - The tool to add
+     */
+    addTool(tool: ITool): void {
+        this.tools.set(tool.name, tool);
+    }
 }
 
 /**
@@ -175,7 +186,35 @@ export class ToolSet {
  */
 export class ToolRegistry {
     private static commonTools: ITool[] = [];
+    private static toolNameMap: Map<string, ITool> = new Map();
     private static initialized = false;
+
+    /**
+     * Mapping from config tool names to actual tool exports.
+     * This ensures consistent naming between config and implementation.
+     */
+    private static readonly TOOL_NAME_MAPPING: Record<string, ITool> = {
+        'read_file': readFileTool,
+        'ls': lsTool,
+        'shell': shellExecTool,
+        'edit_file_full_replace': editFileFullReplaceTool,
+        'edit_file_search_replace': editFileSearchReplaceTool,
+        'read_partial_by_range': partiallyReadByRangeTool,
+        'read_partial_around_keyword': partiallyReadAroundKeywordTool,
+        'search_file_contains_keyword': searchFileContainsKeywordTool,
+        'search_file_name_includes': searchFileNameIncludesTool,
+        'get_file_size': getFileSizeTool,
+        'get_env_var': getEnvVarTool,
+        'system_info': systemInfoTool,
+        'mkdir': mkdirTool,
+        'create_file': createNewFileTool,
+        'project_outline': projectOutlineTool,
+        'get_warning_error': getWarningErrorTool,
+        'self_fork': selfForkTool,
+        'task_finish': taskFinishTool,
+        'get_agent_types': getAgentTypesTool,
+        'query_codebase': queryCodebaseTool
+    };
 
     /**
      * Initializes the global tool registry.
@@ -208,12 +247,18 @@ export class ToolRegistry {
             projectOutlineTool,
             getWarningErrorTool,
             selfForkTool,
-            getAvailableModelsTool
+            getAgentTypesTool
         ];
 
         // Only add RAG tool if embedding endpoint is configured
         if (isRagEnabled) {
             this.commonTools.push(queryCodebaseTool);
+        }
+
+        // Build the tool name map for quick lookup
+        this.toolNameMap.clear();
+        for (const [name, tool] of Object.entries(this.TOOL_NAME_MAPPING)) {
+            this.toolNameMap.set(name, tool);
         }
 
         this.initialized = true;
@@ -237,22 +282,55 @@ export class ToolRegistry {
     static getTaskFinishTool(): ITool {
         return taskFinishTool;
     }
+
+    /**
+     * Gets a tool by its config name.
+     * @param {string} name - Tool name as used in config (e.g., 'read_file')
+     * @returns {ITool | undefined} The tool if found, undefined otherwise
+     */
+    static getToolByName(name: string): ITool | undefined {
+        if (!this.initialized) {
+            this.initialize();
+        }
+        return this.toolNameMap.get(name);
+    }
+
+    /**
+     * Builds a tool set from an array of tool names.
+     * Only includes tools that are registered and available.
+     * @param {string[]} names - Array of tool names as used in config
+     * @returns {ITool[]} Array of resolved tools (excludes unavailable tools)
+     */
+    static buildToolSetFromNames(names: string[]): ITool[] {
+        if (!this.initialized) {
+            this.initialize();
+        }
+
+        const tools: ITool[] = [];
+        for (const name of names) {
+            const tool = this.toolNameMap.get(name);
+            if (tool) {
+                tools.push(tool);
+            }
+        }
+        return tools;
+    }
+
+    /**
+     * Gets all registered tool names.
+     * @returns {string[]} Array of all registered tool names
+     */
+    static getRegisteredToolNames(): string[] {
+        if (!this.initialized) {
+            this.initialize();
+        }
+        return Array.from(this.toolNameMap.keys());
+    }
 }
 
 /**
- * Global ToolManager for operations not tied to any specific Agent.
- * @class ToolManager
- * @description
- * This singleton provides tool execution and metadata access for operations
- * that are not associated with any specific Agent instance. It is used by:
- * - Context pre-execution (templateEngine, context building)
- * - Notebook serialization (pretty-printing tool calls)
- * - Code completion (listing available tools)
- *
- * Unlike ToolSet which is per-Agent and configurable, ToolManager provides
- * a global, shared interface to all tools. It also manages the global tool
- * result cache, ensuring cache hits across all contexts (Agent execution
- * and pre-execution alike).
+ * Global ToolManager for user/ContextManagement control plane operations.
+ * Provides global tool access, completion, pre-execution, and rendering support.
  */
 export class ToolManager {
     /** Singleton instance */
@@ -288,7 +366,7 @@ export class ToolManager {
 
     /**
      * Gets tool definitions formatted for OpenAI API.
-     * @param {boolean} isSubAgent - Whether requesting for a sub-agent
+     * @param {boolean} isSubAgent - True for non-root/child sessions (includes task_finish)
      * @returns {OpenAI.Chat.ChatCompletionTool[]} Array of tool definitions
      */
     public getToolsDefinitions(isSubAgent: boolean): OpenAI.Chat.ChatCompletionTool[] {
@@ -302,11 +380,10 @@ export class ToolManager {
 
     /**
      * Executes a tool with the given arguments and context.
-     * Results are automatically cached if the tool has shouldCache enabled.
      * @param {string} name - Tool name
      * @param {any} args - Tool arguments
      * @param {ToolContext} context - Execution context
-     * @param {boolean} isSubAgent - Whether this is for a sub-agent
+     * @param {boolean} isSubAgent - True for non-root/child sessions (includes task_finish)
      * @returns {Promise<string>} Tool execution result
      */
     public async executeTool(
@@ -342,7 +419,7 @@ export class ToolManager {
      * Gets the pretty print string for a tool call.
      * @param {string} name - Tool name
      * @param {any} args - Tool arguments
-     * @param {boolean} isSubAgent - Whether this is for a sub-agent
+     * @param {boolean} isSubAgent - True for non-root/child sessions
      * @returns {string} Human-readable description
      */
     public getPrettyPrint(name: string, args: any, isSubAgent: boolean): string {
@@ -356,7 +433,7 @@ export class ToolManager {
     /**
      * Gets the rendering configuration for a tool.
      * @param {string} name - Tool name
-     * @param {boolean} isSubAgent - Whether this is for a sub-agent
+     * @param {boolean} isSubAgent - True for non-root/child sessions
      * @returns {Object | undefined} Rendering configuration
      */
     public getToolRenderingConfig(name: string, isSubAgent: boolean): { argsToCodeBlock?: string[]; codeBlockFilePaths?: (string | undefined)[] } | undefined {
@@ -368,28 +445,46 @@ export class ToolManager {
     }
 }
 
-// Export factory functions for common tool set configurations
-
 /**
- * Creates a tool set for main agents (no task_finish).
- * @returns {ToolSet} Tool set for main agents
+ * Creates a tool set for an agent based on its agentType configuration.
+ * Resolves toolSets from AgentTypeRegistry and adds task_finish for non-root agents.
+ * 
+ * @param {string} agentType - The agent type identifier
+ * @param {string} [uuid] - Agent UUID for error messages
+ * @param {string | null} [parentAgentId] - Parent agent ID if this is a non-root agent
+ * @returns {ToolSet} Configured tool set
+ * @throws {Error} If agentType is invalid
  */
-export function createMainAgentToolSet(): ToolSet {
-    return new ToolSet({
-        includeCommon: true,
-        includeTaskFinish: false
-    });
-}
+export function createToolSetForAgent(
+    agentType: string,
+    uuid?: string,
+    parentAgentId?: string | null
+): ToolSet {
+    const agentTypeConfig = AgentTypeRegistry.getInstance().getAgentType(agentType);
+    if (!agentTypeConfig) {
+        throw new Error(
+            `Unknown agent type '${agentType}' for agent ${uuid || 'unknown'}. ` +
+            `Available types: ${AgentTypeRegistry.getInstance().getAllTypes().join(', ')}`
+        );
+    }
 
-/**
- * Creates a tool set for sub-agents (includes task_finish).
- * @returns {ToolSet} Tool set for sub-agents
- */
-export function createSubAgentToolSet(): ToolSet {
-    return new ToolSet({
-        includeCommon: true,
-        includeTaskFinish: true
+    // Get combined tools from all specified tool sets
+    const tools = ToolSetRegistry.getInstance().getCombinedToolSet(agentTypeConfig.toolSets);
+    
+    // Create ToolSet with specific tools
+    const toolSet = new ToolSet({
+        includeCommon: false,
+        includeTaskFinish: false,
+        additionalTools: tools
     });
+    
+    // Sub-agents get task_finish tool
+    if (parentAgentId) {
+        const taskFinishTool = ToolRegistry.getTaskFinishTool();
+        toolSet.addTool(taskFinishTool);
+    }
+    
+    return toolSet;
 }
 
 /**

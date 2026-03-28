@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ToolSet, createSubAgentToolSet } from '../tools.d/toolManager';
+import { ToolSet } from '../tools.d/toolManager';
 import { AgentMessage } from '../types';
 import { UIRenderer } from './uiRenderer';
 import { LLMStreamHandler } from './llmStream';

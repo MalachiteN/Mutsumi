@@ -13,6 +13,7 @@ import { AgentRegistry } from './registry';
 import { ForkSessionManager } from './fork';
 import { AgentFileOperations } from './fileOps';
 import { AgentTreeUtils } from './treeUtils';
+import { AgentTypeRegistry } from '../registry/agentTypeRegistry';
 
 /**
  * Orchestrates agent lifecycle, state management, and fork operations.
@@ -127,7 +128,7 @@ export class AgentOrchestrator {
      * and aggregates their results into a final report.
      * @param {string} parentId - UUID of the parent agent
      * @param {string} contextSummary - Summary context for the fork operation
-     * @param {Array<{prompt: string; allowed_uris: string[]; model?: string}>} subAgents - Sub-agent configurations
+     * @param {Array<{prompt: string; allowed_uris: string[]; model?: string; agent_type?: string}>} subAgents - Sub-agent configurations
      * @param {AbortSignal} [signal] - Optional abort signal for cancellation
      * @returns {Promise<string>} Aggregated report from all sub-agents
      * @throws {Error} If the operation is aborted
@@ -135,27 +136,12 @@ export class AgentOrchestrator {
     public async requestFork(
         parentId: string,
         contextSummary: string,
-        subAgents: { prompt: string; allowed_uris: string[]; model?: string }[],
+        subAgents: { prompt: string; allowed_uris: string[]; model?: string; agent_type?: string }[],
         signal?: AbortSignal
     ): Promise<string> {
         return new Promise(async (resolve, reject) => {
             if (signal?.aborted) {
                 return reject(new Error('Operation aborted'));
-            }
-
-            // Get parent agent configuration to inherit contextItems and activeRules
-            const parentAgent = this.registry.getAgent(parentId);
-            const parentFileUri = parentAgent?.fileUri;
-            let parentActiveRules: string[] | undefined;
-            
-            if (parentFileUri) {
-                try {
-                    const content = await vscode.workspace.fs.readFile(vscode.Uri.parse(parentFileUri));
-                    const data = JSON.parse(new TextDecoder().decode(content));
-                    parentActiveRules = data.metadata?.activeRules;
-                } catch (e) {
-                    console.error('[AgentOrchestrator] Failed to read parent agent config:', e);
-                }
             }
 
             const sessionChildUuids = new Set<string>();
@@ -165,14 +151,21 @@ export class AgentOrchestrator {
                 try {
                     const childUuid = uuidv4();
                     sessionChildUuids.add(childUuid);
+                    // Default to 'sub' type if agent_type not specified
+                    const agentType = subAgent.agent_type || 'sub';
+                    // Combine context summary with sub-agent prompt
+                    const combinedPrompt = contextSummary
+                        ? `## Context Summary\n\n${contextSummary}\n\n---\n\n${subAgent.prompt}`
+                        : subAgent.prompt;
+                    // Note: Sub-agents use their own agentType's defaultRules, not parent's activeRules
                     await this.createAndOpenAgent(
                         childUuid,
                         parentId,
-                        subAgent.prompt,
+                        combinedPrompt,
                         subAgent.allowed_uris,
+                        agentType,
                         subAgent.model,
-                        [],
-                        parentActiveRules
+                        []
                     );
                 } catch (e) {
                     console.error('Failed to create sub agent', e);
@@ -433,9 +426,9 @@ export class AgentOrchestrator {
      * @param {string} parentId - Parent agent ID
      * @param {string} prompt - Initial prompt for the agent
      * @param {string[]} allowedUris - Allowed URIs for the agent
+     * @param {string} agentType - Agent type identifier (e.g., 'sub', 'readonly-expert', 'planner', 'summarizer')
      * @param {string} [model] - Model identifier to use
      * @param {ContextItem[]} [contextItems] - Context items for the agent (not inherited, empty for sub-agents)
-     * @param {string[]} [activeRules] - Active rules for the agent (inherited from parent)
      * @returns {Promise<void>}
      */
     private async createAndOpenAgent(
@@ -443,9 +436,9 @@ export class AgentOrchestrator {
         parentId: string,
         prompt: string,
         allowedUris: string[],
+        agentType: string,
         model?: string,
-        contextItems?: ContextItem[],
-        activeRules?: string[]
+        contextItems?: ContextItem[]
     ): Promise<void> {
         const parent = this.registry.getAgent(parentId);
 
@@ -454,9 +447,9 @@ export class AgentOrchestrator {
             parentId,
             prompt,
             allowedUris,
+            agentType,
             model,
-            contextItems,
-            activeRules
+            contextItems
         );
 
         if (!fileUri) {

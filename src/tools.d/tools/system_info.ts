@@ -20,7 +20,7 @@ export const systemInfoTool: ITool = {
         type: 'function',
         function: {
             name: 'system_info',
-            description: 'Get system information (OS, Shell, Package Manager). Must be run BEFORE shell_exec to understand the environment.',
+            description: 'Get system information (OS, Shell, Package Manager).',
             parameters: {
                 type: 'object',
                 properties: {},
