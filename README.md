@@ -11,14 +11,11 @@
   -->
   [![License](https://img.shields.io/github/license/MalachiteN/Mutsumi)](LICENSE)
   [![VS Code Version](https://img.shields.io/badge/VS%20Code-%5E1.108.0-blue)](https://code.visualstudio.com/)
-  
-  <!-- TODO: Add demo GIF/screenshot here -->
-  <!-- <img src="assets/demo.gif" alt="Mutsumi Demo" width="800"> -->
 </div>
 
 [中文版](README_zh.md)
 
-Mutsumi is a VS Code LLM Agent extension, deeply integrated with VS Code, committed to complete control over the context space, keeping LLM attention always focused on what matters. It is also designed with consideration for minimizing API call counts and Token consumption.
+Mutsumi is a VS Code LLM multi-Agent extension that emphasizes user in the loop, with Agents that can collaborate, be observed, interrupted, and corrected. It is committed to complete control over the context space, keeping LLM attention always focused on what matters to prevent generation quality degradation. It is also designed with consideration for minimizing API call counts and Token consumption. All Agent sessions are transparent plain-text documents, version-controllable and auditable.
 
 <img width="1000" alt="Image" src="assets/Notebook.png" />
 
@@ -50,7 +47,7 @@ When the user knows the LLM will inevitably need certain file content or tool ex
 
 Context middleware tracks the latest version and hash of referenced files. If the hash is unchanged from the latest version, a command is injected for the Agent to trace back through historical records; if the hash changes, the latest file content is injected and version bumped.
 
-Rules or referenced files can also recursively insert files or pre-execute tools using the `@[]` schema. For example, [our default Rules file](assets/default_en.md).
+Rules or referenced files can also recursively insert files or pre-execute tools using the `@[]` schema. For example, [our default Rules file](assets/default.md).
 
 ### 🛠️ Preprocessor and Macro Support
 
@@ -115,6 +112,119 @@ Unlike traditional single-conversation long-dialogue modes, Mutsumi implements a
 - **Prevent Attention Dilution** — Avoid generation quality degradation caused by Softmax over long context in single sessions
 - **Sidebar Dispatch Center** — Centralized management of all Agent sessions through the sidebar
 - **Controllability and Auditability** — Requires approval to start, editable Prompts, can be interrupted, can be corrected through conversation
+
+### 🤖 AgentType Role System
+
+Mutsumi includes five default roles with clear responsibility boundaries:
+
+| Role | Responsibility | Forkable Sub-roles |
+|------|----------------|--------------------|
+| **chat** | Pure chat entry point, does not enter the engineering execution tree | — |
+| **orchestrator** | Global task convergence and dispatch center, interviews users, produces final state documents, and dispatches execution | planner / implementer / reviewer |
+| **planner** | Milestone and dependency planner, identifies intermediate states and parallel/serial relationships | reviewer |
+| **implementer** | Concrete engineering implementer, writes code, validates implementations, and integrates sub-results | implementer / reviewer |
+| **reviewer** | Pure auditor, read-only review of outputs, adopts pass/conditional pass/fail three-state conclusion | — |
+
+**Collaboration Topology:** Each preset role has decision-making and task advancement capabilities, avoiding information compression loss in hierarchical tree reporting structures.
+
+**Custom Workflows:** Define role toolsets through `.mutsumi/config.json`, and customize role Prompts through `.mutsumi/rules/default/*.md`, fully controlling multi-Agent collaboration behavior.
+
+> Detailed design is shown in [Agent Type System Design](docs/AGENT_TYPES_DESIGN.md) and [Prompt Engineering Design](docs/PROMPT_ENGINEERING_DESIGN.md)
+
+---
+
+## 👤 Typical User Journeys
+
+### Small Task Direct Implementation
+
+For requirements with minimal changes and clear goals, users can directly create an `implementer`:
+
+```mermaid
+flowchart LR
+    U[👤 User] -->|Create + Requirement Description| I[🛠️ implementer]
+    I -->|"Reference @[Code File]"| C[Read Context]
+    C --> I
+    I -->|Direct Implementation| D[✅ Complete]
+    I -.->|Unclear Requirements| U
+```
+
+**Interaction Details:**
+- Use `@[src/main.ts]` to pre-insert code references, reducing LLM reasoning calls
+- Use `@[search_file{"keyword": "xxx"}]` to pre-execute searches, quickly locating relevant code
+- Use the **Copy Mutsumi Reference** context menu to quickly copy file/symbol references
+
+If the requirement is clearly too large or uncertain, `implementer` should suggest the user switch to the `orchestrator` workflow.
+
+### Large Task Convergence Before Execution
+
+For complex feature development, refactoring, or design tasks:
+
+```mermaid
+flowchart TD
+    U[👤 User] -->|Create| O[🎯 orchestrator]
+    O -->|Read Project| C[📁 Context Analysis]
+    C --> O
+    O <-->|Interview Clarification| U
+    O -->|Produce| ESD[📄 Final State Document]
+    
+    ESD -.->|Optional| R1[🔍 reviewer Review]
+    R1 --> ESD
+    
+    ESD -.->|Complex Task| P[📋 planner]
+    P -->|Create| MP[🗓️ Milestone Plan]
+    
+    MP -.->|Optional| R2[🔍 reviewer Review]
+    R2 --> MP
+    
+    MP --> O
+    O -->|Phased Dispatch| I1[🛠️ implementer]
+    O -->|Parallel Execution| I2[🛠️ implementer]
+    O -->|...| I3[🛠️ implementer]
+    
+    I1 --> R[📊 Result Aggregation]
+    I2 --> R
+    I3 --> R
+    R --> O
+    
+    O -.->|Final Review| R3[🔍 reviewer]
+    R3 --> O
+    
+    O -->|Integration Report| U
+```
+
+`orchestrator` is responsible for interviewing users, converging requirements, producing final state documents, and optionally introducing `planner` for detailed planning before phased dispatching of `implementer` execution.
+
+### Execution Failure Feedback Loop
+
+When sub-Agents encounter blocking points they cannot continue:
+
+```mermaid
+flowchart TD
+    I[🛠️ implementer] -->|Confusion/Failure| TF[task_finish Report]
+    TF --> P[👤 Parent Agent]
+    P <-->|Joint Arbitration| U[👤 User]
+    
+    U -.->|Final State Unclear| R1[📝 Return to Interview Revision]
+    R1 --> O[🎯 orchestrator]
+    
+    U -.->|Local Issue| R2[🔧 Open Separate Patch Task]
+    R2 --> I2[🛠️ New implementer]
+    I2 -->|Resolve and Continue| P
+```
+
+- Sub-Agents report confusion or failure reasons via `task_finish`
+- Parent Agent and user jointly arbitrate the root cause
+- If the final state document is insufficient, return to the interview revision stage
+- If it's just a local implementation issue, open a narrower task to patch and continue
+
+### Key Interaction Mechanisms
+
+| Mechanism | Usage | Effect |
+|-----------|-------|--------|
+| **@ Schema Reference** | `@[src/main.ts:10:50]` | Precisely reference code snippets |
+| **Tool Pre-execution** | `@[search_file{"keyword": "xxx"}]` | Pre-execute search, inject results into context |
+| **Copy Mutsumi Reference** | Context Menu | Quickly copy file/symbol @ reference format |
+| **Dynamic Context Tracking** | Automatic version hash | Reference history when files unchanged, inject new version when changed |
 
 ---
 
