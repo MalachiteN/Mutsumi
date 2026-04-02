@@ -12,3 +12,4 @@ assets/tree-sitter/*.wasm
 *.gguf
 *.tsbuildinfo
 skills-lock.json
+.DS_Store
