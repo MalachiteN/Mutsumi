@@ -128,7 +128,7 @@ export class AgentFileOperations {
      * @param {string[]} allowedUris - Allowed URIs for the agent
      * @param {string} [model] - Model identifier to use (overrides agent type default)
      * @param {ContextItem[]} [contextItems] - Context items for the agent
-     * @param {string} agentType - Agent type identifier (e.g., 'implementer', 'orchestrator', 'readonly-expert')
+     * @param {string} agentType - Agent type identifier (e.g., 'chat', 'orchestrator', 'planner', 'implementer', 'reviewer')
      * @returns {Promise<vscode.Uri | undefined>} The created file URI or undefined on failure
      * @example
      * const uri = await AgentFileOperations.createAgentFile(
@@ -190,6 +190,14 @@ export class AgentFileOperations {
         const agentName = hasPrompt ? prompt!.slice(0, 20) + '...' : 'New Agent';
         const context = hasPrompt ? [{ role: 'user', content: prompt }] : [];
 
+        // Inject ROLE macro based on agentType (user could override later)
+        contextItems = contextItems ?? [];
+        contextItems.push({
+            type: 'macro',
+            key: 'ROLE',
+            content: agentType
+        });
+
         const content: any = {
             metadata: {
                 uuid: uuid,
@@ -200,7 +208,7 @@ export class AgentFileOperations {
                 is_task_finished: false,
                 model: selectedModel,
                 sub_agents_list: [],  // New agent starts with empty sub-agent list
-                contextItems: contextItems || [],
+                contextItems: contextItems,
                 activeRules: defaults.rules,
                 activeSkills: defaults.skills,
                 agentType: agentType  // Store the agent type in metadata

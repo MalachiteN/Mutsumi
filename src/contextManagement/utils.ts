@@ -244,6 +244,7 @@ export async function executeToolCall(name: string, args: any, allowedUris: stri
     const context: ToolContext = {
         allowedUris: allowedUris,
         session,
+        signalTermination: () => {}, // No-op for user's explicit tool pre-execution
     };
     return await tm.executeTool(name, args, context, false);
 }

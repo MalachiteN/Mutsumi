@@ -214,7 +214,7 @@ class ApprovalRequestManager {
         targetUri: string, 
         details?: string, 
         autoApproved: boolean = false
-    ): { id: string; promise: Promise<boolean> } { // DO NOT PLACE A COMMA BETWEEN THE FUNCTION BODY AND THE JSON RETURN TYPE! OR IT WILL CAUSE "应为 "{" 或 ";"。意外的标记。应为构造函数、方法、访问器或属性。"
+    ): { id: string; promise: Promise<boolean> } {
         let resolveFn: (approved: boolean) => void;
         const promise = new Promise<boolean>((resolve) => {
             resolveFn = resolve;
@@ -292,23 +292,50 @@ function shouldAutoApprove(): boolean {
 }
 
 /**
+ * Handle rejection flow by showing an input box for reason entry.
+ * If user cancels (ESC) or provides empty input, terminates the session.
+ * 
+ * @param toolName The name of the tool being rejected
+ * @param signalTermination Function to signal session termination
+ * @returns Formatted rejection message string
+ */
+export async function handleRejectionFlow(
+    toolName: string,
+    signalTermination: (isTaskComplete?: boolean) => void
+): Promise<string> {
+    const reason = await vscode.window.showInputBox({
+        prompt: `Reason for rejecting ${toolName}:`,
+        placeHolder: 'Enter reason (ESC to abort generation)'
+    });
+    
+    if (reason === undefined || reason.trim() === '') {
+        signalTermination(false);
+        return `[Rejected] The ${toolName} operation was rejected by user.`;
+    } else {
+        return `[Rejected with Reason] The ${toolName} operation was rejected by user. Reason: ${reason}`;
+    }
+}
+
+/**
  * Request user approval for a potentially dangerous operation.
  * Shows a notification and adds a request to the approval sidebar.
  * 
- * If auto-approve mode is enabled or in rule parsing mode, automatically returns true.
+ * If auto-approve mode is enabled or in rule parsing mode, automatically returns null (approved).
  * 
  * @param actionDescription Short description of the action (e.g., "Create Directory")
  * @param targetUri The target URI or path
  * @param context Tool context for output
+ * @param toolName The name of the tool requesting approval
  * @param details Optional additional details
- * @returns Promise that resolves to true if approved, false if rejected
+ * @returns Promise that resolves to null if approved, or rejection message string if rejected
  */
 export async function requestApproval(
     actionDescription: string,
     targetUri: string,
     context: ToolContext,
+    toolName: string,
     details?: string
-): Promise<boolean> {
+): Promise<string | null> {
     // Check if should auto-approve
     const autoApprove = shouldAutoApprove();
     
@@ -319,28 +346,37 @@ export async function requestApproval(
             `⚡ Auto Approved${modeText}: ${actionDescription} - ${targetUri}`
         );
         approvalManager.createStandardRequest(actionDescription, targetUri, details, true);
-        return true;
+        return null;
     }
 
-    // 创建标准请求
-    const { id, promise: requestPromise } = approvalManager.createStandardRequest(actionDescription, targetUri, details, false);
+    // 使用 createRequest 创建带自定义处理器的请求
+    return new Promise<string | null>((resolve) => {
+        const id = approvalManager.createRequest(
+            actionDescription,
+            targetUri,
+            {
+                onApprove: async () => resolve(null),
+                onReject: async () => {
+                    const rejectionMessage = await handleRejectionFlow(toolName, context.signalTermination);
+                    resolve(rejectionMessage);
+                }
+            },
+            details,
+            false
+        );
 
-    // 显示带有快速批准/拒绝按钮的通知
-    vscode.window.showInformationMessage(
-        `Mutsumi: Agent requests permission to ${actionDescription}`,
-        'Approve',
-        'Reject'
-    ).then(selection => {
-        if (selection === 'Approve') {
-            approvalManager.approveRequest(id);
-        } else if (selection === 'Reject') {
-            approvalManager.rejectRequest(id);
-        }
-        // 如果用户关闭通知而不点击按钮，请求仍保留在侧边栏等待处理
+        // 显示带有快速批准/拒绝按钮的通知
+        vscode.window.showInformationMessage(
+            `Mutsumi: Agent requests permission to ${actionDescription}`,
+            'Approve',
+            'Reject'
+        ).then(selection => {
+            if (selection === 'Approve') {
+                approvalManager.approveRequest(id);
+            } else if (selection === 'Reject') {
+                approvalManager.rejectRequest(id);
+            }
+            // 如果用户关闭通知而不点击按钮，请求仍保留在侧边栏等待处理
+        });
     });
-
-    // 等待用户响应（通过通知按钮或侧边栏）
-    const approved = await requestPromise;
-
-    return approved;
 }

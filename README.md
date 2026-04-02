@@ -47,7 +47,7 @@ When the user knows the LLM will inevitably need certain file content or tool ex
 
 Context middleware tracks the latest version and hash of referenced files. If the hash is unchanged from the latest version, a command is injected for the Agent to trace back through historical records; if the hash changes, the latest file content is injected and version bumped.
 
-Rules or referenced files can also recursively insert files or pre-execute tools using the `@[]` schema. For example, [our default Rules file](assets/default.md).
+Rules or referenced files can also recursively insert files or pre-execute tools using the `@[]` schema. For example, [our default Rules file](assets/default/implementer.md).
 
 ### 🛠️ Preprocessor and Macro Support
 
@@ -263,8 +263,8 @@ Mutsumi provides rich built-in tools for intelligent task execution:
 - **File Operations** — `read_file`, `edit_file`, `create_file`, `ls`, `get_file_size`
 - **Code Search** — `search_file_contains_keyword`, `search_file_name_includes`, `project_outline`, `query_codebase`
 - **Execution Control** — `shell`, `get_env_var`, `system_info`
-- **File Editing** — `edit_file_search_replace`, `edit_file_full_replace`
-- **Agent Orchestration** — `self_fork`, `get_available_models`, `task_finish`
+- **File Editing** — `edit_file_search_replace`, `create_or_replace`
+- **Agent Orchestration** — `dispatch_subagents`, `get_available_models`, `task_finish`
 
 ---
 

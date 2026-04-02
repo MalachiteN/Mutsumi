@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { AgentMessage } from '../types';
+import { AgentMessage, AgentMetadata } from '../types';
 import { LLMClient, LLMClientConfig } from './llmClient';
 import { AgentOrchestrator } from './agentOrchestrator';
 import { IAgentSession } from '../adapters/interfaces';
@@ -99,11 +99,13 @@ function createTitleGenerationMessages(messages: AgentMessage[]): AgentMessage[]
  * ensuring single-round execution (since no tools are available).
  * @param {AgentMessage[]} messages - Conversation message history
  * @param {LLMClientConfig} config - LLM client configuration
+ * @param {AgentMetadata} [sourceMetadata] - Optional source metadata to copy (includes agentType and contextItems)
  * @returns {Promise<string>} Generated title string
  */
 export async function generateTitle(
     messages: AgentMessage[],
-    config: LLMClientConfig
+    config: LLMClientConfig,
+    sourceMetadata?: AgentMetadata
 ): Promise<string> {
     // Dynamically import AgentRunner to avoid circular dependency
     const { AgentRunner } = await import('./agentRunner.js');
@@ -114,7 +116,8 @@ export async function generateTitle(
         config: {
             model: config.model,
             apiKey: config.apiKey,
-            baseUrl: config.baseUrl
+            baseUrl: config.baseUrl,
+            metadata: sourceMetadata ? JSON.parse(JSON.stringify(sourceMetadata)) as AgentMetadata : undefined
         }
     });
 
@@ -246,11 +249,13 @@ export class TitleGenerator {
         }
 
         try {
+            // Get source metadata from notebook if available
+            const sourceMetadata = notebook?.metadata as AgentMetadata | undefined;
             const title = await generateTitle(messages, {
                 apiKey: config.apiKey!,
                 baseUrl: config.baseUrl,
                 model: config.titleGeneratorModel!
-            });
+            }, sourceMetadata);
 
             await session.updateTitle(title);
             // Note: session.updateTitle() already handles metadata update and UI refresh
@@ -289,11 +294,13 @@ export async function regenerateTitleForSession(
         throw new Error('No conversation context found.');
     }
 
+    // Get source metadata from notebook if available
+    const sourceMetadata = notebook?.metadata as AgentMetadata | undefined;
     const title = await generateTitle(messages, {
         apiKey: config.apiKey,
         baseUrl: config.baseUrl,
         model: config.titleGeneratorModel
-    });
+    }, sourceMetadata);
 
     await session.updateTitle(title);
     if (notebook) {

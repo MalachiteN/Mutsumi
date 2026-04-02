@@ -1,5 +1,5 @@
 /**
- * @fileoverview Orchestrates agent lifecycle, fork sessions, and UI state management.
+ * @fileoverview Orchestrates agent lifecycle, dispatch sessions, and UI state management.
  * @module agent/agentOrchestrator
  */
 
@@ -8,16 +8,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { AgentSidebarProvider } from '../sidebar/agentSidebar';
 import { AgentController } from '../controller';
 import { AgentStateInfo, AgentRuntimeStatus, ContextItem } from '../types';
-import { ForkSession } from './types';
 import { AgentRegistry } from './registry';
-import { ForkSessionManager } from './fork';
+import { DispatchSessionManager } from './dispatch';
 import { AgentFileOperations } from './fileOps';
 import { AgentTreeUtils } from './treeUtils';
 import { AgentTypeRegistry } from '../registry/agentTypeRegistry';
 
 /**
- * Orchestrates agent lifecycle, state management, and fork operations.
- * @description Manages the global agent registry, handles fork sessions for sub-agents,
+ * Orchestrates agent lifecycle, state management, and dispatch operations.
+ * @description Manages the global agent registry, handles dispatch sessions for sub-agents,
  * and coordinates UI updates through the sidebar provider.
  * @class AgentOrchestrator
  */
@@ -33,8 +32,8 @@ export class AgentOrchestrator {
 
     /** Agent registry singleton */
     private registry = AgentRegistry.getInstance();
-    /** Fork session manager singleton */
-    private forkSessions = ForkSessionManager.getInstance();
+    /** Dispatch session manager singleton */
+    private dispatchSessions = DispatchSessionManager.getInstance();
 
     /**
      * Private constructor to enforce singleton pattern.
@@ -123,17 +122,17 @@ export class AgentOrchestrator {
     }
 
     /**
-     * Requests a fork to create sub-agents.
+     * Requests to dispatch sub-agents.
      * @description Creates multiple sub-agents as specified, waits for their completion,
      * and aggregates their results into a final report.
      * @param {string} parentId - UUID of the parent agent
-     * @param {string} contextSummary - Summary context for the fork operation
+     * @param {string} contextSummary - Summary context for the dispatch operation
      * @param {Array<{prompt: string; allowed_uris: string[]; model?: string; agent_type?: string}>} subAgents - Sub-agent configurations
      * @param {AbortSignal} [signal] - Optional abort signal for cancellation
      * @returns {Promise<string>} Aggregated report from all sub-agents
      * @throws {Error} If the operation is aborted
      */
-    public async requestFork(
+    public async requestDispatch(
         parentId: string,
         contextSummary: string,
         subAgents: { prompt: string; allowed_uris: string[]; model?: string; agent_type?: string }[],
@@ -145,14 +144,14 @@ export class AgentOrchestrator {
             }
 
             const sessionChildUuids = new Set<string>();
-            this.forkSessions.createSession(parentId, sessionChildUuids, resolve, reject);
+            this.dispatchSessions.createSession(parentId, sessionChildUuids, resolve, reject);
 
             for (const subAgent of subAgents) {
                 try {
                     const childUuid = uuidv4();
                     sessionChildUuids.add(childUuid);
-                    // Default to 'sub' type if agent_type not specified
-                    const agentType = subAgent.agent_type || 'sub';
+                    // Default to 'implementer' type if agent_type not specified
+                    const agentType = subAgent.agent_type || 'implementer';
                     // Combine context summary with sub-agent prompt
                     const combinedPrompt = contextSummary
                         ? `## Context Summary\n\n${contextSummary}\n\n---\n\n${subAgent.prompt}`
@@ -279,7 +278,7 @@ export class AgentOrchestrator {
     /**
      * Reports that a sub-agent task has finished.
      * @description Called when the task_finish tool is invoked by a sub-agent.
-     * Stores the result and checks if all sub-agents in the fork session are complete.
+     * Stores the result and checks if all sub-agents in the dispatch session are complete.
      * @param {string} childUuid - Child agent UUID
      * @param {string} summary - Task completion summary
      */
@@ -293,7 +292,7 @@ export class AgentOrchestrator {
         this.refreshUI();
 
         if (agent.parentId) {
-            const added = this.forkSessions.addResult(agent.parentId, childUuid, summary);
+            const added = this.dispatchSessions.addResult(agent.parentId, childUuid, summary);
             if (added) {
                 this.checkSessionCompletion(agent.parentId);
             }
@@ -303,7 +302,7 @@ export class AgentOrchestrator {
     /**
      * Notifies that an agent file has been deleted.
      * @description Removes the agent from the registry, cleans up bidirectional references,
-     * and updates any active fork sessions. If parent doesn't exist, the agent becomes independent.
+     * and updates any active dispatch sessions. If parent doesn't exist, the agent becomes independent.
      * @param {vscode.Uri} uri - URI of the deleted file
      * @returns {Promise<void>}
      */
@@ -338,7 +337,7 @@ export class AgentOrchestrator {
         this.registry.deleteAgent(deletedUuid);
 
         if (parentId) {
-            const deleted = this.forkSessions.addDeletedChild(parentId, deletedUuid);
+            const deleted = this.dispatchSessions.addDeletedChild(parentId, deletedUuid);
             if (deleted) {
                 this.checkSessionCompletion(parentId);
             }
@@ -426,7 +425,7 @@ export class AgentOrchestrator {
      * @param {string} parentId - Parent agent ID
      * @param {string} prompt - Initial prompt for the agent
      * @param {string[]} allowedUris - Allowed URIs for the agent
-     * @param {string} agentType - Agent type identifier (e.g., 'sub', 'readonly-expert', 'planner', 'summarizer')
+     * @param {string} agentType - Agent type identifier (e.g., 'chat', 'orchestrator', 'planner', 'implementer', 'reviewer')
      * @param {string} [model] - Model identifier to use
      * @param {ContextItem[]} [contextItems] - Context items for the agent (not inherited, empty for sub-agents)
      * @returns {Promise<void>}
@@ -488,38 +487,38 @@ export class AgentOrchestrator {
     }
 
     /**
-     * Cancels an active fork session.
+     * Cancels an active dispatch session.
      * @private
      * @param {string} parentId - Parent agent ID of the session to cancel
      * @param {string} reason - Reason for cancellation
      */
     private cancelSession(parentId: string, reason: string): void {
-        const cancelled = this.forkSessions.cancelSession(parentId, reason);
+        const cancelled = this.dispatchSessions.cancelSession(parentId, reason);
         if (cancelled) {
             this.refreshUI();
         }
     }
 
     /**
-     * Checks if a fork session is complete and resolves the promise.
+     * Checks if a dispatch session is complete and resolves the promise.
      * @private
      * @description Called when a child agent finishes or is deleted. If all children
      * have been accounted for, generates the final report and resolves the session.
      * @param {string} parentId - Parent agent ID of the session
      */
     private checkSessionCompletion(parentId: string): void {
-        const session = this.forkSessions.getSession(parentId);
+        const session = this.dispatchSessions.getSession(parentId);
         if (!session) {
             return;
         }
 
-        if (!this.forkSessions.isSessionComplete(parentId)) {
+        if (!this.dispatchSessions.isSessionComplete(parentId)) {
             return;
         }
 
-        const report = this.forkSessions.generateReport(parentId, this.getRegistryMap());
+        const report = this.dispatchSessions.generateReport(parentId, this.getRegistryMap());
         session.resolve(report);
-        this.forkSessions.deleteSession(parentId);
+        this.dispatchSessions.deleteSession(parentId);
     }
 
     /**
@@ -532,7 +531,7 @@ export class AgentOrchestrator {
     }
 
     /**
-     * Builds a registry map for tree utilities and fork reports.
+     * Builds a registry map for tree utilities and dispatch reports.
      * @private
      * @returns {Map<string, AgentStateInfo>} Map of agent UUIDs to agent info
      */

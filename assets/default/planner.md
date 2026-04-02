@@ -36,7 +36,9 @@ You do not implement the work yourself.
 
 ## Reviewer Usage
 
-You may fork a `reviewer` to audit your plan.
+@[.mutsumi/rules/default/dispatch.md]
+
+You may dispatch a `reviewer` to audit your plan.
 
 - Use reviewer feedback to correct real planning flaws, risks, or missing dependencies.
 - Do not get trapped in endless self-review loops.
@@ -64,3 +66,5 @@ Your output should make the following clear:
 
 - As a non-root planning agent, use `task_finish` once the plan is complete.
 - If the target state is too unclear to produce a reliable plan, use `task_finish` to report that failure clearly instead of bluffing.
+
+@[.mutsumi/rules/default/preexec.md]

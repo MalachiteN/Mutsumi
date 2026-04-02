@@ -21,7 +21,7 @@ Agent Types are meant to answer questions like:
 - what default model does this role use?
 - what rules and skills does it start with?
 - what tools can it actually call?
-- what child roles may it fork?
+- what child roles may it dispatch?
 - can the user create it directly?
 
 They are not meant to answer:
@@ -73,7 +73,7 @@ Current adapter routing rules:
 
 - notebook execution uses `NotebookAdapter`
 - HTTP execution uses `HeadlessAdapter`
-- forked agents inherit the parent execution surface in practice through the creating flow
+- dispatched agents inherit the parent execution surface in practice through the creating flow
 - `LiteAdapter` is reserved for internal utility work such as title generation and context compression
 
 `LiteAdapter` is intentionally outside the user-facing Agent Type system. It cannot be audited like a notebook or headless session, cannot be corrected mid-flight by the user, and cannot serve as a primary collaborative agent surface in Mutsumi.
@@ -89,7 +89,7 @@ This is especially important for `contextItems`.
 For that reason:
 
 - child rules, skills, and model come from the child `AgentType` defaults unless explicitly overridden
-- `allowed_uris` is specified at fork time
+- `allowed_uris` is specified at dispatching time
 - `contextItems` are not treated as generically inheritable role state
 
 ## Capability Model
@@ -106,7 +106,7 @@ This avoids parallel truth systems such as `readOnly`, `canShell`, or `canFork` 
 Examples:
 
 - a readonly role simply lacks write tools and shell tools
-- an orchestrator can have fork tools without file-edit tools
+- an orchestrator can have dispatching tools without file-edit tools
 - a child agent gains `task_finish` because it is a child session, not because the role definition contains a separate boolean
 
 ## Two Control Planes
@@ -160,76 +160,75 @@ If the file does not exist, Mutsumi loads built-in defaults from `src/config/typ
 
 ```json
 {
-  "version": 1,
-  "toolSets": {
-    "read": [
-      "read_file",
-      "ls",
-      "partially_read_by_range",
-      "partially_read_around_keyword",
-      "search_file_contains_keyword",
-      "search_file_name_includes",
-      "get_file_size",
-      "get_env_var",
-      "system_info",
-      "project_outline",
-      "get_warning_error",
-      "query_codebase"
-    ],
-    "deliver": [
-      "shell",
-      "edit_file_full_replace",
-      "edit_file_search_replace",
-      "mkdir",
-      "create_file"
-    ],
-    "fork": [
-      "self_fork",
-      "get_agent_types"
-    ]
-  },
-  "agentTypes": {
-    "chat": {
-      "toolSets": [],
-      "defaultModel": "moonshotai/kimi-k2.5",
-      "defaultRules": ["default/chat.md"],
-      "defaultSkills": [],
-      "allowedChildTypes": [],
-      "isEntry": true
+    "version": 1,
+    "toolSets": {
+        "read": [
+            "read_file",
+            "ls",
+            "read_partial_by_range",
+            "read_partial_around_keyword",
+            "search_file_contains_keyword",
+            "search_file_name_includes",
+            "get_file_size",
+            "get_env_var",
+            "system_info",
+            "project_outline",
+            "get_warning_error",
+            "query_codebase"
+        ],
+        "deliver": [
+            "shell",
+            "create_or_replace",
+            "edit_file_search_replace",
+            "mkdir"
+        ],
+        "dispatch": [
+            "dispatch_subagents",
+            "get_agent_types"
+        ]
     },
-    "implementer": {
-      "toolSets": ["read", "deliver", "fork"],
-      "defaultModel": "moonshotai/kimi-k2.5",
-      "defaultRules": ["default/implementer.md"],
-      "defaultSkills": [],
-      "allowedChildTypes": ["implementer", "reviewer"],
-      "isEntry": true
-    },
-    "orchestrator": {
-      "toolSets": ["read", "fork"],
-      "defaultModel": "moonshotai/kimi-k2.5",
-      "defaultRules": ["default/orchestrator.md"],
-      "defaultSkills": [],
-      "allowedChildTypes": ["planner", "implementer", "reviewer"],
-      "isEntry": true
-    },
-    "planner": {
-      "toolSets": ["read", "fork"],
-      "defaultModel": "moonshotai/kimi-k2.5",
-      "defaultRules": ["default/planner.md"],
-      "defaultSkills": [],
-      "allowedChildTypes": ["reviewer"],
-      "isEntry": false
-    },
-    "reviewer": {
-      "toolSets": ["read"],
-      "defaultModel": "moonshotai/kimi-k2.5",
-      "defaultRules": ["default/reviewer.md"],
-      "defaultSkills": [],
-      "allowedChildTypes": [],
-      "isEntry": true
+    "agentTypes": {
+        "chat": {
+            "toolSets": [],
+            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultRules": ["default/chat.md"],
+            "defaultSkills": [],
+            "allowedChildTypes": [],
+            "isEntry": true
+        },
+        "implementer": {
+            "toolSets": ["read", "deliver", "dispatch"],
+            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultRules": ["default/implementer.md"],
+            "defaultSkills": [],
+            "allowedChildTypes": ["implementer", "reviewer"],
+            "isEntry": true
+        },
+        "orchestrator": {
+            "toolSets": ["read", "deliver", "dispatch"],
+            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultRules": ["default/orchestrator.md"],
+            "defaultSkills": [],
+            "allowedChildTypes": ["planner", "implementer", "reviewer"],
+            "isEntry": true
+        },
+        "planner": {
+            "toolSets": ["read", "dispatch"],
+            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultRules": ["default/planner.md"],
+            "defaultSkills": [],
+            "allowedChildTypes": ["reviewer"],
+            "isEntry": false
+        },
+        "reviewer": {
+            "toolSets": ["read"],
+            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultRules": ["default/reviewer.md"],
+            "defaultSkills": [],
+            "allowedChildTypes": [],
+            "isEntry": true
+        }
     }
-  }
 }
 ```
 
@@ -253,7 +252,7 @@ Tool sets are composable building blocks, not necessarily full agent roles by th
 - `defaultModel`: default model for this role
 - `defaultRules`: default rule files under `.mutsumi/rules/`
 - `defaultSkills`: default active skills
-- `allowedChildTypes`: which child roles may be created through `self_fork`
+- `allowedChildTypes`: which child roles may be created through `dispatch_subagents`
 - `isEntry`: whether the role appears in user-facing creation flows
 
 There is intentionally no:
@@ -341,7 +340,7 @@ The child agent:
 
 - gets its own `agentType`
 - gets its own resolved default rules, skills, and model
-- receives `allowed_uris` from the fork payload
+- receives `allowed_uris` from the dispatch payload
 - does not receive generic inherited `contextItems`
 
 Relevant files:

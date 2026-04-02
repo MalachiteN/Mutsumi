@@ -1,20 +1,20 @@
 /**
- * @fileoverview Fork Session Manager - Manages lifecycle of fork sessions for sub-agents.
- * @module fork
+ * @fileoverview Dispatch Session Manager - Manages lifecycle of dispatch sessions for sub-agents.
+ * @module dispatch
  */
 
 import { AgentStateInfo } from './types';
 
 /**
- * Represents an active fork session with its state and callbacks.
- * @interface ForkSession
+ * Represents an active dispatch session with its state and callbacks.
+ * @interface DispatchSession
  */
-interface ForkSession {
-    /** Parent agent ID that initiated the fork */
+interface DispatchSession {
+    /** Parent agent ID that initiated the dispatch */
     parentId: string;
-    /** Resolve callback for the fork promise */
+    /** Resolve callback for the dispatch promise */
     resolve: (value: string | PromiseLike<string>) => void;
-    /** Reject callback for the fork promise */
+    /** Reject callback for the dispatch promise */
     reject: (reason?: any) => void;
     /** Set of child agent UUIDs in this session */
     childUuids: Set<string>;
@@ -25,24 +25,24 @@ interface ForkSession {
 }
 
 /**
- * Manages fork sessions for sub-agents.
- * @description Handles creation, tracking, and completion of fork sessions.
- * Each fork session represents a parent agent waiting for multiple sub-agents to complete.
- * @class ForkSessionManager
+ * Manages dispatch sessions for sub-agents.
+ * @description Handles creation, tracking, and completion of dispatch sessions.
+ * Each dispatch session represents a parent agent waiting for multiple sub-agents to complete.
+ * @class DispatchSessionManager
  * @example
- * const manager = ForkSessionManager.getInstance();
+ * const manager = DispatchSessionManager.getInstance();
  * manager.createSession(parentId, childUuids, resolve, reject);
  * manager.addResult(parentId, childUuid, result);
  * if (manager.isSessionComplete(parentId)) {
  *   const report = manager.generateReport(parentId, registry);
  * }
  */
-export class ForkSessionManager {
+export class DispatchSessionManager {
     /** Singleton instance */
-    private static instance: ForkSessionManager;
+    private static instance: DispatchSessionManager;
 
-    /** Active fork sessions (ParentUUID -> Session) */
-    private activeForks = new Map<string, ForkSession>();
+    /** Active dispatch sessions (ParentUUID -> Session) */
+    private activeDispatches = new Map<string, DispatchSession>();
 
     /**
      * Private constructor to enforce singleton pattern.
@@ -52,26 +52,26 @@ export class ForkSessionManager {
     private constructor() {}
 
     /**
-     * Gets the singleton instance of ForkSessionManager.
+     * Gets the singleton instance of DispatchSessionManager.
      * @static
-     * @returns {ForkSessionManager} The singleton instance
+     * @returns {DispatchSessionManager} The singleton instance
      * @example
-     * const manager = ForkSessionManager.getInstance();
+     * const manager = DispatchSessionManager.getInstance();
      */
-    public static getInstance(): ForkSessionManager {
-        if (!ForkSessionManager.instance) {
-            ForkSessionManager.instance = new ForkSessionManager();
+    public static getInstance(): DispatchSessionManager {
+        if (!DispatchSessionManager.instance) {
+            DispatchSessionManager.instance = new DispatchSessionManager();
         }
-        return ForkSessionManager.instance;
+        return DispatchSessionManager.instance;
     }
 
     /**
-     * Creates a new fork session.
-     * @param {string} parentId - Parent agent ID that initiated the fork
+     * Creates a new dispatch session.
+     * @param {string} parentId - Parent agent ID that initiated the dispatch
      * @param {Set<string>} childUuids - Set of child agent UUIDs in this session
      * @param {(value: string | PromiseLike<string>) => void} resolve - Resolve callback
      * @param {(reason?: any) => void} reject - Reject callback
-     * @returns {ForkSession} The created session
+     * @returns {DispatchSession} The created session
      * @example
      * const session = manager.createSession(
      *   parentId,
@@ -85,8 +85,8 @@ export class ForkSessionManager {
         childUuids: Set<string>,
         resolve: (value: string | PromiseLike<string>) => void,
         reject: (reason?: any) => void
-    ): ForkSession {
-        const session: ForkSession = {
+    ): DispatchSession {
+        const session: DispatchSession = {
             parentId,
             resolve,
             reject,
@@ -94,37 +94,37 @@ export class ForkSessionManager {
             results: new Map(),
             deletedChildren: new Set()
         };
-        this.activeForks.set(parentId, session);
+        this.activeDispatches.set(parentId, session);
         return session;
     }
 
     /**
-     * Gets a fork session by parent ID.
+     * Gets a dispatch session by parent ID.
      * @param {string} parentId - Parent agent ID
-     * @returns {ForkSession | undefined} The session or undefined if not found
+     * @returns {DispatchSession | undefined} The session or undefined if not found
      * @example
      * const session = manager.getSession(parentId);
      * if (session) {
      *   // process session
      * }
      */
-    public getSession(parentId: string): ForkSession | undefined {
-        return this.activeForks.get(parentId);
+    public getSession(parentId: string): DispatchSession | undefined {
+        return this.activeDispatches.get(parentId);
     }
 
     /**
-     * Deletes a fork session.
+     * Deletes a dispatch session.
      * @param {string} parentId - Parent agent ID of the session to delete
      * @returns {boolean} True if session was deleted, false if not found
      * @example
      * const deleted = manager.deleteSession(parentId);
      */
     public deleteSession(parentId: string): boolean {
-        return this.activeForks.delete(parentId);
+        return this.activeDispatches.delete(parentId);
     }
 
     /**
-     * Checks if a fork session exists.
+     * Checks if a dispatch session exists.
      * @param {string} parentId - Parent agent ID to check
      * @returns {boolean} True if session exists
      * @example
@@ -133,7 +133,7 @@ export class ForkSessionManager {
      * }
      */
     public hasSession(parentId: string): boolean {
-        return this.activeForks.has(parentId);
+        return this.activeDispatches.has(parentId);
     }
 
     /**
@@ -146,7 +146,7 @@ export class ForkSessionManager {
      * manager.addResult(parentId, childUuid, 'Task completed successfully');
      */
     public addResult(parentId: string, childUuid: string, result: string): boolean {
-        const session = this.activeForks.get(parentId);
+        const session = this.activeDispatches.get(parentId);
         if (!session || !session.childUuids.has(childUuid)) {
             return false;
         }
@@ -163,7 +163,7 @@ export class ForkSessionManager {
      * manager.addDeletedChild(parentId, childUuid);
      */
     public addDeletedChild(parentId: string, childUuid: string): boolean {
-        const session = this.activeForks.get(parentId);
+        const session = this.activeDispatches.get(parentId);
         if (!session || !session.childUuids.has(childUuid)) {
             return false;
         }
@@ -172,7 +172,7 @@ export class ForkSessionManager {
     }
 
     /**
-     * Checks if a fork session is complete.
+     * Checks if a dispatch session is complete.
      * A session is complete when all children have either produced results or been deleted.
      * @param {string} parentId - Parent agent ID of the session
      * @returns {boolean} True if all children have been accounted for
@@ -182,7 +182,7 @@ export class ForkSessionManager {
      * }
      */
     public isSessionComplete(parentId: string): boolean {
-        const session = this.activeForks.get(parentId);
+        const session = this.activeDispatches.get(parentId);
         if (!session) {
             return false;
         }
@@ -205,7 +205,7 @@ export class ForkSessionManager {
      * console.log(report);
      */
     public generateReport(parentId: string, registry: Map<string, AgentStateInfo>): string {
-        const session = this.activeForks.get(parentId);
+        const session = this.activeDispatches.get(parentId);
         if (!session) {
             return '';
         }
@@ -229,7 +229,7 @@ export class ForkSessionManager {
     }
 
     /**
-     * Cancels an active fork session.
+     * Cancels an active dispatch session.
      * Rejects the session's promise with the given reason and removes the session.
      * @param {string} parentId - Parent agent ID of the session to cancel
      * @param {string} reason - Reason for cancellation
@@ -238,10 +238,10 @@ export class ForkSessionManager {
      * manager.cancelSession(parentId, 'User aborted execution');
      */
     public cancelSession(parentId: string, reason: string): boolean {
-        const session = this.activeForks.get(parentId);
+        const session = this.activeDispatches.get(parentId);
         if (session) {
             session.reject(new Error(reason));
-            this.activeForks.delete(parentId);
+            this.activeDispatches.delete(parentId);
             return true;
         }
         return false;
@@ -254,23 +254,23 @@ export class ForkSessionManager {
      * const activeSessions = manager.getActiveSessionIds();
      */
     public getActiveSessionIds(): string[] {
-        return Array.from(this.activeForks.keys());
+        return Array.from(this.activeDispatches.keys());
     }
 
     /**
-     * Clears all active fork sessions.
+     * Clears all active dispatch sessions.
      * @description This will reject all pending sessions with a 'Session manager cleared' reason.
      * Use with caution, typically during shutdown.
      * @example
      * manager.clearAllSessions();
      */
     public clearAllSessions(): void {
-        for (const [parentId, session] of this.activeForks) {
+        for (const [parentId, session] of this.activeDispatches) {
             session.reject(new Error('Session manager cleared'));
         }
-        this.activeForks.clear();
+        this.activeDispatches.clear();
     }
 }
 
 // Export the interface for external use
-export type { ForkSession };
+export type { DispatchSession };

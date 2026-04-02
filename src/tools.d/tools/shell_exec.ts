@@ -14,7 +14,7 @@ function shellLogger(message: string): void {
     toolsLogger.logLine(`[${timestamp}] [shell] ${message}`);
 }
 
-export const shellExecTool: ITool = {
+export const shellTool: ITool = {
     name: 'shell',
     definition: {
         type: 'function',
@@ -61,15 +61,16 @@ export const shellExecTool: ITool = {
 
             // User Approval via sidebar
             const details = `Command:\n${cmd}\n\nShell: ${shellName}`;
-            const approved = await requestApproval(
+            const rejectionMsg = await requestApproval(
                 `Execute "${cmd}" at ${uriInput}`,
                 uriInput,
                 context,
+                'shell',
                 details
             );
 
-            if (!approved) {
-                return 'User rejected the shell command execution.';
+            if (rejectionMsg !== null) {
+                return rejectionMsg;
             }
 
             // Log command start

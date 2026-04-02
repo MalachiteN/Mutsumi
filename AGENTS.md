@@ -132,16 +132,18 @@ try {
 工具能力由配置中的 `toolSets` 字段定义，基础组合包括：
 - `read` - 文件读取、搜索、信息查询（只读）
 - `deliver` - 文件写入、编辑、shell 执行（写入操作）
-- `fork` - Agent 编排（`self_fork`, `get_agent_types`）
+- `dispatch` - Agent 编排（`dispatch_subagents`, `get_agent_types`）
 
 AgentType 通过组合这些工具集定义能力边界。例如：
-- `implementer`: `['read', 'deliver', 'fork']`
-- `readonly-expert`: `['read']`
-- `orchestrator`: `['read', 'fork']`
+- `chat`: `[]`
+- `orchestrator`: `['read', 'deliver', 'dispatch']`
+- `planner`: `['read', 'dispatch']`
+- `implementer`: `['read', 'deliver', 'dispatch']`
+- `reviewer`: `['read']`
 
 **非根 Agent 的完成义务：**
 
-存在 `parent_agent_id` 的 Agent（即通过 `self_fork` 创建的 Agent）运行时额外获得 `task_finish` 工具，用于向父 Agent 报告完成状态。
+存在 `parent_agent_id` 的 Agent（即通过 `dispatch_subagents` 创建的 Agent）运行时额外获得 `task_finish` 工具，用于向父 Agent 报告完成状态。
 
 **审批流程：**
 
@@ -157,7 +159,7 @@ AgentType 通过组合这些工具集定义能力边界。例如：
 
 ```
 父 Agent
-    ↓ self_fork
+    ↓ dispatch_subagents
 创建子 Agent (多个并行)
     ↓ 各自执行
 子 Agent 调用 task_finish

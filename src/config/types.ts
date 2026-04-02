@@ -41,7 +41,7 @@ export {
  * Base tool sets:
  * - read: File reading, search, and info tools (read-only)
  * - deliver: File writing, editing, shell execution (write operations)
- * - fork: Agent orchestration tools (self_fork, get_agent_types)
+ * - dispatch: Agent orchestration tools (dispatch_subagents, get_agent_types)
  */
 export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
     "version": 1,
@@ -49,8 +49,8 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
         "read": [
             "read_file",
             "ls",
-            "partially_read_by_range",
-            "partially_read_around_keyword",
+            "read_partial_by_range",
+            "read_partial_around_keyword",
             "search_file_contains_keyword",
             "search_file_name_includes",
             "get_file_size",
@@ -62,13 +62,12 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
         ],
         "deliver": [
             "shell",
-            "edit_file_full_replace",
+            "create_or_replace",
             "edit_file_search_replace",
-            "mkdir",
-            "create_file"
+            "mkdir"
         ],
-        "fork": [
-            "self_fork",
+        "dispatch": [
+            "dispatch_subagents",
             "get_agent_types"
         ]
     },
@@ -82,7 +81,7 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
             "isEntry": true
         },
         "implementer": {
-            "toolSets": ["read", "deliver", "fork"],
+            "toolSets": ["read", "deliver", "dispatch"],
             "defaultModel": "moonshotai/kimi-k2.5",
             "defaultRules": ["default/implementer.md"],
             "defaultSkills": [],
@@ -90,7 +89,7 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
             "isEntry": true
         },
         "orchestrator": {
-            "toolSets": ["read", "fork"],
+            "toolSets": ["read", "deliver", "dispatch"],
             "defaultModel": "moonshotai/kimi-k2.5",
             "defaultRules": ["default/orchestrator.md"],
             "defaultSkills": [],
@@ -98,7 +97,7 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
             "isEntry": true
         },
         "planner": {
-            "toolSets": ["read", "fork"],
+            "toolSets": ["read", "dispatch"],
             "defaultModel": "moonshotai/kimi-k2.5",
             "defaultRules": ["default/planner.md"],
             "defaultSkills": [],

@@ -30,7 +30,7 @@ Your review should make it obvious which of the three applies and why.
 
 - Do not rewrite the artifact yourself.
 - Do not quietly switch into implementation mode.
-- Do not fork other agents.
+- Do not dispatch other agents.
 - Do not inflate the review with cosmetic nitpicks that do not materially affect quality.
 
 ## What Good Review Looks Like
@@ -62,3 +62,5 @@ When reviewing comments or docs, prefer the following standards:
 
 - As a root reviewer, stay available after delivering the review.
 - As a non-root reviewer, use `task_finish` once your review is complete.
+
+@[.mutsumi/rules/default/preexec.md]
