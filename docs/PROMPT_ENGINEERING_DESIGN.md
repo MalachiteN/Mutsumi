@@ -192,6 +192,39 @@ The default entry roles are:
 
 `planner` is not an entry role.
 
+## AgentType and the ROLE Macro
+
+### Macro Injection Mechanism
+
+When an Agent is created, the system automatically injects the AgentType name into the Agent's context as a macro:
+
+- The macro key is `ROLE`
+- The macro value is the Agent's AgentType identifier (e.g., `orchestrator`, `implementer`, etc.)
+- This macro exists as a context item in the Agent's metadata
+
+### Single Source of Truth Principle
+
+**The `agentType` field in AgentMetadata is the single source of truth for AgentType.**
+
+While technically users can modify the `ROLE` macro value during Prompt-as-Code development, this is an **anti-pattern**. Overriding the `ROLE` macro is like attempting to override the `__cplusplus` macro in a C++ program—it neither changes the actual runtime behavior nor avoids causing semantic drift and debugging difficulties.
+
+### ROLE Macro Override Prohibited
+
+When doing Prompt-as-Code style development, users **should not** override the `ROLE` macro value to attempt changing the current Agent's AgentType. Reasons include:
+
+- The runtime system only respects the `agentType` field in AgentMetadata
+- Overriding the macro does not change the Agent's actual capability boundaries (tool sets, allowed child agent types, etc.)
+- Inconsistency between the macro value and the actual AgentType leads to debugging difficulties and unpredictable behavior
+- Rule files should base conditional logic on the actual AgentType in AgentMetadata, not on a potentially tampered macro
+
+### Correct Approach
+
+If different AgentType behaviors are needed, you should:
+
+- Create a new Agent of the corresponding AgentType
+- Use conditional logic in rule files to check the `agentType` field in AgentMetadata
+- Treat the `ROLE` macro as read-only identifier information, not as a configurable parameter
+
 ## Detailed Role Design
 
 ### `chat`
@@ -214,7 +247,7 @@ This corresponds to a real user pattern:
 - does not proactively analyze the repository
 - does not take on formal engineering execution work
 - does not take on planning, implementation, review, or coordination duties
-- forks no roles
+- dispatches no roles
 
 If the user tries to make `chat` do engineering work directly, it should refuse partial compliance and instead suggest creating:
 
@@ -279,17 +312,20 @@ Once that condition is met, it should stop nitpicking and move the task forward.
 
 #### Capability Boundary
 
-`orchestrator` only has:
+`orchestrator` has:
 
-- `read`
-- `fork`
+- `read`: file reading, code search, project introspection
+- `deliver`: file creation, file editing, shell command execution
+- `dispatch`: spawning child agents
 
-It does not have `deliver`.
+The `deliver` capability is essential for `orchestrator`:
 
-This is intentional so that:
+- use shell for web search, git history analysis, codebase exploration, and other investigative tasks
+- execute CLI tools to gather external knowledge and understand the problem space
+- create the final target state document and persist it to the filesystem, allowing downstream agents to read it directly by path
+- avoid the semantic information loss and token waste that comes from summarizing the same content multiple times for different child agents
 
-- it does not degrade into a jack-of-all-trades agent that does a little bit of everything
-- its responsibilities stay focused on convergence, judgment, coordination, and reporting
+`orchestrator` must not use these capabilities to directly implement code changes or deliver engineering results—such work must be delegated to `implementer` agents.
 
 #### When to Use `planner`
 
@@ -306,7 +342,7 @@ The user stays in the loop:
 
 - if `orchestrator` tries to skip `planner`
 - and the user believes planning is required first
-- the user can interrupt and require it to fork a `planner`
+- the user can interrupt and require it to dispatch a `planner`
 
 #### Failure and Recovery
 
@@ -348,13 +384,13 @@ It should clearly express:
 `planner` has:
 
 - `read`
-- `fork`
+- `dispatch`
 
-But it can fork only:
+But it can dispatch only:
 
 - `reviewer`
 
-It cannot fork `implementer`.
+It cannot dispatch `implementer`.
 
 This preserves the separation between plan design and execution dispatch, and keeps real execution control in the hands of `orchestrator`.
 
@@ -397,7 +433,7 @@ For small changes with a clear target, the user should be able to create an `imp
 
 #### Recursive Decomposition
 
-`implementer` may continue to fork `implementer`.
+`implementer` may continue to dispatch `implementer`.
 
 But it may do so only when:
 
@@ -409,16 +445,16 @@ It should not:
 
 - hand off responsibility just because the task is difficult
 - pass requirement interpretation down to child agents
-- use forking to escape its responsibility to integrate results
+- use dispatching to escape its responsibility to integrate results
 
 #### Relationship with `reviewer`
 
-`implementer` may also fork `reviewer`, but this is not the recommended standard path.
+`implementer` may also dispatch `reviewer`, but this is not the recommended standard path.
 
 The default rule is:
 
 - `implementer` should report directly upward or to the user first
-- it should fork `reviewer` only when the user explicitly asks it to have its output reviewed
+- it should dispatch `reviewer` only when the user explicitly asks it to have its output reviewed
 
 So:
 
@@ -476,7 +512,7 @@ Its output must make it easy for an upstream role or the user to understand:
 It does not have:
 
 - `deliver`
-- `fork`
+- `dispatch`
 
 This keeps it as an auditor rather than a reviewer who "just fixes things while reviewing."
 

@@ -4,26 +4,26 @@ import { AgentOrchestrator } from '../../agent/agentOrchestrator';
 import { AgentTypeRegistry } from '../../registry/agentTypeRegistry';
 import { resolveUri } from '../utils';
 
-export const selfForkTool: ITool = {
-    name: 'self_fork',
+export const dispatchSubagentsTool: ITool = {
+    name: 'dispatch_subagents',
     definition: {
         type: 'function',
         function: {
-            name: 'self_fork',
+            name: 'dispatch_subagents',
             description: 'Split into multiple parallel sub-agents. Creates new agent files immediately. The current agent will suspend until all sub-agents are finished (task_finish called) or their files are deleted.',
             parameters: {
                 type: 'object',
                 properties: {
-                    context_summary: { 
+                    context_broadcast: { 
                         type: 'string', 
-                        description: 'Detailed context summary injected into each sub-agent\'s prompt. Include: overall goal, current progress, key decisions, constraints, and relevant background. Be specific enough for sub-agents to work independently.' 
+                        description: 'Broadcast context information injected into each sub-agent\'s prompt. This is copied to each sub-agent independently - sub-agents cannot communicate with each other. Must include: overall task requirements, brief description of each sub-agent\'s task, and the file URIs each sub-agent is responsible for. This ensures all sub-agents understand the global task scope and other sub-agents\' work areas to prevent unauthorized operations.' 
                     },
                     sub_agents: {
                         type: 'array',
                         items: {
                             type: 'object',
                             properties: {
-                                prompt: { type: 'string', description: 'Instruction for the sub-agent.' },
+                                prompt: { type: 'string', description: 'Detailed description of this sub-agent\'s specific task content, deliverable requirements, and acceptance criteria.' },
                                 allowed_uris: { 
                                     type: 'array', 
                                     items: { type: 'string' },
@@ -31,14 +31,14 @@ export const selfForkTool: ITool = {
                                 },
                                 agent_type: {
                                     type: 'string',
-                                    description: 'The agent type for this sub-agent (e.g., "sub", "readonly-expert", "planner", "summarizer"). The model and capabilities are determined by the agent type configuration. Defaults to "sub" if not specified.'
+                                    description: 'The agent type for this sub-agent (e.g., "chat", "orchestrator", "planner", "implementer", "reviewer"). The model and capabilities are determined by the agent type configuration. Defaults to "implementer" if not specified.'
                                 }
                             },
                             required: ['prompt', 'allowed_uris']
                         }
                     }
                 },
-                required: ['context_summary', 'sub_agents']
+                required: ['context_broadcast', 'sub_agents']
             }
         }
     },
@@ -48,7 +48,7 @@ export const selfForkTool: ITool = {
         const parentAgentType = config.metadata?.agentType;
         if (!parentUuid) return 'Error: No Agent UUID found.';
 
-        const { context_summary, sub_agents } = args;
+        const { context_broadcast, sub_agents } = args;
         
         if (!sub_agents || !Array.isArray(sub_agents) || sub_agents.length === 0) {
             return 'Error: sub_agents list empty.';
@@ -57,12 +57,12 @@ export const selfForkTool: ITool = {
         // Validate agent types if parent has a defined type
         const registry = AgentTypeRegistry.getInstance();
         for (const subAgent of sub_agents) {
-            const agentType = subAgent.agent_type || 'sub';
+            const agentType = subAgent.agent_type || 'implementer';
             
             if (parentAgentType) {
                 // Check if the requested child type is allowed for the parent
                 if (!registry.isValidChildType(parentAgentType, agentType)) {
-                    return `Error: Agent type '${parentAgentType}' cannot fork child of type '${agentType}'. Allowed child types: ${registry.getAgentType(parentAgentType)?.allowedChildTypes.join(', ') || 'none'}`;
+                    return `Error: Agent type '${parentAgentType}' cannot dispatch '${agentType}'. Allowed child types: ${registry.getAgentType(parentAgentType)?.allowedChildTypes.join(', ') || 'none'}`;
                 }
             }
             
@@ -95,21 +95,21 @@ export const selfForkTool: ITool = {
             }
 
             // This blocks until all children are finished or deleted
-            const report = await AgentOrchestrator.getInstance().requestFork(
+            const report = await AgentOrchestrator.getInstance().requestDispatch(
                 parentUuid, 
-                context_summary, 
+                context_broadcast, 
                 normalizedSubAgents,
                 context.abortSignal
             );
             
             return report;
         } catch (err: any) {
-            return `Error during fork: ${err.message}`;
+            return `Error during dispatching: ${err.message}`;
         }
     },
     prettyPrint: (args: any) => {
         const agentCount = args.sub_agents?.length || 0;
-        return `🍴 Mutsumi forked into ${agentCount} sub-agent${agentCount !== 1 ? 's' : ''}`;
+        return `🍴 Mutsumi dispatched ${agentCount} sub-agent${agentCount !== 1 ? 's' : ''}`;
     },
     argsToCodeBlock: [ 'sub_agents' ],
     codeBlockFilePaths: [ undefined ]
@@ -159,7 +159,7 @@ export const getAgentTypesTool: ITool = {
         type: 'function',
         function: {
             name: 'get_agent_types',
-            description: 'Get agent types that the current agent is allowed to fork. Returns a filtered list of agent types with their capabilities, default models, and tool sets. Only returns types that can be created as children of the current agent.',
+            description: 'Get agent types that the current agent is allowed to dispatch. Returns a filtered list of agent types with their capabilities, default models, and tool sets. Only returns types that can be created as children of the current agent.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -195,11 +195,11 @@ export const getAgentTypesTool: ITool = {
             const allowedChildTypes = currentConfig.allowedChildTypes || [];
             
             if (allowedChildTypes.length === 0) {
-                return `Agent type '${currentAgentType}' cannot fork any child agents.`;
+                return `Agent type '${currentAgentType}' cannot dispatch any child agents.`;
             }
             
             const lines: string[] = [];
-            lines.push(`Agent type '${currentAgentType}' can fork the following types:\n`);
+            lines.push(`Agent type '${currentAgentType}' can dispatch the following types:\n`);
             
             for (const typeName of allowedChildTypes) {
                 const config = registry.getAgentType(typeName);
@@ -209,11 +209,11 @@ export const getAgentTypesTool: ITool = {
                 lines.push(`  Tool Sets: ${config.toolSets.join(', ')}`);
                 lines.push(`  Default Model: ${config.defaultModel}`);
                 
-                // Show what this child type can further fork
+                // Show what this child type can further dispatch
                 if (config.allowedChildTypes && config.allowedChildTypes.length > 0) {
-                    lines.push(`  Can Further Fork: ${config.allowedChildTypes.join(', ')}`);
+                    lines.push(`  Can Further Dispatch: ${config.allowedChildTypes.join(', ')}`);
                 } else {
-                    lines.push(`  Can Further Fork: (none)`);
+                    lines.push(`  Can Further Dispatch: (none)`);
                 }
                 
                 if (config.defaultRules && config.defaultRules.length > 0) {
@@ -233,6 +233,6 @@ export const getAgentTypesTool: ITool = {
         }
     },
     prettyPrint: (_args: any) => {
-        return `🐧 Mutsumi listed forkable agent types`;
+        return `🐧 Mutsumi listed available agent types`;
     }
 };

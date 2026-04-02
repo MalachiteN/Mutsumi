@@ -426,7 +426,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
     /**
      * @description Create default notebook content
      * @param {string[]} allowedUris - List of allowed URIs
-     * @param {string} [agentType] - Optional agent type identifier (e.g., 'implementer', 'orchestrator', 'readonly-expert')
+     * @param {string} [agentType] - Optional agent type identifier (e.g., 'chat', 'orchestrator', 'planner', 'implementer', 'reviewer')
      * @param {string[]} activeRules - Optional list of active rules to start with
      * @param {string} [uuid] - Optional UUID for the agent. If not provided, a new UUID will be generated.
      * @param {string[]} [activeSkills] - Optional list of active skills to start with
@@ -458,7 +458,13 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 parent_agent_id: null,
                 allowed_uris: allowedUris,
                 model: defaults.model,
-                contextItems: [],
+                contextItems: [
+                    {
+                        type: 'macro',
+                        key: 'ROLE',
+                        content: agentType
+                    }
+                ],
                 activeRules: defaults.rules,
                 activeSkills: defaults.skills,
                 agentType: agentType

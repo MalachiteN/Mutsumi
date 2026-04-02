@@ -47,7 +47,7 @@ Mutsumi 是一款 VS Code LLM 多 Agent 插件，强调用户在回路中，Agen
 
 上下文中间件会保持跟踪被引文件的最新版本及其哈希。若哈希相比最新版本未变，则会注入一条让 Agent 回溯历史记录的命令；哈希变化，则会注入最新版本文件内容，并 bump version。
 
-Rules 或被引文件也可以使用 @[] schema 递归插入文件或预执行工具。例如 [我们的默认 Rules 文件](assets/default.md)。
+Rules 或被引文件也可以使用 @[] schema 递归插入文件或预执行工具。例如 [我们的默认 Rules 文件](assets/default/implementer.md)。
 
 ### 🛠️ 预处理器与宏支持
 
@@ -263,8 +263,8 @@ Mutsumi 提供丰富的内置工具，支持智能任务执行：
 - **文件操作** — `read_file`, `edit_file`, `create_file`, `ls`, `get_file_size`
 - **代码搜索** — `search_file_contains_keyword`, `search_file_name_includes`, `project_outline`, `query_codebase`
 - **执行控制** — `shell`, `get_env_var`, `system_info`
-- **文件编辑** — `edit_file_search_replace`, `edit_file_full_replace`
-- **Agent 编排** — `self_fork`, `get_available_models`, `task_finish`
+- **文件编辑** — `edit_file_search_replace`, `create_or_replace`
+- **Agent 编排** — `dispatch_subagents`, `get_available_models`, `task_finish`
 
 ---
 

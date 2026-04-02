@@ -11,13 +11,13 @@ import * as vscode from 'vscode';
  * when the mutsumi.models setting is empty.
  */
 const DEFAULT_MODELS: Record<string, string> = {
-    "openai/gpt-4.1-nano": "质量极差，仅用于生成对话标题",
+    "openai/gpt-4.1-nano": "质量极差，但极其便宜，仅用于生成对话标题",
     "moonshotai/kimi-k2.5": "经济性好，适合普通编码任务，且经过为多Agent编排子任务的针对性后训练",
-    "stepfun/step-3.5-flash": "有时有幻觉，只适合非重要任务，如执行简单具体的指令、修改简单的配置文件等",
-    "google/gemini-3-pro-preview": "超贵，但智能极高、上下文窗口最大，适合无法分解、非常复杂的任务，或开始新项目前为整个项目设计长远架构和开发计划",
-    "anthropic/claude-haiku-4.5": "略贵，适合阅读代码库、生成可信度高的模块概览或文档",
-    "openai/gpt-5.2-codex": "比claude-haiku贵一点，但值得，用于复杂工程实现",
-    "volcengine/doubao-seed-2.0-code": "价格实惠，用来写代码，能力约等于 claude-haiku"
+    "stepfun/step-3.5-flash": "输出极其迅速且廉价，有时有幻觉，只适合非重要任务，如执行简单具体的指令、修改简单的配置文件等",
+    "google/gemini-3-pro-preview": "超贵，智能高、有效上下文窗口最大，但未经Agentic任务训练，适合高智力要求的纯对话",
+    "minimax/minimax-m2.7-highspeed": "经济性好，适合用于铺量代码实现，也经过Agentic任务训练",
+    "openai/gpt-5.4": "仅略便宜于gemini，逻辑性很强，适合代码审计或长远计划",
+    "volcengine/doubao-seed-2.0-pro": "价格实惠，令人惊异且印象深刻的反驳型人格思维链"
 };
 
 /**

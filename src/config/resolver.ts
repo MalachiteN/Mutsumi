@@ -15,7 +15,7 @@ export { ResolvedAgentDefaults, ResolveAgentDefaultsOptions } from './interfaces
  * This is the central function for resolving agent configuration defaults.
  * Priority: overrides > agent type defaults > VS Code config defaultModel
  * 
- * @param {string} agentType - The agent type identifier (e.g., 'implementer', 'sub')
+ * @param {string} agentType - The agent type identifier (e.g., 'chat', 'orchestrator', 'planner', 'implementer', 'reviewer')
  * @param {ResolveAgentDefaultsOptions} [options] - Optional overrides and filters
  * @returns {ResolvedAgentDefaults} The resolved configuration with all defaults applied
  * @throws {Error} If agentType is not found in registry

@@ -24,15 +24,15 @@ export interface AgentRunOptions {
 }
 
 /**
- * Fork session information for managing sub-agent lifecycle.
- * @interface ForkSession
+ * Dispatch session information for managing sub-agent lifecycle.
+ * @interface DispatchSession
  */
-export interface ForkSession {
-    /** Parent agent UUID that created this fork session */
+export interface DispatchSession {
+    /** Parent agent UUID that created this dispatch session */
     parentId: string;
-    /** Resolve function to complete the fork session */
+    /** Resolve function to complete the dispatch session */
     resolve: (value: string[]) => void;
-    /** Reject function to fail the fork session */
+    /** Reject function to fail the dispatch session */
     reject: (reason?: any) => void;
     /** Set of child agent UUIDs created in this session */
     childUuids: Set<string>;

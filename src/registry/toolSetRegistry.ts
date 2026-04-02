@@ -125,7 +125,7 @@ export class ToolSetRegistry {
     /**
      * Gets a tool set by name, returning the array of ITool instances.
      * 
-     * @param {string} name - The tool set name (e.g., 'read', 'deliver', 'fork')
+     * @param {string} name - The tool set name (e.g., 'read', 'deliver', 'dispatch')
      * @returns {ITool[]} Array of ITool instances for the named tool set
      * @throws {Error} If the tool set does not exist
      */

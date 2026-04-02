@@ -22,7 +22,7 @@ export interface AgentTypeConfig {
     /** List of default skill names to activate */
     defaultSkills: string[];
 
-    /** List of agent type names this role may fork */
+    /** List of agent type names this role may dispatch */
     allowedChildTypes: string[];
 
     /** Whether this role should appear in 'Mutsumi: New Agent' */

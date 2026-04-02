@@ -2,12 +2,12 @@ import { ITool, ToolContext } from '../interface';
 import { resolveUri } from '../utils';
 import * as vscode from 'vscode';
 
-export const partiallyReadByRangeTool: ITool = {
-    name: 'partially_read_by_range',
+export const readPartialByRangeTool: ITool = {
+    name: 'read_partial_by_range',
     definition: {
         type: 'function',
         function: {
-            name: 'partially_read_by_range',
+            name: 'read_partial_by_range',
             description: 'Read a file content within a specific line range.',
             parameters: {
                 type: 'object',
@@ -50,12 +50,12 @@ export const partiallyReadByRangeTool: ITool = {
     }
 };
 
-export const partiallyReadAroundKeywordTool: ITool = {
-    name: 'partially_read_around_keyword',
+export const readPartialAroundKeywordTool: ITool = {
+    name: 'read_partial_around_keyword',
     definition: {
         type: 'function',
         function: {
-            name: 'partially_read_around_keyword',
+            name: 'read_partial_around_keyword',
             description: 'Search for a keyword in a file and return matching lines with context.',
             parameters: {
                 type: 'object',

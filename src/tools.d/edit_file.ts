@@ -6,7 +6,7 @@ import { ToolContext } from './interface';
 import { resolveUri, checkAccess, getUriKey } from './utils';
 import { DiffReviewAgent } from './edit_codelens_provider';
 import { DiffCodeLensAction } from './edit_codelens_types';
-import { approvalManager, isAutoApproveEnabled, isInRuleParsingMode } from './permission';
+import { approvalManager, isAutoApproveEnabled, isInRuleParsingMode, handleRejectionFlow } from './permission';
 
 // ============================================================================
 // Types and Interfaces
@@ -25,6 +25,7 @@ interface EditTransactionState {
     editUri: vscode.Uri;
     toolName: string;
     signalTermination?: (isTaskComplete?: boolean) => void;
+    isNewFile?: boolean; // Whether the file is newly created
 }
 
 // ============================================================================
@@ -100,11 +101,40 @@ class TempFileHandler {
         await this.deleteSilently(this.backupUri);
     }
 
+    /**
+     * Ensure a file exists at the original URI.
+     * Creates the file (and parent directories if needed) if it doesn't exist.
+     * Returns true if a new file was created, false if file already exists.
+     */
+    async ensureFileExists(originalUri: vscode.Uri): Promise<boolean> {
+        try {
+            // Try to stat the file to check if it exists
+            await vscode.workspace.fs.stat(originalUri);
+            // File exists, do nothing
+            return false;
+        } catch {
+            // File doesn't exist, ensure parent directory exists
+            const parentUri = vscode.Uri.joinPath(originalUri, '..');
+            await vscode.workspace.fs.createDirectory(parentUri);
+            
+            // Create empty file
+            await vscode.workspace.fs.writeFile(originalUri, new Uint8Array(0));
+            return true;
+        }
+    }
+
     private async deleteSilently(uri: vscode.Uri): Promise<void> {
         try {
             await vscode.workspace.fs.delete(uri);
         } catch {
             // Silently ignore deletion errors
+        }
+    }
+
+    async deleteNewEmptyFileSilently(uri: vscode.Uri): Promise<void> {
+        const stat = await vscode.workspace.fs.stat(uri);
+        if(stat.size == 0){
+            await this.deleteSilently(uri);
         }
     }
 }
@@ -181,15 +211,18 @@ class EditTransaction {
     private readonly tempFileHandler: TempFileHandler;
     private readonly targetUri: vscode.Uri;
     private resolved = false;
+    private readonly isNewFile: boolean;
 
     constructor(
         targetUri: vscode.Uri,
         toolName: string,
         resolve: (value: string) => void,
         reject: (reason: any) => void,
+        isNewFile: boolean = false,
         signalTermination?: (isTaskComplete?: boolean) => void
     ) {
         this.targetUri = targetUri;
+        this.isNewFile = isNewFile;
         this.tempFileHandler = new TempFileHandler(targetUri);
 
         this.state = {
@@ -200,7 +233,8 @@ class EditTransaction {
             backupUri: this.tempFileHandler.getBackupUri(),
             editUri: this.tempFileHandler.getEditUri(),
             toolName,
-            signalTermination
+            signalTermination,
+            isNewFile
         };
     }
 
@@ -273,25 +307,6 @@ class EditTransaction {
     }
 
     /**
-     * Handle reject action - discard changes
-     */
-    async handleReject(reason?: string): Promise<string> {
-        if (this.resolved) {
-            return "Transaction already resolved";
-        }
-
-        if (reason === undefined || reason.trim() === '') {
-            // Signal termination if user rejected without reason (force stop)
-            if (this.state.signalTermination) {
-                this.state.signalTermination(false);
-            }
-            return `[Rejected] The ${this.state.toolName} operation was rejected by user.`;
-        } else {
-            return `[Rejected with Reason] The ${this.state.toolName} operation was rejected by user. Reason: ${reason}`;
-        }
-    }
-
-    /**
      * Handle cancellation
      */
     cancel(): string {
@@ -321,6 +336,11 @@ class EditTransaction {
         }
 
         await this.tempFileHandler.cleanup();
+
+        // If this was a new file and we're cleaning up (rejected), delete the original file
+        if (this.isNewFile) {
+            await this.tempFileHandler.deleteNewEmptyFileSilently(this.state.originalUri);
+        }
     }
 
     /**
@@ -476,12 +496,17 @@ class EditService {
         // Cancel existing session for this file if any
         await this.cancelExistingTransaction(uriKey);
 
+        // Check if file exists, create empty file if not
+        const tempFileHandler = new TempFileHandler(uri);
+        const isNewFile = await tempFileHandler.ensureFileExists(uri);
+
         return new Promise<string>(async (resolve, reject) => {
             const transaction = new EditTransaction(
                 uri,
                 toolName,
                 resolve,
                 reject,
+                isNewFile,
                 context.signalTermination
             );
 
@@ -516,21 +541,19 @@ class EditService {
                             }
                         },
                         onReject: async () => {
-                            const reason = await vscode.window.showInputBox({
-                                placeHolder: 'Enter rejection reason (optional, press ESC to reject without reason)',
-                                prompt: 'Why are you rejecting these changes?'
-                            });
-                            
-                            const feedbackMsg = await transaction.handleReject(reason);
+                            const feedbackMsg = await handleRejectionFlow(
+                                transaction.state.toolName,
+                                transaction.state.signalTermination!
+                            );
                             transaction.resolve(feedbackMsg);
                             await transaction.cleanup(this.diffController);
                             this.transactions.delete(uriKey);
 
-                            if (reason === undefined || reason.trim() === '') {
-                                vscode.window.showInformationMessage('Changes rejected.');
-                            } else {
-                                vscode.window.showInformationMessage('Changes rejected with reason.');
-                            }
+                            vscode.window.showInformationMessage(
+                                feedbackMsg.includes('Reason:')
+                                    ? 'Changes rejected with reason.'
+                                    : 'Changes rejected.'
+                            );
                         },
                         customAction: {
                             label: 'Review Diff',

@@ -27,23 +27,14 @@ export const projectOutlineTool: ITool = {
             const { uri: uriInput } = args;
             const rootUri = resolveUri(uriInput);
 
-            // 1. Approval
-            const approved = await requestApproval(
-                'Project Outline Scan',
-                uriInput || 'Workspace',
-                context,
-                `Scans up to ${MAX_FILES_TO_SCAN} files for code structure using Tree-sitter.`
-            );
-            if (!approved) return 'User rejected the project outline scan.';
-
-            // 2. Find Files
+            // 1. Find Files
             const includePattern = new vscode.RelativePattern(rootUri, '**/*');
             const excludePattern = '**/*.d.ts'; 
             const files = await vscode.workspace.findFiles(includePattern, excludePattern, MAX_FILES_TO_SCAN);
 
             if (files.length === 0) return "No matching files found.";
 
-            // 3. Process Files with CodebaseService
+            // 2. Process Files with CodebaseService
             const codebaseService = CodebaseService.getInstance();
             const outlinePromises = files.map(async (fileUri) => {
                 try {

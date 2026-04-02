@@ -16,7 +16,7 @@ export interface ToolContext {
      * The tool result will be added to the conversation before termination.
      * @param isTaskComplete - Whether this termination represents a successfully completed task (default: false)
      */
-    signalTermination?: (isTaskComplete?: boolean) => void;
+    signalTermination: (isTaskComplete?: boolean) => void;
 }
 
 export interface ITool {
