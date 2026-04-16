@@ -11,6 +11,7 @@ import { createEmptyToolSet } from '../../tools.d/toolManager';
 import type { AgentRunOptions } from '../../agent/types';
 import { MutsumiSerializer } from '../serializer';
 import { formatMessagesToString, createDebugSessionFromNotebook } from './utils';
+import { getModelCredentials } from '../../utils';
 
 /**
  * Register the compress conversation command.
@@ -48,13 +49,20 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
                 // Get configuration for compression
                 const config = vscode.workspace.getConfiguration('mutsumi');
                 const compressModel = config.get<string>('compressModel') || config.get<string>('titleGeneratorModel') || config.get<string>('defaultModel');
-                const apiKey = config.get<string>('apiKey');
-                const baseUrl = config.get<string>('baseUrl');
 
-                if (!compressModel || !apiKey) {
-                    vscode.window.showErrorMessage('Please configure mutsumi.apiKey and mutsumi.compressModel (or defaultModel) in settings.');
+                if (!compressModel) {
+                    vscode.window.showErrorMessage('Please configure mutsumi.compressModel or mutsumi.defaultModel in settings.');
                     return;
                 }
+
+                let credentials: { apiKey: string; baseUrl: string };
+                try {
+                    credentials = getModelCredentials(compressModel);
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(`Compression failed: ${err.message}`);
+                    return;
+                }
+                const { apiKey, baseUrl } = credentials;
 
                 // Build session and get full interaction history
                 const session = await createDebugSessionFromNotebook(editor.notebook, lastCodeCellIndex);

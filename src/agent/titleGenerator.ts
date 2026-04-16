@@ -10,6 +10,7 @@ import { AgentOrchestrator } from './agentOrchestrator';
 import { IAgentSession } from '../adapters/interfaces';
 import { LiteAdapter } from '../adapters/liteAdapter';
 import { createEmptyToolSet } from '../tools.d/toolManager';
+import { getModelCredentials } from '../utils';
 import type { AgentRunOptions } from './types';
 
 /**
@@ -28,10 +29,6 @@ function deepClone<T>(obj: T): T {
 export interface TitleGeneratorConfig {
     /** Model identifier to use for title generation */
     titleGeneratorModel?: string;
-    /** OpenAI API key */
-    apiKey?: string;
-    /** Base URL for OpenAI-compatible API */
-    baseUrl?: string;
 }
 
 /**
@@ -209,9 +206,7 @@ export async function updateNotebookMetadataWithSync(
 export function getTitleGeneratorConfig(): TitleGeneratorConfig {
     const config = vscode.workspace.getConfiguration('mutsumi');
     return {
-        titleGeneratorModel: config.get<string>('titleGeneratorModel'),
-        apiKey: config.get<string>('apiKey'),
-        baseUrl: config.get<string>('baseUrl')
+        titleGeneratorModel: config.get<string>('titleGeneratorModel')
     };
 }
 
@@ -228,7 +223,7 @@ export class TitleGenerator {
      * @returns {boolean} True if title generation is properly configured
      */
     shouldGenerateTitle(config: TitleGeneratorConfig): boolean {
-        return !!config.titleGeneratorModel && !!config.apiKey;
+        return !!config.titleGeneratorModel;
     }
 
     /**
@@ -248,13 +243,23 @@ export class TitleGenerator {
             return undefined;
         }
 
+        const model = config.titleGeneratorModel!;
+
+        let credentials: { apiKey: string; baseUrl: string };
+        try {
+            credentials = getModelCredentials(model);
+        } catch (err: any) {
+            console.error('Failed to generate session title:', err.message);
+            return undefined;
+        }
+
         try {
             // Get source metadata from notebook if available
             const sourceMetadata = notebook?.metadata as AgentMetadata | undefined;
             const title = await generateTitle(messages, {
-                apiKey: config.apiKey!,
-                baseUrl: config.baseUrl,
-                model: config.titleGeneratorModel!
+                apiKey: credentials.apiKey,
+                baseUrl: credentials.baseUrl,
+                model: model
             }, sourceMetadata);
 
             await session.updateTitle(title);
@@ -283,9 +288,6 @@ export async function regenerateTitleForSession(
     config: TitleGeneratorConfig,
     notebook?: vscode.NotebookDocument
 ): Promise<string> {
-    if (!config.apiKey) {
-        throw new Error('Please set mutsumi.apiKey in VSCode Settings.');
-    }
     if (!config.titleGeneratorModel) {
         throw new Error('Please set mutsumi.titleGeneratorModel or mutsumi.defaultModel in VSCode Settings.');
     }
@@ -294,12 +296,21 @@ export async function regenerateTitleForSession(
         throw new Error('No conversation context found.');
     }
 
+    const model = config.titleGeneratorModel;
+
+    let credentials: { apiKey: string; baseUrl: string };
+    try {
+        credentials = getModelCredentials(model);
+    } catch (err: any) {
+        throw new Error(`Title generation failed: ${err.message}`);
+    }
+
     // Get source metadata from notebook if available
     const sourceMetadata = notebook?.metadata as AgentMetadata | undefined;
     const title = await generateTitle(messages, {
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        model: config.titleGeneratorModel
+        apiKey: credentials.apiKey,
+        baseUrl: credentials.baseUrl,
+        model: model
     }, sourceMetadata);
 
     await session.updateTitle(title);

@@ -6,26 +6,105 @@
 import * as vscode from 'vscode';
 
 /**
+ * Provider interface using snake_case for configuration schema alignment.
+ */
+interface Provider {
+    name: string;
+    baseurl: string;
+    api_key: string;
+}
+
+/**
+ * Default providers used when user hasn't configured any providers.
+ */
+const DEFAULT_PROVIDERS: Provider[] = [
+    { name: "ZenMux", baseurl: "https://zenmux.ai/api/v1", api_key: "" }
+];
+
+/**
  * Default models configuration used when user hasn't configured any models.
- * @description These are the built-in default models that will be used
- * when the mutsumi.models setting is empty.
+ * @description Values are provider names (from mutsumi.providers or DEFAULT_PROVIDERS).
  */
 const DEFAULT_MODELS: Record<string, string> = {
-    "openai/gpt-4.1-nano": "质量极差，但极其便宜，仅用于生成对话标题",
-    "moonshotai/kimi-k2.5": "经济性好，适合普通编码任务，且经过为多Agent编排子任务的针对性后训练",
-    "stepfun/step-3.5-flash": "输出极其迅速且廉价，有时有幻觉，只适合非重要任务，如执行简单具体的指令、修改简单的配置文件等",
-    "google/gemini-3-pro-preview": "超贵，智能高、有效上下文窗口最大，但未经Agentic任务训练，适合高智力要求的纯对话",
-    "minimax/minimax-m2.7-highspeed": "经济性好，适合用于铺量代码实现，也经过Agentic任务训练",
-    "openai/gpt-5.4": "仅略便宜于gemini，逻辑性很强，适合代码审计或长远计划",
-    "volcengine/doubao-seed-2.0-pro": "价格实惠，令人惊异且印象深刻的反驳型人格思维链"
+    "openai/gpt-4.1-nano": "ZenMux",
+    "moonshotai/kimi-k2.5": "ZenMux",
+    "stepfun/step-3.5-flash": "ZenMux",
+    "google/gemini-3-pro-preview": "ZenMux",
+    "minimax/minimax-m2.7-highspeed": "ZenMux",
+    "openai/gpt-5.4": "ZenMux",
+    "volcengine/doubao-seed-2.0-pro": "ZenMux"
 };
+
+/**
+ * Gets the provider credentials for a given model.
+ * @description Looks up the model's associated provider and returns the
+ * provider's API key and base URL. Performs validation including checking
+ * for duplicate provider names and ensuring all required fields are present.
+ * @param {string} modelName - The model identifier to look up
+ * @returns {{ apiKey: string; baseUrl: string }} Provider credentials with camelCase property names
+ * @throws {Error} If provider not found, duplicate names exist, or required fields are empty
+ * @example
+ * const { apiKey, baseUrl } = getModelCredentials('moonshotai/kimi-k2.5');
+ */
+export function getModelCredentials(modelName: string): { apiKey: string; baseUrl: string } {
+    const config = vscode.workspace.getConfiguration('mutsumi');
+    
+    // Load providers and models
+    let providers = config.get<Provider[]>('providers', []);
+    const models = getModelsConfig();
+    
+    // Use default providers if array is empty
+    if (providers.length === 0) {
+        providers = DEFAULT_PROVIDERS;
+    }
+    
+    // Check for duplicate provider names after trimming
+    const seenNames = new Set<string>();
+    for (const provider of providers) {
+        const trimmedName = provider.name.trim();
+        if (seenNames.has(trimmedName)) {
+            throw new Error(`Duplicate provider name after normalization: "${trimmedName}"`);
+        }
+        seenNames.add(trimmedName);
+    }
+    
+    // Look up the model's provider
+    const providerName = models[modelName]?.trim();
+    if (!providerName) {
+        throw new Error(`Model "${modelName}" not found in configuration`);
+    }
+    
+    // Find the provider (trimmed name comparison)
+    const provider = providers.find(p => p.name.trim() === providerName);
+    if (!provider) {
+        throw new Error(`Provider "${providerName}" for model "${modelName}" not found`);
+    }
+    
+    // Validate baseurl is non-empty after trimming
+    const baseUrl = provider.baseurl.trim();
+    if (!baseUrl) {
+        throw new Error(`Provider "${providerName}" has empty baseurl`);
+    }
+    
+    // Validate api_key is non-empty
+    const apiKey = provider.api_key;
+    if (!apiKey) {
+        throw new Error(`Provider "${providerName}" has empty api_key`);
+    }
+    
+    // Return credentials with camelCase property names
+    return {
+        apiKey: apiKey,
+        baseUrl: baseUrl
+    };
+}
 
 /**
  * Gets the models configuration from VS Code settings.
  * @description Returns user-configured models if available, otherwise returns
  * the built-in default models. This allows users to override defaults by
  * configuring the mutsumi.models setting.
- * @returns {Record<string, string>} Models configuration (model name -> label)
+ * @returns {Record<string, string>} Models configuration (model name -> provider name)
  * @example
  * const models = getModelsConfig();
  * console.log(Object.keys(models)); // ['moonshotai/kimi-k2.5', ...]

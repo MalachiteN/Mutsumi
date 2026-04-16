@@ -10,7 +10,7 @@
     "publisher": "Malachite",
     "repository": "github:MalachiteN/Mutsumi",
     "icon": "assets/icon.png",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "engines": {
         "vscode": "^1.108.0"
     },
@@ -307,15 +307,29 @@
         "configuration": {
             "title": "Mutsumi",
             "properties": {
-                "mutsumi.apiKey": {
-                    "type": "string",
-                    "default": "",
-                    "description": "OpenAI Compatible API Key"
-                },
-                "mutsumi.baseUrl": {
-                    "type": "string",
-                    "default": "https://zenmux.ai/api/v1",
-                    "description": "OpenAI Compatible Endpoint Base URL"
+                "mutsumi.providers": {
+                    "type": "array",
+                    "markdownDescription": "Configured LLM API providers",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "markdownDescription": "LLM API Provider Name (e.g., OpenAI, Anthropic, llama.cpp)"
+                            },
+                            "baseurl": {
+                                "type": "string",
+                                "markdownDescription": "LLM API BaseURL (e.g., https://api.openai.com/v1, http://localhost:8080/v1)"
+                            },
+                            "api_key": {
+                                "type": "string",
+                                "default": "",
+                                "markdownDescription": "LLM API Key (required, use dummy value for local deployments without authentication)"
+                            }
+                        },
+                        "required": ["name", "baseurl", "api_key"]
+                    },
+                    "default": []
                 },
                 "mutsumi.models": {
                     "type": "object",
@@ -323,17 +337,17 @@
                         "type": "string"
                     },
                     "default": {},
-                    "description": "List of available AI models with labels. Key is model name, value contains label."
+                    "markdownDescription": "Model to provider name mapping. Key is model identifier, value is the provider name from mutsumi.providers"
                 },
                 "mutsumi.defaultModel": {
                     "type": "string",
                     "default": "moonshotai/kimi-k2.5",
-                    "description": "Default model to use (must be one of the models in the list)"
+                    "markdownDescription": "Default model to use (must be a key in mutsumi.models)"
                 },
                 "mutsumi.titleGeneratorModel": {
                     "type": "string",
                     "default": "openai/gpt-4.1-nano",
-                    "description": "Model used for generating agent titles from conversation context (must be one of the models in the list)"
+                    "markdownDescription": "Model used for generating agent titles (must be a key in mutsumi.models)"
                 },
                 "mutsumi.autoApproveEnabled": {
                     "type": "boolean",
@@ -343,7 +357,7 @@
                 "mutsumi.compressModel": {
                     "type": "string",
                     "default": "moonshotai/kimi-k2.5",
-                    "description": "Model used for compressing conversations. If empty, falls back to titleGeneratorModel then defaultModel"
+                    "markdownDescription": "Model used for compressing conversations (must be a key in mutsumi.models). If empty, falls back to titleGeneratorModel then defaultModel"
                 },
                 "mutsumi.embeddingEndpoint": {
                     "type": "string",

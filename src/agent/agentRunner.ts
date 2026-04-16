@@ -14,6 +14,7 @@ import { LLMClient } from './llmClient';
 import { IAgentSession, AgentSessionConfig } from '../adapters/interfaces';
 import { LiteAgentSession } from '../adapters/liteAdapter';
 import { debugLogger } from '../debugLogger';
+import { getModelCredentials } from '../utils';
 import { AgentRunOptions } from './types';
 
 export { AgentRunOptions } from './types';
@@ -262,11 +263,9 @@ export class AgentRunner {
     ): Promise<void> {
         const config = vscode.workspace.getConfiguration('mutsumi');
         const titleGeneratorModel = config.get<string>('titleGeneratorModel') || sessionConfig.model;
-        const apiKey = config.get<string>('apiKey');
-        const baseUrl = config.get<string>('baseUrl') || sessionConfig.baseUrl;
 
-        if (!titleGeneratorModel || !apiKey) {
-            debugLogger.log(`[AgentRunner] Title generation skipped: missing ${!titleGeneratorModel ? 'titleGeneratorModel' : 'apiKey'}`);
+        if (!titleGeneratorModel) {
+            debugLogger.log('[AgentRunner] Title generation skipped: missing titleGeneratorModel');
             return;
         }
 
@@ -277,9 +276,7 @@ export class AgentRunner {
             : undefined;
 
         await this.titleGenerator.generateTitleForSession(session, allMessages, {
-            titleGeneratorModel,
-            apiKey,
-            baseUrl
+            titleGeneratorModel
         }, notebook);
     }
 
