@@ -114,7 +114,7 @@ export class LLMClient {
         this.openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.baseUrl,
-            defaultHeaders: config.defaultHeaders || { 'Client-Name': 'Mutsumi-VSCode' }
+            defaultHeaders: config.defaultHeaders || { 'User-Agent': 'KimiCLI/1.30.0' }
         });
         this.model = config.model;
     }
