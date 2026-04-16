@@ -10,6 +10,7 @@ import { AgentOrchestrator } from './agent/agentOrchestrator';
 import { NotebookAdapter } from './adapters/notebookAdapter';
 import { buildInteractionHistory } from './contextManagement/history';
 import { AgentMetadata } from './types';
+import { getModelCredentials } from './utils';
 
 /**
  * Controls the execution of agent notebooks.
@@ -78,10 +79,29 @@ export class AgentController {
         controller: vscode.NotebookController
     ): Promise<void> {
         const config = vscode.workspace.getConfiguration('mutsumi');
-        const apiKey = config.get<string>('apiKey');
-        const baseUrl = config.get<string>('baseUrl');
         const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
         const model = notebook.metadata?.model || defaultModel;
+
+        // Get credentials for the model
+        let credentials: { apiKey: string; baseUrl: string };
+        try {
+            credentials = getModelCredentials(model);
+        } catch (err: any) {
+            const adapter = new NotebookAdapter(controller);
+            const session = await adapter.createSession({
+                resourceUri: cell.document.uri,
+                config: {
+                    model,
+                    apiKey: '',
+                    baseUrl: '',
+                    metadata: notebook.metadata as AgentMetadata
+                }
+            });
+            await session.replaceOutput(`Error: ${err.message}`);
+            (session as any).end(false);
+            return;
+        }
+        const { apiKey, baseUrl } = credentials;
 
         // Create adapter and session
         const adapter = new NotebookAdapter(controller);
@@ -94,12 +114,7 @@ export class AgentController {
                 metadata: notebook.metadata as AgentMetadata
             } 
         });
-
-        if (!apiKey) {
-            await session.replaceOutput('Error: Please set mutsumi.apiKey in VSCode Settings.');
-            (session as any).end(false);
-            return;
-        }
+        // getModelCredentials guarantees apiKey and baseUrl are non-empty
 
         // Get metadata and create tool set using the new Agent Type System
         const metadata = notebook.metadata as AgentMetadata;

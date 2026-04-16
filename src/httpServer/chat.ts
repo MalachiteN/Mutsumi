@@ -4,6 +4,7 @@ import { AgentRunner } from '../agent/agentRunner';
 import { MutsumiSerializer } from '../notebook/serializer';
 import { ToolSet, ToolRegistry, createToolSetForAgent } from '../tools.d/toolManager';
 import { getAgentFromRegistry } from './utils';
+import { getModelCredentials } from '../utils';
 import type { HeadlessAdapter } from '../adapters/headlessAdapter';
 import type { AgentSessionConfig } from '../adapters/interfaces';
 import type { AgentMessage, AgentMetadata } from '../types';
@@ -53,8 +54,6 @@ export async function handleChat(
 
     // Get VS Code configuration
     const config = vscode.workspace.getConfiguration('mutsumi');
-    const apiKey = config.get<string>('apiKey');
-    const baseUrl = config.get<string>('baseUrl') || undefined;
     const defaultModel = config.get<string>('defaultModel');
     const maxLoops = config.get<number>('maxLoops') || 30;
 
@@ -66,10 +65,16 @@ export async function handleChat(
         return;
     }
 
-    if (!apiKey) {
-        res.status(500).json({ status: 'error', content: 'No API key configured. Set mutsumi.apiKey in VS Code settings.' });
+    // Get credentials for the model
+    let credentials: { apiKey: string; baseUrl: string };
+    try {
+        credentials = getModelCredentials(effectiveModel);
+    } catch (err: any) {
+        res.status(400).json({ status: 'error', content: err.message });
         return;
     }
+    const { apiKey, baseUrl } = credentials;
+    // getModelCredentials guarantees apiKey and baseUrl are non-empty
 
     // Update metadata if model was provided in request
     if (model && notebookData.metadata) {
