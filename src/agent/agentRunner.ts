@@ -64,7 +64,7 @@ export class AgentRunner {
             apiKey: options.apiKey,
             baseUrl: options.baseUrl,
             model: options.model,
-            defaultHeaders: { 'Client-Name': 'Mutsumi-VSCode' }
+            defaultHeaders: { 'User-Agent': 'KimiCLI/1.30.0' }
         });
         this.uiRenderer = new UIRenderer();
         this.llmStreamHandler = new LLMStreamHandler(this.llmClient);

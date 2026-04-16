@@ -80,7 +80,6 @@ export class AgentController {
         const config = vscode.workspace.getConfiguration('mutsumi');
         const apiKey = config.get<string>('apiKey');
         const baseUrl = config.get<string>('baseUrl');
-        const models = config.get<Array<{name: string, provider: string}>>('models') || [];
         const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
         const model = notebook.metadata?.model || defaultModel;
 
