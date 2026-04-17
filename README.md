@@ -243,9 +243,23 @@ code --install-extension mutsumi-[version].vsix
 
 ### Configuration
 
-If you use your own proxy API, configure `mutsumi.apiKey`, `mutsumi.baseUrl`, etc. in VS Code settings to start using. Note that you may need to override the default `mutsumi.models` object.
+Mutsumi defaults to the `kimi-for-coding` model. To get started, simply add your API key in VS Code: settings.
 
-However, this Agent framework is specifically designed and optimized around the Kimi K2.5 base model. It is recommended to use [zenmux](https://zenmux.ai) aggregation platform or [Kimi Open Platform](https://platform.moonshot.cn/) to use Kimi K2.5.
+Open your `settings.json` and add:
+
+```json
+"mutsumi.providers": [
+    {
+        "name": "kimi-for-coding",
+        "baseurl": "https://api.kimi.com/coding/v1",
+        "api_key": "sk-kimi-XXXXXXXXXXXXXXXXXXXXXX"
+    }
+]
+```
+
+If you want to use a different model or provider, configure `mutsumi.providers` and `mutsumi.models` accordingly. See the setting descriptions in VS Code: for examples.
+
+> **Note:** This Agent framework is specifically designed and optimized around the Kimi base model family. Using `kimi-for-coding` is highly recommended.
 
 ### Create Your First Agent
 

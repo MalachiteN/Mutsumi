@@ -18,7 +18,7 @@ interface Provider {
  * Default providers used when user hasn't configured any providers.
  */
 const DEFAULT_PROVIDERS: Provider[] = [
-    { name: "ZenMux", baseurl: "https://zenmux.ai/api/v1", api_key: "" }
+    { name: "kimi-for-coding", baseurl: "https://api.kimi.com/coding/v1", api_key: "" }
 ];
 
 /**
@@ -26,13 +26,7 @@ const DEFAULT_PROVIDERS: Provider[] = [
  * @description Values are provider names (from mutsumi.providers or DEFAULT_PROVIDERS).
  */
 const DEFAULT_MODELS: Record<string, string> = {
-    "openai/gpt-4.1-nano": "ZenMux",
-    "moonshotai/kimi-k2.5": "ZenMux",
-    "stepfun/step-3.5-flash": "ZenMux",
-    "google/gemini-3-pro-preview": "ZenMux",
-    "minimax/minimax-m2.7-highspeed": "ZenMux",
-    "openai/gpt-5.4": "ZenMux",
-    "volcengine/doubao-seed-2.0-pro": "ZenMux"
+    "kimi-for-coding": "kimi-for-coding"
 };
 
 /**
