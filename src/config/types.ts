@@ -74,7 +74,7 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
     "agentTypes": {
         "chat": {
             "toolSets": [],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": "kimi-for-coding",
             "defaultRules": ["default/chat.md"],
             "defaultSkills": [],
             "allowedChildTypes": [],
@@ -82,7 +82,7 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
         },
         "implementer": {
             "toolSets": ["read", "deliver", "dispatch"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": "kimi-for-coding",
             "defaultRules": ["default/implementer.md"],
             "defaultSkills": [],
             "allowedChildTypes": ["implementer", "reviewer"],
@@ -90,7 +90,7 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
         },
         "orchestrator": {
             "toolSets": ["read", "deliver", "dispatch"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": "kimi-for-coding",
             "defaultRules": ["default/orchestrator.md"],
             "defaultSkills": [],
             "allowedChildTypes": ["planner", "implementer", "reviewer"],
@@ -98,7 +98,7 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
         },
         "planner": {
             "toolSets": ["read", "dispatch"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": "kimi-for-coding",
             "defaultRules": ["default/planner.md"],
             "defaultSkills": [],
             "allowedChildTypes": ["reviewer"],
@@ -106,7 +106,7 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
         },
         "reviewer": {
             "toolSets": ["read"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": "kimi-for-coding",
             "defaultRules": ["default/reviewer.md"],
             "defaultSkills": [],
             "allowedChildTypes": [],

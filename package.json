@@ -309,7 +309,7 @@
             "properties": {
                 "mutsumi.providers": {
                     "type": "array",
-                    "markdownDescription": "Configured LLM API providers",
+                    "markdownDescription": "Configured LLM API providers\n\nExample:\n```json\n\"mutsumi.providers\": [\n    {\n        \"name\": \"kimi-for-coding\",\n        \"baseurl\": \"https://api.kimi.com/coding/v1\",\n        \"api_key\": \"sk-kimi-XXXXXXXXXXXXXXXXXXXXXX\"\n    }\n]\n```",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -337,16 +337,16 @@
                         "type": "string"
                     },
                     "default": {},
-                    "markdownDescription": "Model to provider name mapping. Key is model identifier, value is the provider name from mutsumi.providers"
+                    "markdownDescription": "Model to provider name mapping. Key is model identifier, value is the provider name from mutsumi.providers\n\nExample:\n```json\n\"mutsumi.models\": {\n    \"kimi-for-coding\": \"kimi-for-coding\"\n}\n```"
                 },
                 "mutsumi.defaultModel": {
                     "type": "string",
-                    "default": "moonshotai/kimi-k2.5",
+                    "default": "kimi-for-coding",
                     "markdownDescription": "Default model to use (must be a key in mutsumi.models)"
                 },
                 "mutsumi.titleGeneratorModel": {
                     "type": "string",
-                    "default": "openai/gpt-4.1-nano",
+                    "default": "kimi-for-coding",
                     "markdownDescription": "Model used for generating agent titles (must be a key in mutsumi.models)"
                 },
                 "mutsumi.autoApproveEnabled": {
@@ -356,7 +356,7 @@
                 },
                 "mutsumi.compressModel": {
                     "type": "string",
-                    "default": "moonshotai/kimi-k2.5",
+                    "default": "kimi-for-coding",
                     "markdownDescription": "Model used for compressing conversations (must be a key in mutsumi.models). If empty, falls back to titleGeneratorModel then defaultModel"
                 },
                 "mutsumi.embeddingEndpoint": {

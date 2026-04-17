@@ -243,9 +243,23 @@ code --install-extension mutsumi-【版本号】.vsix
 
 ### 配置
 
-如果你使用自己的中转 API，在 VS Code 设置中配置 `mutsumi.apiKey`、`mutsumi.baseUrl` 等，即可开始使用。注意，你可能需要覆盖默认 `mutsumi.models` 对象。
+Mutsumi 默认使用 `kimi-for-coding` 模型。你只需在 VS Code 设置中填入 API Key 即可开始使用。
 
-不过，本 Agent 框架专门围绕 Kimi K2.5 基模调性优化设计，推荐使用 [zenmux](https://zenmux.ai) 聚合平台或 [Kimi 开放平台](https://platform.moonshot.cn/) 使用 Kimi K2.5。
+打开 `settings.json`，添加：
+
+```json
+"mutsumi.providers": [
+    {
+        "name": "kimi-for-coding",
+        "baseurl": "https://api.kimi.com/coding/v1",
+        "api_key": "sk-kimi-XXXXXXXXXXXXXXXXXXXXXX"
+    }
+]
+```
+
+如需使用其他模型或服务商，可相应配置 `mutsumi.providers` 和 `mutsumi.models`，具体示例请参见 VS Code 设置中的说明。
+
+> **注意：** 本 Agent 框架针对 Kimi 基模家族调性优化设计，强烈建议使用 `kimi-for-coding`。
 
 ### 创建第一个 Agent
 
