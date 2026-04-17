@@ -102,8 +102,8 @@
                 "icon": "$(server-environment)"
             },
             {
-                "command": "mutsumi.regenerateTitle",
-                "title": "Regenerate Title",
+                "command": "mutsumi.renameSession",
+                "title": "Rename Session",
                 "category": "Mutsumi",
                 "icon": "$(symbol-keyword)"
             },
@@ -273,7 +273,7 @@
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
-                    "command": "mutsumi.regenerateTitle",
+                    "command": "mutsumi.renameSession",
                     "group": "navigation@3",
                     "when": "notebookType == mutsumi-notebook"
                 },

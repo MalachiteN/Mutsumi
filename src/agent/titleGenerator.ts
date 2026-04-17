@@ -36,7 +36,7 @@ export interface TitleGeneratorConfig {
  * @param {string} name - Original name to sanitize
  * @returns {string} Sanitized name safe for file system use
  */
-function sanitizeFileName(name: string): string {
+export function sanitizeFileName(name: string): string {
     return name
         .replace(/[\\/:*?"<>|]/g, '-')
         .replace(/\s+/g, ' ')

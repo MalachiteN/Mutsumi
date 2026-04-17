@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import {
     registerSelectModelCommand,
-    registerRegenerateTitleCommand,
+    registerRenameSessionCommand,
     registerDebugContextCommand,
     registerToggleAutoApproveCommands,
     registerTestRagSearchCommand,
@@ -19,7 +19,7 @@ import {
  */
 export function registerToolbarCommands(context: vscode.ExtensionContext): void {
     registerSelectModelCommand(context);
-    registerRegenerateTitleCommand(context);
+    registerRenameSessionCommand(context);
     registerDebugContextCommand(context);
     registerToggleAutoApproveCommands(context);
     registerTestRagSearchCommand(context);
