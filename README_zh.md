@@ -235,7 +235,7 @@ flowchart TD
 ```bash
 # 从源码构建
 npm install
-vsce package
+npx -y vsce package
 
 # 本地安装到 VS Code
 code --install-extension mutsumi-【版本号】.vsix
