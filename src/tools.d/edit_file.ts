@@ -36,21 +36,37 @@ interface EditTransactionState {
 // TempFileHandler - Manages temporary file operations
 // ============================================================================
 
+/**
+ * Ensure a file exists at the given URI.
+ * Creates the file (and parent directories if needed) if it doesn't exist.
+ * Returns true if a new file was created, false if file already exists.
+ */
+async function ensureFileExists(originalUri: vscode.Uri): Promise<boolean> {
+	try {
+		await vscode.workspace.fs.stat(originalUri);
+		return false;
+	} catch {
+		const parentUri = vscode.Uri.joinPath(originalUri, "..");
+		await vscode.workspace.fs.createDirectory(parentUri);
+		await vscode.workspace.fs.writeFile(originalUri, new Uint8Array(0));
+		return true;
+	}
+}
+
 class TempFileHandler {
 	private readonly backupUri: vscode.Uri;
 	private readonly editUri: vscode.Uri;
 
-	constructor(originalUri: vscode.Uri) {
-		// Use path.posix to manipulate URI paths which always use forward slashes
+	constructor(originalUri: vscode.Uri, transactionId: string) {
 		const p = path.posix;
 		const originalPath = originalUri.path;
 		const ext = p.extname(originalPath);
 		const basename = p.basename(originalPath, ext);
 
-		// Construct temp file URIs in the same directory using URI logic
-		// format: .<filename>.temp-backup<ext>
-		const backupName = `.${basename}.temp-backup${ext}`;
-		const editName = `.${basename}.temp-edit${ext}`;
+		const shortId = transactionId.split("-")[0];
+
+		const backupName = `.${basename}.${shortId}.temp-backup${ext}`;
+		const editName = `.${basename}.${shortId}.temp-edit${ext}`;
 
 		this.backupUri = vscode.Uri.joinPath(originalUri, "..", backupName);
 		this.editUri = vscode.Uri.joinPath(originalUri, "..", editName);
@@ -108,28 +124,6 @@ class TempFileHandler {
 		await this.deleteSilently(this.backupUri);
 	}
 
-	/**
-	 * Ensure a file exists at the original URI.
-	 * Creates the file (and parent directories if needed) if it doesn't exist.
-	 * Returns true if a new file was created, false if file already exists.
-	 */
-	async ensureFileExists(originalUri: vscode.Uri): Promise<boolean> {
-		try {
-			// Try to stat the file to check if it exists
-			await vscode.workspace.fs.stat(originalUri);
-			// File exists, do nothing
-			return false;
-		} catch {
-			// File doesn't exist, ensure parent directory exists
-			const parentUri = vscode.Uri.joinPath(originalUri, "..");
-			await vscode.workspace.fs.createDirectory(parentUri);
-
-			// Create empty file
-			await vscode.workspace.fs.writeFile(originalUri, new Uint8Array(0));
-			return true;
-		}
-	}
-
 	private async deleteSilently(uri: vscode.Uri): Promise<void> {
 		try {
 			await vscode.workspace.fs.delete(uri);
@@ -151,10 +145,6 @@ class TempFileHandler {
 // ============================================================================
 
 class DiffEditorController {
-	initialize(_context: vscode.ExtensionContext): void {
-		// No CodeLens provider to register anymore; diff editor is opened directly.
-	}
-
 	/**
 	 * Open diff editor between original and temp file.
 	 */
@@ -215,10 +205,11 @@ class EditTransaction {
 	) {
 		this.targetUri = targetUri;
 		this.isNewFile = isNewFile;
-		this.tempFileHandler = new TempFileHandler(targetUri);
+		const id = uuidv4();
+		this.tempFileHandler = new TempFileHandler(targetUri, id);
 
 		this.state = {
-			id: uuidv4(),
+			id,
 			resolve,
 			reject,
 			originalUri: targetUri,
@@ -384,13 +375,11 @@ class EditService {
 	/**
 	 * Initialize the service and register commands
 	 */
-	initialize(context: vscode.ExtensionContext): void {
+	initialize(): void {
 		if (this.initialized) {
 			return;
 		}
 		this.initialized = true;
-
-		this.diffController.initialize(context);
 	}
 
 	/**
@@ -415,8 +404,7 @@ class EditService {
 		await this.cancelExistingTransaction(uriKey);
 
 		// Check if file exists, create empty file if not
-		const tempFileHandler = new TempFileHandler(uri);
-		const isNewFile = await tempFileHandler.ensureFileExists(uri);
+		const isNewFile = await ensureFileExists(uri);
 
 		return new Promise<string>(async (resolve, reject) => {
 			const transaction = new EditTransaction(
@@ -450,13 +438,13 @@ class EditService {
 						onApprove: async () => {
 							try {
 								const feedbackMsg = await transaction.accept();
+								this.transactions.delete(uriKey);
 								transaction.resolve(feedbackMsg);
 								await transaction.cleanup(this.diffController);
-								this.transactions.delete(uriKey);
 							} catch (e: any) {
+								this.transactions.delete(uriKey);
 								transaction.reject(e);
 								await transaction.cleanup(this.diffController);
-								this.transactions.delete(uriKey);
 								throw e;
 							}
 						},
@@ -465,9 +453,9 @@ class EditService {
 								transaction.state.toolName,
 								transaction.state.signalTermination!,
 							);
+							this.transactions.delete(uriKey);
 							transaction.resolve(feedbackMsg);
 							await transaction.cleanup(this.diffController);
-							this.transactions.delete(uriKey);
 						},
 						customAction: {
 							label: "Review Diff",
@@ -518,19 +506,17 @@ class EditService {
 	 */
 	private async cancelExistingTransaction(uriKey: string): Promise<void> {
 		const existingTx = this.transactions.get(uriKey);
-		if (existingTx) {
-			if (existingTx.state.approvalRequestId) {
-				await approvalManager.rejectRequest(existingTx.state.approvalRequestId);
-			} else {
-				existingTx.reject(
-					new Error(
-						"New edit session started for this file, overriding previous request.",
-					),
-				);
-				await existingTx.cleanup(this.diffController);
-				this.transactions.delete(uriKey);
-			}
+		if (!existingTx || existingTx.isResolved()) {
+			return;
 		}
+		if (existingTx.state.approvalRequestId) {
+			await approvalManager.cancelRequest(existingTx.state.approvalRequestId);
+		}
+		this.transactions.delete(uriKey);
+		existingTx.resolve(
+			`[Interrupted] The ${existingTx.state.toolName} tool execution was overridden by a new request.`,
+		);
+		await existingTx.cleanup(this.diffController);
 	}
 
 	/**
@@ -542,13 +528,12 @@ class EditService {
 	): Promise<void> {
 		const transaction = this.transactions.get(uriKey);
 		if (transaction && !transaction.isResolved()) {
-			// Stop key: bypass the rejection reason input box.
 			await approvalManager.cancelRequest(requestId);
+			this.transactions.delete(uriKey);
 			transaction.resolve(
 				`[Interrupted] The ${transaction.state.toolName} tool execution was forcibly stopped by the user.`,
 			);
 			await transaction.cleanup(this.diffController);
-			this.transactions.delete(uriKey);
 		}
 	}
 }
@@ -557,8 +542,8 @@ class EditService {
 // Legacy Exports - Compatibility Adapters
 // ============================================================================
 
-export function activateEditSupport(context: vscode.ExtensionContext): void {
-	EditService.getInstance().initialize(context);
+export function activateEditSupport(_context: vscode.ExtensionContext): void {
+	EditService.getInstance().initialize();
 }
 
 export async function handleEdit(

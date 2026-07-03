@@ -271,7 +271,6 @@ class ApprovalRequestManager {
 
 	/**
 	 * Cancel a pending request without invoking approve/reject handlers.
-	 * Used when a tool call is forcibly stopped (stop key) rather than rejected.
 	 * Removes the request from the sidebar immediately (no transitional state).
 	 */
 	public async cancelRequest(id: string): Promise<void> {

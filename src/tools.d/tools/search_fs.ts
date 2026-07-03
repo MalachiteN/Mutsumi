@@ -1,7 +1,9 @@
 import type { ITool, ToolContext } from "../interface";
-import { resolveUri, COMMON_IGNORE_GLOBS } from "../utils";
+import { resolveUri, COMMON_IGNORE_GLOBS, withAbortableToken } from "../utils";
 import * as vscode from "vscode";
 import { TextDecoder } from "util";
+
+const MAX_FILES_TO_GREP = 1000;
 
 export const searchFileContainsKeywordTool: ITool = {
 	name: "search_file_contains_keyword",
@@ -27,7 +29,7 @@ export const searchFileContainsKeywordTool: ITool = {
 			},
 		},
 	},
-	execute: async (args: any, _context: ToolContext) => {
+	execute: async (args: any, context: ToolContext) => {
 		try {
 			const { uri: uriInput, keyword } = args;
 			if (!uriInput || !keyword) return "Error: Missing arguments.";
@@ -35,13 +37,32 @@ export const searchFileContainsKeywordTool: ITool = {
 			const rootUri = resolveUri(uriInput);
 			const relativePattern = new vscode.RelativePattern(rootUri, "**/*");
 			const exclude = COMMON_IGNORE_GLOBS;
+			const abortSignal = context.toolSession.abortSignal;
 
-			const files = await vscode.workspace.findFiles(relativePattern, exclude);
+			let files: vscode.Uri[];
+			try {
+				files = await withAbortableToken(abortSignal, (token) =>
+					vscode.workspace.findFiles(
+						relativePattern,
+						exclude,
+						MAX_FILES_TO_GREP,
+						token,
+					),
+				);
+			} catch {
+				return `[Interrupted] The search_file_contains_keyword tool execution was forcibly stopped by the user.`;
+			}
+			if (abortSignal.aborted) {
+				return `[Interrupted] The search_file_contains_keyword tool execution was forcibly stopped by the user.`;
+			}
 
 			if (files.length === 0) return "No files found in directory.";
 
 			const lines: string[] = [];
 			for (const fileUri of files) {
+				if (abortSignal.aborted) {
+					return `[Interrupted] The search_file_contains_keyword tool execution was forcibly stopped by the user.`;
+				}
 				try {
 					const bytes = await vscode.workspace.fs.readFile(fileUri);
 					const content = new TextDecoder().decode(bytes);
@@ -100,7 +121,7 @@ export const searchFileNameIncludesTool: ITool = {
 			},
 		},
 	},
-	execute: async (args: any, _context: ToolContext) => {
+	execute: async (args: any, context: ToolContext) => {
 		try {
 			const { uri: uriInput, name_includes } = args;
 			if (!uriInput || !name_includes) return "Error: Missing arguments.";
@@ -109,12 +130,19 @@ export const searchFileNameIncludesTool: ITool = {
 			const pattern = `**/*${name_includes}*`;
 			const relativePattern = new vscode.RelativePattern(rootUri, pattern);
 			const exclude = COMMON_IGNORE_GLOBS;
+			const abortSignal = context.toolSession.abortSignal;
 
-			const files = await vscode.workspace.findFiles(
-				relativePattern,
-				exclude,
-				200,
-			);
+			let files: vscode.Uri[];
+			try {
+				files = await withAbortableToken(abortSignal, (token) =>
+					vscode.workspace.findFiles(relativePattern, exclude, 200, token),
+				);
+			} catch {
+				return `[Interrupted] The search_file_name_includes tool execution was forcibly stopped by the user.`;
+			}
+			if (abortSignal.aborted) {
+				return `[Interrupted] The search_file_name_includes tool execution was forcibly stopped by the user.`;
+			}
 
 			if (files.length === 0) return "No files found.";
 

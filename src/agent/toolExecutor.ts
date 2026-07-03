@@ -202,11 +202,6 @@ export class ToolExecutor {
 				name: toolName,
 				content: toolResult,
 			});
-
-			// If termination signal received, stop processing more tools
-			if (shouldTerminate) {
-				break;
-			}
 		}
 		return { messages: toolMessages, shouldTerminate, isTaskComplete };
 	}
