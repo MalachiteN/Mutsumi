@@ -59,6 +59,8 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
 			"project_outline",
 			"get_warning_error",
 			"query_codebase",
+			"get_shell_output",
+			"kill_shell_task",
 		],
 		deliver: [
 			"shell",

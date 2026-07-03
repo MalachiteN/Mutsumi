@@ -1,6 +1,7 @@
-import * as vscode from 'vscode';
-import OpenAI from 'openai';
-import { IAgentSession } from '../adapters/interfaces';
+import type * as vscode from 'vscode';
+import type OpenAI from 'openai';
+import type { IAgentSession } from '../adapters/interfaces';
+import type { ToolSession } from './toolSession';
 
 export interface ToolContext {
     allowedUris: string[];
@@ -9,8 +10,11 @@ export interface ToolContext {
     /** @deprecated Use `session` instead. Will be removed in future versions. */
     execution?: vscode.NotebookCellExecution;
     session: IAgentSession;
-    appendOutput?: (content: string) => Promise<void>;
+    /** Per-tool-call execution session; abort this to stop a running tool. */
+    toolSession: ToolSession;
+    /** Convenience: alias of `toolSession.abortSignal`. */
     abortSignal?: AbortSignal;
+    appendOutput?: (content: string) => Promise<void>;
     /**
      * Signal that the session should be terminated after this tool call.
      * The tool result will be added to the conversation before termination.

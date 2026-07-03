@@ -269,6 +269,19 @@ class ApprovalRequestManager {
 		}
 	}
 
+	/**
+	 * Cancel a pending request without invoking approve/reject handlers.
+	 * Used when a tool call is forcibly stopped (stop key) rather than rejected.
+	 * Removes the request from the sidebar immediately (no transitional state).
+	 */
+	public async cancelRequest(id: string): Promise<void> {
+		const request = this.requests.get(id);
+		if (request && request.status === "pending") {
+			this.requests.delete(id);
+			this._onDidChangeRequests.fire();
+		}
+	}
+
 	public async handleCustomAction(id: string): Promise<void> {
 		const request = this.requests.get(id);
 		if (request && request.status === "pending" && request.customAction) {
@@ -368,7 +381,7 @@ export async function requestApproval(
 	}
 
 	return new Promise<string | null>((resolve) => {
-		const id = approvalManager.createRequest(
+		approvalManager.createRequest(
 			actionDescription,
 			targetUri,
 			{

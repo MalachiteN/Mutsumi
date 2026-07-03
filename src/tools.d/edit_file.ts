@@ -542,7 +542,13 @@ class EditService {
 	): Promise<void> {
 		const transaction = this.transactions.get(uriKey);
 		if (transaction && !transaction.isResolved()) {
-			await approvalManager.rejectRequest(requestId);
+			// Stop key: bypass the rejection reason input box.
+			await approvalManager.cancelRequest(requestId);
+			transaction.resolve(
+				`[Interrupted] The ${transaction.state.toolName} tool execution was forcibly stopped by the user.`,
+			);
+			await transaction.cleanup(this.diffController);
+			this.transactions.delete(uriKey);
 		}
 	}
 }

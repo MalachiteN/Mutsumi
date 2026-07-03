@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 
 /**
  * Resolve a string input to a vscode.Uri.
@@ -16,7 +15,7 @@ export function resolveUri(input: string): vscode.Uri {
         }
 
         // 2. Handle absolute paths (Windows or POSIX)
-        const isWinAbs = /^[a-zA-Z]:[\\\/]/.test(input);
+        const isWinAbs = /^[a-zA-Z]:[\\/]/.test(input);
         const isPosixAbs = input.startsWith('/');
 
         if (isWinAbs || isPosixAbs) {
@@ -98,7 +97,12 @@ export function getUriKey(uri: vscode.Uri): string {
     return uri.toString();
 }
 
-const COMMON_IGNORED = new Set(['node_modules', '.git', '.vscode', 'dist', 'out', 'build', '__pycache__', 'coverage']);
+const COMMON_IGNORED = new Set(['node_modules', '.git', '.vscode', '.mutsumi', 'dist', 'out', 'build', '__pycache__', 'coverage']);
+
+/** Glob fragment matching COMMON_IGNORED as directory segments at any depth. */
+export const COMMON_IGNORE_GLOBS = [...COMMON_IGNORED]
+    .map(name => `**/${name}/**`)
+    .join(',');
 
 export function isCommonIgnored(name: string): boolean {
     return name.startsWith('.') || COMMON_IGNORED.has(name);
