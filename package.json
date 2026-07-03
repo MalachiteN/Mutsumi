@@ -114,12 +114,6 @@
                 "icon": "$(debug-console)"
             },
             {
-                "command": "mutsumi.reopenEditDiff",
-                "title": "Reopen Diff Editor",
-                "category": "Mutsumi",
-                "icon": "$(git-compare)"
-            },
-            {
                 "command": "mutsumi.toggleAutoApprove",
                 "title": "Enter Auto-Approve",
                 "category": "Mutsumi",
@@ -327,7 +321,11 @@
                                 "markdownDescription": "LLM API Key (required, use dummy value for local deployments without authentication)"
                             }
                         },
-                        "required": ["name", "baseurl", "api_key"]
+                        "required": [
+                            "name",
+                            "baseurl",
+                            "api_key"
+                        ]
                     },
                     "default": []
                 },
@@ -380,27 +378,29 @@
     "devDependencies": {
         "@electron/rebuild": "^4.0.3",
         "@types/better-sqlite3": "^7.6.13",
+        "@types/diff": "^8.0.0",
+        "@types/express": "^5.0.6",
         "@types/node": "^18.0.0",
+        "@types/node-notifier": "^8.0.5",
         "@types/uuid": "^9.0.8",
         "@types/vscode": "^1.108.1",
+        "body-parser": "^2.2.2",
+        "diff": "^8.0.3",
         "electron": "^39.0.0",
         "electron-rebuild": "^3.2.9",
         "esbuild": "^0.25.0",
-        "npm-run-all": "^4.1.5",
-        "@types/diff": "^8.0.0",
-        "@types/express": "^5.0.6",
-        "body-parser": "^2.2.2",
-        "diff": "^8.0.3",
         "express": "^5.2.1",
         "gray-matter": "^4.0.3",
+        "npm-run-all": "^4.1.5",
         "openai": "^6.17.0",
         "partial-json": "^0.1.7",
         "preprocess": "^3.2.0",
-        "uuid": "^9.0.1",
-        "typescript": "^5.0.0"
+        "typescript": "^5.0.0",
+        "uuid": "^9.0.1"
     },
     "dependencies": {
         "better-sqlite3": "^12.8.0",
+        "node-notifier": "^10.0.1",
         "sqlite-vec": "^0.1.7-alpha.2",
         "web-tree-sitter": "^0.22.2"
     }

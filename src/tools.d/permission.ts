@@ -1,71 +1,76 @@
-import * as vscode from 'vscode';
-import { ToolContext } from './interface';
-import { v4 as uuidv4 } from 'uuid';
+import * as vscode from "vscode";
+import type { ToolContext } from "./interface";
+import { v4 as uuidv4 } from "uuid";
+import { notifyApprovalNeeded } from "../notifications";
 
 // ====== Auto Approval Configuration ======
 
-const AUTO_APPROVE_CONFIG_KEY = 'mutsumi.autoApproveEnabled';
+const AUTO_APPROVE_CONFIG_KEY = "mutsumi.autoApproveEnabled";
 
 /**
  * Check if auto-approve mode is enabled globally.
  */
 export function isAutoApproveEnabled(): boolean {
-    return vscode.workspace.getConfiguration().get<boolean>(AUTO_APPROVE_CONFIG_KEY, false);
+	return vscode.workspace
+		.getConfiguration()
+		.get<boolean>(AUTO_APPROVE_CONFIG_KEY, false);
 }
 
 /**
  * Set auto-approve mode globally.
  */
 export async function setAutoApproveEnabled(enabled: boolean): Promise<void> {
-    await vscode.workspace.getConfiguration().update(AUTO_APPROVE_CONFIG_KEY, enabled, true);
+	await vscode.workspace
+		.getConfiguration()
+		.update(AUTO_APPROVE_CONFIG_KEY, enabled, true);
 }
 
 /**
  * Toggle auto-approve mode.
  */
 export async function toggleAutoApprove(): Promise<boolean> {
-    const current = isAutoApproveEnabled();
-    await setAutoApproveEnabled(!current);
-    return !current;
+	const current = isAutoApproveEnabled();
+	await setAutoApproveEnabled(!current);
+	return !current;
 }
 
 // ====== Rule Parsing Manager (封装规则解析状态) ======
 
 class RuleParsingManager {
-    private static instance: RuleParsingManager;
-    private ruleParsingDepth = 0;
+	private static instance: RuleParsingManager;
+	private ruleParsingDepth = 0;
 
-    private constructor() {}
+	private constructor() {}
 
-    public static getInstance(): RuleParsingManager {
-        if (!RuleParsingManager.instance) {
-            RuleParsingManager.instance = new RuleParsingManager();
-        }
-        return RuleParsingManager.instance;
-    }
+	public static getInstance(): RuleParsingManager {
+		if (!RuleParsingManager.instance) {
+			RuleParsingManager.instance = new RuleParsingManager();
+		}
+		return RuleParsingManager.instance;
+	}
 
-    public enter(): void {
-        this.ruleParsingDepth++;
-    }
+	public enter(): void {
+		this.ruleParsingDepth++;
+	}
 
-    public exit(): void {
-        if (this.ruleParsingDepth > 0) {
-            this.ruleParsingDepth--;
-        }
-    }
+	public exit(): void {
+		if (this.ruleParsingDepth > 0) {
+			this.ruleParsingDepth--;
+		}
+	}
 
-    public isActive(): boolean {
-        return this.ruleParsingDepth > 0;
-    }
+	public isActive(): boolean {
+		return this.ruleParsingDepth > 0;
+	}
 
-    public async with<T>(fn: () => Promise<T>): Promise<T> {
-        this.enter();
-        try {
-            return await fn();
-        } finally {
-            this.exit();
-        }
-    }
+	public async with<T>(fn: () => Promise<T>): Promise<T> {
+		this.enter();
+		try {
+			return await fn();
+		} finally {
+			this.exit();
+		}
+	}
 }
 
 // 保持原有的规则解析便捷函数导出（向后兼容）
@@ -74,21 +79,21 @@ class RuleParsingManager {
  * Enter rule parsing mode - tool calls during rule parsing are auto-approved.
  */
 export function enterRuleParsingMode(): void {
-    RuleParsingManager.getInstance().enter();
+	RuleParsingManager.getInstance().enter();
 }
 
 /**
  * Exit rule parsing mode.
  */
 export function exitRuleParsingMode(): void {
-    RuleParsingManager.getInstance().exit();
+	RuleParsingManager.getInstance().exit();
 }
 
 /**
  * Check if currently in rule parsing mode.
  */
 export function isInRuleParsingMode(): boolean {
-    return RuleParsingManager.getInstance().isActive();
+	return RuleParsingManager.getInstance().isActive();
 }
 
 /**
@@ -96,182 +101,194 @@ export function isInRuleParsingMode(): boolean {
  * Tool calls made during the execution will be auto-approved.
  */
 export async function withRuleParsingMode<T>(fn: () => Promise<T>): Promise<T> {
-    return RuleParsingManager.getInstance().with(fn);
+	return RuleParsingManager.getInstance().with(fn);
 }
 
 // ====== Approval Request System ======
 
 export interface ApprovalRequestHandlers {
-    onApprove: () => Promise<void>;
-    onReject: () => Promise<void>;
-    customAction?: {
-        label: string;
-        handler: () => Promise<void>;
-    };
+	onApprove: () => Promise<void>;
+	onReject: () => Promise<void>;
+	customAction?: {
+		label: string;
+		handler: () => Promise<void>;
+	};
 }
 
 export interface ApprovalRequest {
-    id: string;
-    actionDescription: string;
-    targetUri: string;
-    details?: string;
-    timestamp: Date;
-    status: 'pending' | 'approved' | 'rejected';
-    autoApproved: boolean;
-    
-    // Handlers
-    onApprove: () => Promise<void>;
-    onReject: () => Promise<void>;
-    customAction?: {
-        label: string;
-        handler: () => Promise<void>;
-    };
+	id: string;
+	actionDescription: string;
+	targetUri: string;
+	details?: string;
+	timestamp: Date;
+	status: "pending" | "approved" | "rejected";
+	autoApproved: boolean;
+
+	// Handlers
+	onApprove: () => Promise<void>;
+	onReject: () => Promise<void>;
+	customAction?: {
+		label: string;
+		handler: () => Promise<void>;
+	};
 }
 
 class ApprovalRequestManager {
-    private static instance: ApprovalRequestManager;
-    private requests: Map<string, ApprovalRequest> = new Map();
-    private _onDidChangeRequests = new vscode.EventEmitter<void>();
-    public readonly onDidChangeRequests = this._onDidChangeRequests.event;
+	private static instance: ApprovalRequestManager;
+	private requests: Map<string, ApprovalRequest> = new Map();
+	private _onDidChangeRequests = new vscode.EventEmitter<void>();
+	public readonly onDidChangeRequests = this._onDidChangeRequests.event;
 
-    private constructor() {}
+	private constructor() {}
 
-    public static getInstance(): ApprovalRequestManager {
-        if (!ApprovalRequestManager.instance) {
-            ApprovalRequestManager.instance = new ApprovalRequestManager();
-        }
-        return ApprovalRequestManager.instance;
-    }
+	public static getInstance(): ApprovalRequestManager {
+		if (!ApprovalRequestManager.instance) {
+			ApprovalRequestManager.instance = new ApprovalRequestManager();
+		}
+		return ApprovalRequestManager.instance;
+	}
 
-    /**
-     * Create a generic request with custom handlers.
-     */
-    public createRequest(
-        actionDescription: string, 
-        targetUri: string, 
-        handlers: ApprovalRequestHandlers,
-        details?: string, 
-        autoApproved: boolean = false
-    ): string {
-        const id = uuidv4();
-        
-        const request: ApprovalRequest = {
-            id,
-            actionDescription,
-            targetUri,
-            details,
-            timestamp: new Date(),
-            status: autoApproved ? 'approved' : 'pending',
-            autoApproved,
-            onApprove: async () => {
-                if (request.status !== 'pending' && !request.autoApproved) return;
-                try {
-                    await handlers.onApprove();
-                } finally {
-                    this.finalizeRequest(id, 'approved');
-                }
-            },
-            onReject: async () => {
-                if (request.status !== 'pending') return;
-                try {
-                    await handlers.onReject();
-                } finally {
-                    this.finalizeRequest(id, 'rejected');
-                }
-            },
-            customAction: handlers.customAction
-        };
+	/**
+	 * Create a generic request with custom handlers.
+	 */
+	public createRequest(
+		actionDescription: string,
+		targetUri: string,
+		handlers: ApprovalRequestHandlers,
+		details?: string,
+		autoApproved: boolean = false,
+	): string {
+		const id = uuidv4();
 
-        this.requests.set(id, request);
-        this._onDidChangeRequests.fire();
+		const request: ApprovalRequest = {
+			id,
+			actionDescription,
+			targetUri,
+			details,
+			timestamp: new Date(),
+			status: autoApproved ? "approved" : "pending",
+			autoApproved,
+			onApprove: async () => {
+				if (request.status !== "pending" && !request.autoApproved) return;
+				try {
+					await handlers.onApprove();
+				} finally {
+					this.finalizeRequest(id, "approved");
+				}
+			},
+			onReject: async () => {
+				if (request.status !== "pending") return;
+				try {
+					await handlers.onReject();
+				} finally {
+					this.finalizeRequest(id, "rejected");
+				}
+			},
+			customAction: handlers.customAction,
+		};
 
-        if (autoApproved) {
-            request.onApprove();
-        }
+		this.requests.set(id, request);
+		this._onDidChangeRequests.fire();
 
-        return id;
-    }
+		if (autoApproved) {
+			request.onApprove();
+		}
 
-    private finalizeRequest(id: string, status: 'approved' | 'rejected') {
-        const req = this.requests.get(id);
-        if (req) {
-            req.status = status;
-            this._onDidChangeRequests.fire();
-            // Remove after delay
-            setTimeout(() => {
-                this.requests.delete(id);
-                this._onDidChangeRequests.fire();
-            }, 1000);
-        }
-    }
+		return id;
+	}
 
-    /**
-     * Create a standard request and return both the ID and the promise.
-     * Compatible with old createRequest signature but used internally or for simple cases.
-     */
-    public createStandardRequest(
-        actionDescription: string, 
-        targetUri: string, 
-        details?: string, 
-        autoApproved: boolean = false
-    ): { id: string; promise: Promise<boolean> } {
-        let resolveFn: (approved: boolean) => void;
-        const promise = new Promise<boolean>((resolve) => {
-            resolveFn = resolve;
-        });
+	private finalizeRequest(id: string, status: "approved" | "rejected") {
+		const req = this.requests.get(id);
+		if (req) {
+			req.status = status;
+			this._onDidChangeRequests.fire();
+			// Remove after delay
+			setTimeout(() => {
+				this.requests.delete(id);
+				this._onDidChangeRequests.fire();
+			}, 1000);
+		}
+	}
 
-        const id = this.createRequest(
-            actionDescription,
-            targetUri,
-            {
-                onApprove: async () => resolveFn(true),
-                onReject: async () => resolveFn(false)
-            },
-            details,
-            autoApproved
-        );
+	/**
+	 * Create a standard request and return both the ID and the promise.
+	 * Compatible with old createRequest signature but used internally or for simple cases.
+	 */
+	public createStandardRequest(
+		actionDescription: string,
+		targetUri: string,
+		details?: string,
+		autoApproved: boolean = false,
+	): { id: string; promise: Promise<boolean> } {
+		let resolveFn: (approved: boolean) => void;
+		const promise = new Promise<boolean>((resolve) => {
+			resolveFn = resolve;
+		});
 
-        return { id, promise };
-    }
+		const id = this.createRequest(
+			actionDescription,
+			targetUri,
+			{
+				onApprove: async () => resolveFn(true),
+				onReject: async () => resolveFn(false),
+			},
+			details,
+			autoApproved,
+		);
 
-    // Deprecated wrapper for backward compatibility if any direct calls exist
-    public addRequest(actionDescription: string, targetUri: string, details?: string, autoApproved: boolean = false): Promise<boolean> {
-        const { promise } = this.createStandardRequest(actionDescription, targetUri, details, autoApproved);
-        return promise;
-    }
+		return { id, promise };
+	}
 
-    public async approveRequest(id: string): Promise<void> {
-        const request = this.requests.get(id);
-        if (request && request.status === 'pending') {
-            await request.onApprove();
-        }
-    }
+	// Deprecated wrapper for backward compatibility if any direct calls exist
+	public addRequest(
+		actionDescription: string,
+		targetUri: string,
+		details?: string,
+		autoApproved: boolean = false,
+	): Promise<boolean> {
+		const { promise } = this.createStandardRequest(
+			actionDescription,
+			targetUri,
+			details,
+			autoApproved,
+		);
+		return promise;
+	}
 
-    public async rejectRequest(id: string): Promise<void> {
-        const request = this.requests.get(id);
-        if (request && request.status === 'pending') {
-            await request.onReject();
-        }
-    }
+	public async approveRequest(id: string): Promise<void> {
+		const request = this.requests.get(id);
+		if (request && request.status === "pending") {
+			await request.onApprove();
+		}
+	}
 
-    public async handleCustomAction(id: string): Promise<void> {
-        const request = this.requests.get(id);
-        if (request && request.status === 'pending' && request.customAction) {
-            await request.customAction.handler();
-        }
-    }
+	public async rejectRequest(id: string): Promise<void> {
+		const request = this.requests.get(id);
+		if (request && request.status === "pending") {
+			await request.onReject();
+		}
+	}
 
-    public getPendingRequests(): ApprovalRequest[] {
-        return Array.from(this.requests.values()).filter(r => r.status === 'pending');
-    }
+	public async handleCustomAction(id: string): Promise<void> {
+		const request = this.requests.get(id);
+		if (request && request.status === "pending" && request.customAction) {
+			await request.customAction.handler();
+		}
+	}
 
-    public getAllRequests(): ApprovalRequest[] {
-        return Array.from(this.requests.values());
-    }
+	public getPendingRequests(): ApprovalRequest[] {
+		return Array.from(this.requests.values()).filter(
+			(r) => r.status === "pending",
+		);
+	}
 
-    public getRequest(id: string): ApprovalRequest | undefined {
-        return this.requests.get(id);
-    }
+	public getAllRequests(): ApprovalRequest[] {
+		return Array.from(this.requests.values());
+	}
+
+	public getRequest(id: string): ApprovalRequest | undefined {
+		return this.requests.get(id);
+	}
 }
 
 export const approvalManager = ApprovalRequestManager.getInstance();
@@ -280,48 +297,48 @@ export const approvalManager = ApprovalRequestManager.getInstance();
  * Check if a request should be auto-approved based on current mode.
  */
 function shouldAutoApprove(): boolean {
-    // Auto-approve if global auto-approve mode is enabled
-    if (isAutoApproveEnabled()) {
-        return true;
-    }
-    // Auto-approve if in rule parsing mode
-    if (isInRuleParsingMode()) {
-        return true;
-    }
-    return false;
+	// Auto-approve if global auto-approve mode is enabled
+	if (isAutoApproveEnabled()) {
+		return true;
+	}
+	// Auto-approve if in rule parsing mode
+	if (isInRuleParsingMode()) {
+		return true;
+	}
+	return false;
 }
 
 /**
  * Handle rejection flow by showing an input box for reason entry.
  * If user cancels (ESC) or provides empty input, terminates the session.
- * 
+ *
  * @param toolName The name of the tool being rejected
  * @param signalTermination Function to signal session termination
  * @returns Formatted rejection message string
  */
 export async function handleRejectionFlow(
-    toolName: string,
-    signalTermination: (isTaskComplete?: boolean) => void
+	toolName: string,
+	signalTermination: (isTaskComplete?: boolean) => void,
 ): Promise<string> {
-    const reason = await vscode.window.showInputBox({
-        prompt: `Reason for rejecting ${toolName}:`,
-        placeHolder: 'Enter reason (ESC to abort generation)'
-    });
-    
-    if (reason === undefined || reason.trim() === '') {
-        signalTermination(false);
-        return `[Rejected] The ${toolName} operation was rejected by user.`;
-    } else {
-        return `[Rejected with Reason] The ${toolName} operation was rejected by user. Reason: ${reason}`;
-    }
+	const reason = await vscode.window.showInputBox({
+		prompt: `Reason for rejecting ${toolName}:`,
+		placeHolder: "Enter reason (ESC to abort generation)",
+	});
+
+	if (reason === undefined || reason.trim() === "") {
+		signalTermination(false);
+		return `[Rejected] The ${toolName} operation was rejected by user.`;
+	} else {
+		return `[Rejected with Reason] The ${toolName} operation was rejected by user. Reason: ${reason}`;
+	}
 }
 
 /**
  * Request user approval for a potentially dangerous operation.
  * Shows a notification and adds a request to the approval sidebar.
- * 
+ *
  * If auto-approve mode is enabled or in rule parsing mode, automatically returns null (approved).
- * 
+ *
  * @param actionDescription Short description of the action (e.g., "Create Directory")
  * @param targetUri The target URI or path
  * @param context Tool context for output
@@ -330,53 +347,45 @@ export async function handleRejectionFlow(
  * @returns Promise that resolves to null if approved, or rejection message string if rejected
  */
 export async function requestApproval(
-    actionDescription: string,
-    targetUri: string,
-    context: ToolContext,
-    toolName: string,
-    details?: string
+	actionDescription: string,
+	targetUri: string,
+	context: ToolContext,
+	toolName: string,
+	details?: string,
 ): Promise<string | null> {
-    // Check if should auto-approve
-    const autoApprove = shouldAutoApprove();
-    
-    if (autoApprove) {
-        // Auto-approved: show notification and create a record for sidebar history
-        const modeText = isInRuleParsingMode() ? ' (Rule Parsing)' : '';
-        vscode.window.showInformationMessage(
-            `⚡ Auto Approved${modeText}: ${actionDescription} - ${targetUri}`
-        );
-        approvalManager.createStandardRequest(actionDescription, targetUri, details, true);
-        return null;
-    }
+	// Check if should auto-approve
+	const autoApprove = shouldAutoApprove();
 
-    // 使用 createRequest 创建带自定义处理器的请求
-    return new Promise<string | null>((resolve) => {
-        const id = approvalManager.createRequest(
-            actionDescription,
-            targetUri,
-            {
-                onApprove: async () => resolve(null),
-                onReject: async () => {
-                    const rejectionMessage = await handleRejectionFlow(toolName, context.signalTermination);
-                    resolve(rejectionMessage);
-                }
-            },
-            details,
-            false
-        );
+	if (autoApprove) {
+		// Auto-approved: silently create a record for sidebar history.
+		approvalManager.createStandardRequest(
+			actionDescription,
+			targetUri,
+			details,
+			true,
+		);
+		return null;
+	}
 
-        // 显示带有快速批准/拒绝按钮的通知
-        vscode.window.showInformationMessage(
-            `Mutsumi: Agent requests permission to ${actionDescription}`,
-            'Approve',
-            'Reject'
-        ).then(selection => {
-            if (selection === 'Approve') {
-                approvalManager.approveRequest(id);
-            } else if (selection === 'Reject') {
-                approvalManager.rejectRequest(id);
-            }
-            // 如果用户关闭通知而不点击按钮，请求仍保留在侧边栏等待处理
-        });
-    });
+	return new Promise<string | null>((resolve) => {
+		const id = approvalManager.createRequest(
+			actionDescription,
+			targetUri,
+			{
+				onApprove: async () => resolve(null),
+				onReject: async () => {
+					const rejectionMessage = await handleRejectionFlow(
+						toolName,
+						context.signalTermination,
+					);
+					resolve(rejectionMessage);
+				},
+			},
+			details,
+			false,
+		);
+
+		// Native OS notification only — approval actions live in the sidebar.
+		notifyApprovalNeeded(`Agent requests: ${actionDescription}`);
+	});
 }
