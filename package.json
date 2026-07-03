@@ -361,6 +361,34 @@
                     "type": "string",
                     "default": "",
                     "description": "OpenAI-compatible embedding endpoint URL (e.g., http://localhost:1234/v1/embeddings). If empty, RAG features will be disabled."
+                },
+                "mutsumi.agentConfig": {
+                    "type": "object",
+                    "default": {},
+                    "markdownDescription": "Agent type & tool set configuration. Overrides built-in defaults. Leave empty `{}` to use built-in defaults.\n\nShape:\n```json\n\"mutsumi.agentConfig\": {\n  \"toolSets\": {\n    \"read\": [\"read_file\", \"ls\"],\n    \"deliver\": [\"shell\", \"create_or_replace\"]\n  },\n  \"agentTypes\": {\n    \"chat\": {\n      \"toolSets\": [],\n      \"defaultModel\": \"kimi-for-coding\",\n      \"defaultRules\": [\"default/chat.md\"],\n      \"defaultSkills\": [],\n      \"allowedChildTypes\": [],\n      \"isEntry\": true\n    }\n  }\n}\n```\n\n`toolSets`: each key maps to an array of tool names. Given names fully replace the built-in tool set. New names add new tool sets.\n\n`agentTypes`: for a type that exists in built-in defaults, fields you provide override the built-in fields (fields you omit are kept from defaults). For a new type, provide all required fields.\n\nNote: `version` is not configurable here; it is fixed to 1 internally.",
+                    "properties": {
+                        "toolSets": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": { "type": "string" }
+                            }
+                        },
+                        "agentTypes": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "object",
+                                "properties": {
+                                    "toolSets": { "type": "array", "items": { "type": "string" } },
+                                    "defaultModel": { "type": "string" },
+                                    "defaultRules": { "type": "array", "items": { "type": "string" } },
+                                    "defaultSkills": { "type": "array", "items": { "type": "string" } },
+                                    "allowedChildTypes": { "type": "array", "items": { "type": "string" } },
+                                    "isEntry": { "type": "boolean" }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
