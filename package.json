@@ -394,6 +394,7 @@
         "express": "^5.2.1",
         "gray-matter": "^4.0.3",
         "openai": "^6.17.0",
+        "partial-json": "^0.1.7",
         "preprocess": "^3.2.0",
         "uuid": "^9.0.1",
         "typescript": "^5.0.0"
