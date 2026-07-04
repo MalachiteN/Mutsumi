@@ -51,6 +51,12 @@
                     "name": "Context Items",
                     "when": "true",
                     "icon": "assets/sidebar-icon.png"
+                },
+                {
+                    "id": "mutsumi.shellTaskSidebar",
+                    "name": "Shell Tasks",
+                    "when": "true",
+                    "icon": "assets/sidebar-icon.png"
                 }
             ]
         },
@@ -178,6 +184,21 @@
                 "title": "Clear Tool Cache",
                 "category": "Mutsumi",
                 "icon": "$(clear-all)"
+            },
+            {
+                "command": "mutsumi.detachShellTask",
+                "title": "Move to Background",
+                "icon": "$(debug-disconnect)"
+            },
+            {
+                "command": "mutsumi.killShellTask",
+                "title": "Stop",
+                "icon": "$(debug-stop)"
+            },
+            {
+                "command": "mutsumi.removeShellTask",
+                "title": "Remove",
+                "icon": "$(close)"
             }
         ],
         "menus": {
@@ -239,6 +260,21 @@
                 {
                     "command": "mutsumi.removeFile",
                     "when": "viewItem == file",
+                    "group": "inline"
+                },
+                {
+                    "command": "mutsumi.detachShellTask",
+                    "when": "viewItem == shellTaskRunningForeground",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "mutsumi.killShellTask",
+                    "when": "viewItem == shellTaskRunningForeground || viewItem == shellTaskRunningBackground",
+                    "group": "inline@2"
+                },
+                {
+                    "command": "mutsumi.removeShellTask",
+                    "when": "viewItem == shellTaskExitedForeground || viewItem == shellTaskExitedBackground",
                     "group": "inline"
                 }
             ],
@@ -361,6 +397,12 @@
                     "type": "string",
                     "default": "",
                     "description": "OpenAI-compatible embedding endpoint URL (e.g., http://localhost:1234/v1/embeddings). If empty, RAG features will be disabled."
+                },
+                "mutsumi.shellSyncTimeout": {
+                    "type": "number",
+                    "default": 60,
+                    "minimum": 0,
+                    "description": "Seconds a synchronous (non-background) shell call may run before being auto-detached to background. Set 0 to disable auto-detach."
                 },
                 "mutsumi.agentConfig": {
                     "type": "object",

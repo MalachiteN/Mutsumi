@@ -27,7 +27,7 @@ import { ToolRegistry } from "./tools.d/toolManager";
 import { HttpServer } from "./httpServer";
 import { debugLogger } from "./debugLogger";
 import { toolsLogger } from "./tools.d/toolsLogger";
-import { registerStatusBarItems } from "./statusBar";
+import { clearToolCache } from "./tools.d/cache";
 
 // Agent Type System imports
 import { loadMutsumiConfig } from "./config/loader";
@@ -325,10 +325,7 @@ export async function activate(
 		),
 	);
 
-	// Register status bar items
-	registerStatusBarItems(context);
-
-	// 5. Commands
+	// Register commands
 	registerCommands(context);
 
 	activateEditSupport(context);
@@ -519,6 +516,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
 				);
 			},
 		),
+	);
+
+	// Clear tool cache command
+	context.subscriptions.push(
+		vscode.commands.registerCommand("mutsumi.clearToolCache", () => {
+			clearToolCache();
+			vscode.window.showInformationMessage("Tool result cache cleared.");
+		}),
 	);
 
 	// Register toolbar commands

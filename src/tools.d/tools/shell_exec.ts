@@ -3,6 +3,7 @@ import { resolveUri } from "../utils";
 import { requestApproval } from "../permission";
 import { toolsLogger } from "../toolsLogger";
 import * as path from "path";
+import * as vscode from "vscode";
 import { ShellTask, formatShellOutput } from "../shell/shellTask";
 import { shellTaskRegistry } from "../shell/registry";
 
@@ -83,22 +84,68 @@ export const shellTool: ITool = {
 				shellPath,
 				agentSessionId: context.session.id,
 				abortSignal: context.toolSession.abortSignal,
+				background,
 			});
+			shellTaskRegistry.register(task);
 
 			if (background) {
-				shellTaskRegistry.register(task);
 				shellLogger("--- Detached, returned task id ---");
 				return `[Background] Started shell task ${task.id}, detached.\nCommand: ${cmd}\nUse get_shell_output with task_id="${task.id}" to inspect output.`;
 			}
 
-			// sync: wait for exit, abort via toolSession already bridges to task.abort()
-			await task.waitForExit();
+			// sync mode: wait for exit, but auto-detach to background after timeout
+			// or when the user clicks "move to background" in the UI.
+			let timedOut = false;
+			let detachedByUser = false;
+			const detachPromise = new Promise<void>((resolve) => {
+				task.onDetach(() => {
+					detachedByUser = !timedOut;
+					resolve();
+				});
+			});
+			const timeoutSeconds = vscode.workspace
+				.getConfiguration("mutsumi")
+				.get<number>("shellSyncTimeout", 60);
+			const timeoutMs = timeoutSeconds > 0 ? timeoutSeconds * 1000 : 0;
+			const timer = timeoutMs
+				? setTimeout(() => {
+						timedOut = true;
+						task.detachToBackground();
+					}, timeoutMs)
+				: undefined;
+
+			await Promise.race([
+				task.waitForExit().then(() => "exit"),
+				detachPromise.then(() => "detach"),
+			]).then(() => {});
+			if (timer) clearTimeout(timer);
+
 			const snap = task.snapshot();
+
+			if (detachedByUser) {
+				shellLogger("--- User moved sync task to background ---");
+				return `[Background] Shell task ${task.id} was moved to background by the user.
+Command: ${cmd}
+Use get_shell_output with task_id="${task.id}" to inspect output.`;
+			}
+
+			if (timedOut && task.background) {
+				shellLogger("--- Sync timeout, moved to background ---");
+				return `[Background] Shell task ${task.id} exceeded ${timeoutSeconds}s and was moved to background.\nCommand: ${cmd}\nUse get_shell_output with task_id="${task.id}" to inspect output.`;
+			}
+
 			shellLogger("--- Execution End ---");
 			shellLogger(
 				`Exit code: ${snap.exitCode}${snap.aborted ? " (aborted)" : ""}`,
 			);
 
+			shellTaskRegistry.remove(task.id);
+			if (snap.aborted) {
+				if (context.toolSession.isAborted) {
+					return `[Interrupted] The shell tool execution was forcibly stopped by the user.`;
+				}
+				return `[Stopped] The shell tool execution was stopped by the user. The agent loop continues.\n\n${formatShellOutput(snap, { showExit: true })}`;
+			}
 			return formatShellOutput(snap, { showExit: true });
 		} catch (err: any) {
 			return `Error preparing shell execution: ${err.message}`;

@@ -1,10 +1,15 @@
-import * as vscode from 'vscode';
-import { AgentTreeDataProvider } from './agentTreeProvider';
-import { ApprovalTreeDataProvider } from './approvalTreeProvider';
-import { ContextTreeDataProvider } from './contextTreeProvider';
-import { ContextTreeItem, registerContextCommands } from './contextTreeItem';
-import { registerApprovalCommands } from './approvalTreeItem';
-import { registerAgentCommands } from './agentTreeItem';
+import * as vscode from "vscode";
+import { AgentTreeDataProvider } from "./agentTreeProvider";
+import { ApprovalTreeDataProvider } from "./approvalTreeProvider";
+import { ContextTreeDataProvider } from "./contextTreeProvider";
+import {
+	type ContextTreeItem,
+	registerContextCommands,
+} from "./contextTreeItem";
+import { registerApprovalCommands } from "./approvalTreeItem";
+import { registerAgentCommands } from "./agentTreeItem";
+import { ShellTaskTreeDataProvider } from "./shellTaskTreeProvider";
+import { registerShellTaskCommands } from "./shellTaskTreeItem";
 
 /**
  * @description Main controller for the Agent sidebar
@@ -15,111 +20,144 @@ import { registerAgentCommands } from './agentTreeItem';
  * sidebar.registerTreeView(context);
  */
 export class AgentSidebarProvider {
-    /** @description View type identifier for the Agent sidebar */
-    public static readonly viewType = 'mutsumi.agentSidebar';
-    
-    /** @description Tree data provider for Agents */
-    private _agentTreeDataProvider: AgentTreeDataProvider;
-    
-    /** @description Tree data provider for approval requests */
-    private _approvalTreeDataProvider: ApprovalTreeDataProvider;
+	/** @description View type identifier for the Agent sidebar */
+	public static readonly viewType = "mutsumi.agentSidebar";
 
-    /** @description Tree data provider for context items */
-    private _contextTreeDataProvider: ContextTreeDataProvider;
-    
-    /** @description Agent tree view instance */
-    private _agentTreeView?: vscode.TreeView<any>;
-    
-    /** @description Approval request tree view instance */
-    private _approvalTreeView?: vscode.TreeView<any>;
+	/** @description Tree data provider for Agents */
+	private _agentTreeDataProvider: AgentTreeDataProvider;
 
-    /** @description Context items tree view instance */
-    private _contextTreeView?: vscode.TreeView<ContextTreeItem>;
+	/** @description Tree data provider for approval requests */
+	private _approvalTreeDataProvider: ApprovalTreeDataProvider;
 
-    /**
-     * @description Creates an Agent sidebar provider instance
-     * @param {vscode.Uri} _extensionUri - The root URI of the extension
-     */
-    constructor(private readonly _extensionUri: vscode.Uri) {
-        this._agentTreeDataProvider = new AgentTreeDataProvider();
-        this._approvalTreeDataProvider = new ApprovalTreeDataProvider();
-        this._contextTreeDataProvider = new ContextTreeDataProvider(_extensionUri);
-    }
+	/** @description Tree data provider for context items */
+	private _contextTreeDataProvider: ContextTreeDataProvider;
 
-    /**
-     * @description Registers tree views and related commands to the VSCode extension context
-     * @param {vscode.ExtensionContext} context - Extension context for registering subscriptions
-     * @returns {void}
-     * @example
-     * sidebar.registerTreeView(context);
-     */
-    public registerTreeView(context: vscode.ExtensionContext): void {
-        // Create Agent tree view
-        this._agentTreeView = vscode.window.createTreeView('mutsumi.agentSidebar', {
-            treeDataProvider: this._agentTreeDataProvider,
-            showCollapseAll: true
-        });
-        context.subscriptions.push(this._agentTreeView);
+	/** @description Tree data provider for shell tasks */
+	private _shellTaskTreeDataProvider: ShellTaskTreeDataProvider;
 
-        // Create approval request tree view
-        this._approvalTreeView = vscode.window.createTreeView('mutsumi.approvalSidebar', {
-            treeDataProvider: this._approvalTreeDataProvider,
-            showCollapseAll: false
-        });
-        context.subscriptions.push(this._approvalTreeView);
+	/** @description Agent tree view instance */
+	private _agentTreeView?: vscode.TreeView<any>;
 
-        // Create context items tree view
-        this._contextTreeView = vscode.window.createTreeView('mutsumi.contextSidebar', {
-            treeDataProvider: this._contextTreeDataProvider,
-            showCollapseAll: true
-        });
-        context.subscriptions.push(this._contextTreeView);
+	/** @description Approval request tree view instance */
+	private _approvalTreeView?: vscode.TreeView<any>;
 
-        // Register agent-related commands
-        registerAgentCommands(context);
+	/** @description Context items tree view instance */
+	private _contextTreeView?: vscode.TreeView<ContextTreeItem>;
 
-        // Register approval-related commands
-        registerApprovalCommands(context);
+	/** @description Shell tasks tree view instance */
+	private _shellTaskTreeView?: vscode.TreeView<any>;
 
-        // Register context-related commands
-        registerContextCommands(context, this._contextTreeDataProvider);
+	/**
+	 * @description Creates an Agent sidebar provider instance
+	 * @param {vscode.Uri} _extensionUri - The root URI of the extension
+	 */
+	constructor(private readonly _extensionUri: vscode.Uri) {
+		this._agentTreeDataProvider = new AgentTreeDataProvider();
+		this._approvalTreeDataProvider = new ApprovalTreeDataProvider();
+		this._contextTreeDataProvider = new ContextTreeDataProvider(_extensionUri);
+		this._shellTaskTreeDataProvider = new ShellTaskTreeDataProvider();
+	}
 
-        // Listen for active notebook editor changes
-        context.subscriptions.push(
-            vscode.window.onDidChangeActiveNotebookEditor((editor) => {
-                if (editor && editor.notebook.uri.fsPath.endsWith('.mtm')) {
-                    this._contextTreeDataProvider.setCurrentNotebook(editor.notebook);
-                } else {
-                    this._contextTreeDataProvider.setCurrentNotebook(undefined);
-                }
-            })
-        );
+	/**
+	 * @description Registers tree views and related commands to the VSCode extension context
+	 * @param {vscode.ExtensionContext} context - Extension context for registering subscriptions
+	 * @returns {void}
+	 * @example
+	 * sidebar.registerTreeView(context);
+	 */
+	public registerTreeView(context: vscode.ExtensionContext): void {
+		// Create Agent tree view
+		this._agentTreeView = vscode.window.createTreeView("mutsumi.agentSidebar", {
+			treeDataProvider: this._agentTreeDataProvider,
+			showCollapseAll: true,
+		});
+		context.subscriptions.push(this._agentTreeView);
 
-        // Set initial notebook if there's already an active one
-        if (vscode.window.activeNotebookEditor?.notebook.uri.fsPath.endsWith('.mtm')) {
-            this._contextTreeDataProvider.setCurrentNotebook(vscode.window.activeNotebookEditor.notebook);
-        }
-    }
+		// Create approval request tree view
+		this._approvalTreeView = vscode.window.createTreeView(
+			"mutsumi.approvalSidebar",
+			{
+				treeDataProvider: this._approvalTreeDataProvider,
+				showCollapseAll: false,
+			},
+		);
+		context.subscriptions.push(this._approvalTreeView);
 
-    /**
-     * @description Updates the Agent tree view
-     * Triggers the refresh operation of the Agent data provider
-     * @returns {Promise<void>}
-     * @example
-     * await sidebar.update(); // Refresh the Agent tree to show the latest status
-     */
-    public async update(): Promise<void> {
-        await this._agentTreeDataProvider.refresh();
-        this._contextTreeDataProvider.refresh();
-    }
+		// Create context items tree view
+		this._contextTreeView = vscode.window.createTreeView(
+			"mutsumi.contextSidebar",
+			{
+				treeDataProvider: this._contextTreeDataProvider,
+				showCollapseAll: true,
+			},
+		);
+		context.subscriptions.push(this._contextTreeView);
 
-    /**
-     * @description Disposes the sidebar provider and all its resources
-     * @returns {void}
-     */
-    public dispose(): void {
-        this._agentTreeView?.dispose();
-        this._approvalTreeView?.dispose();
-        this._contextTreeView?.dispose();
-    }
+		// Create shell tasks tree view
+		this._shellTaskTreeView = vscode.window.createTreeView(
+			"mutsumi.shellTaskSidebar",
+			{
+				treeDataProvider: this._shellTaskTreeDataProvider,
+				showCollapseAll: false,
+			},
+		);
+		context.subscriptions.push(this._shellTaskTreeView);
+		context.subscriptions.push(this._shellTaskTreeDataProvider);
+
+		// Register agent-related commands
+		registerAgentCommands(context);
+
+		// Register approval-related commands
+		registerApprovalCommands(context);
+
+		// Register context-related commands
+		registerContextCommands(context, this._contextTreeDataProvider);
+
+		// Register shell task-related commands
+		registerShellTaskCommands(context);
+
+		// Listen for active notebook editor changes
+		context.subscriptions.push(
+			vscode.window.onDidChangeActiveNotebookEditor((editor) => {
+				if (editor && editor.notebook.uri.fsPath.endsWith(".mtm")) {
+					this._contextTreeDataProvider.setCurrentNotebook(editor.notebook);
+				} else {
+					this._contextTreeDataProvider.setCurrentNotebook(undefined);
+				}
+			}),
+		);
+
+		// Set initial notebook if there's already an active one
+		if (
+			vscode.window.activeNotebookEditor?.notebook.uri.fsPath.endsWith(".mtm")
+		) {
+			this._contextTreeDataProvider.setCurrentNotebook(
+				vscode.window.activeNotebookEditor.notebook,
+			);
+		}
+	}
+
+	/**
+	 * @description Updates the Agent tree view
+	 * Triggers the refresh operation of the Agent data provider
+	 * @returns {Promise<void>}
+	 * @example
+	 * await sidebar.update(); // Refresh the Agent tree to show the latest status
+	 */
+	public async update(): Promise<void> {
+		await this._agentTreeDataProvider.refresh();
+		this._contextTreeDataProvider.refresh();
+		this._shellTaskTreeDataProvider.refresh();
+	}
+
+	/**
+	 * @description Disposes the sidebar provider and all its resources
+	 * @returns {void}
+	 */
+	public dispose(): void {
+		this._agentTreeView?.dispose();
+		this._approvalTreeView?.dispose();
+		this._contextTreeView?.dispose();
+		this._shellTaskTreeView?.dispose();
+	}
 }
