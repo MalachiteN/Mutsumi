@@ -1,5 +1,11 @@
 import * as cp from "child_process";
+import * as iconv from "iconv-lite";
 import { v4 as uuidv4 } from "uuid";
+import {
+	codepageToEncoding,
+	detectWindowsCodepage,
+	getWindowsCodepage,
+} from "../cache";
 
 export interface ShellTaskOptions {
 	cmd: string;
@@ -56,8 +62,9 @@ export class ShellTask {
 	background: boolean;
 
 	private child: cp.ChildProcess;
-	private stdoutBuf = "";
-	private stderrBuf = "";
+	private stdoutRaw: Buffer[] = [];
+	private stderrRaw: Buffer[] = [];
+	private stdoutEncoding: string | null = null;
 	private exitCode: number | null = null;
 	private exitSignal: string | null = null;
 	private aborted = false;
@@ -71,6 +78,14 @@ export class ShellTask {
 		this.cwd = opts.cwd;
 		this.createdAt = Date.now();
 		this.background = !!opts.background;
+
+		// On Windows, console programs emit output in the active OEM code page.
+		// Read it from the cache (populated by system_info or a previous shell task)
+		// and fall back to a one-time chcp probe if it is not yet known.
+		if (process.platform === "win32") {
+			const codepage = getWindowsCodepage() ?? detectWindowsCodepage();
+			this.stdoutEncoding = codepage ? codepageToEncoding(codepage) : null;
+		}
 
 		this.child = cp.spawn(opts.cmd, [], {
 			cwd: opts.cwd,
@@ -92,10 +107,10 @@ export class ShellTask {
 		opts.abortSignal?.addEventListener("abort", () => this.abort());
 
 		this.child.stdout?.on("data", (d: Buffer) => {
-			this.stdoutBuf += d.toString();
+			this.stdoutRaw.push(d);
 		});
 		this.child.stderr?.on("data", (d: Buffer) => {
-			this.stderrBuf += d.toString();
+			this.stderrRaw.push(d);
 		});
 		this.child.on("exit", (code, signal) => {
 			this.exitCode = code;
@@ -103,7 +118,9 @@ export class ShellTask {
 			this.fireExit();
 		});
 		this.child.on("error", (err) => {
-			this.stderrBuf += `\n[spawn error] ${err.message}\n`;
+			this.stderrRaw.push(
+				Buffer.from(`\n[spawn error] ${err.message}\n`, "utf8"),
+			);
 			this.exitCode = -1;
 			this.fireExit();
 		});
@@ -122,8 +139,8 @@ export class ShellTask {
 	snapshot(): ShellTaskSnapshot {
 		return {
 			running: this.isRunning,
-			stdout: this.stdoutBuf,
-			stderr: this.stderrBuf,
+			stdout: this.decodeOutput(this.stdoutRaw),
+			stderr: this.decodeOutput(this.stderrRaw),
 			exitCode: this.exitCode,
 			signal: this.exitSignal,
 			aborted: this.aborted,
@@ -175,6 +192,21 @@ export class ShellTask {
 	waitForExit(): Promise<void> {
 		if (this.isExited) return Promise.resolve();
 		return new Promise<void>((resolve) => this.onExitCbs.push(resolve));
+	}
+
+	private decodeOutput(buffers: Buffer[]): string {
+		if (buffers.length === 0) {
+			return "";
+		}
+		const buf = Buffer.concat(buffers);
+		if (!this.stdoutEncoding || this.stdoutEncoding === "utf8") {
+			return buf.toString("utf8");
+		}
+		try {
+			return iconv.decode(buf, this.stdoutEncoding);
+		} catch {
+			return buf.toString("utf8");
+		}
 	}
 
 	private fireExit(): void {

@@ -413,7 +413,9 @@
                             "type": "object",
                             "additionalProperties": {
                                 "type": "array",
-                                "items": { "type": "string" }
+                                "items": {
+                                    "type": "string"
+                                }
                             }
                         },
                         "agentTypes": {
@@ -421,12 +423,36 @@
                             "additionalProperties": {
                                 "type": "object",
                                 "properties": {
-                                    "toolSets": { "type": "array", "items": { "type": "string" } },
-                                    "defaultModel": { "type": "string" },
-                                    "defaultRules": { "type": "array", "items": { "type": "string" } },
-                                    "defaultSkills": { "type": "array", "items": { "type": "string" } },
-                                    "allowedChildTypes": { "type": "array", "items": { "type": "string" } },
-                                    "isEntry": { "type": "boolean" }
+                                    "toolSets": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "defaultModel": {
+                                        "type": "string"
+                                    },
+                                    "defaultRules": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "defaultSkills": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "allowedChildTypes": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "isEntry": {
+                                        "type": "boolean"
+                                    }
                                 }
                             }
                         }
@@ -466,6 +492,7 @@
         "partial-json": "^0.1.7",
         "preprocess": "^3.2.0",
         "typescript": "^5.0.0",
+        "iconv-lite": "^0.6.3",
         "uuid": "^9.0.1"
     },
     "dependencies": {
