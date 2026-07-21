@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import express = require('express');
 import { AgentRunner } from '../agent/agentRunner';
 import { MutsumiSerializer } from '../notebook/serializer';
+import { RenderData, RenderBlock, MUTSUMI_AGENT_CHAT_MIME } from '../notebook/renderTypes';
 import { ToolSet, ToolRegistry, createToolSetForAgent } from '../tools.d/toolManager';
 import { getAgentFromRegistry } from './utils';
 import { getModelCredentials } from '../utils';
@@ -179,7 +180,7 @@ export async function handleChat(
         res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
         res.status(200);
 
-        let lastOutputLength = 0;
+        let lastCommittedLength = 0;
         let isFinished = false;
 
         // Override session's replaceOutput to capture streaming content
@@ -189,20 +190,28 @@ export async function handleChat(
             // Call original method
             await originalReplaceOutput(output, options);
 
-            // Get current output and send delta
-            const currentOutput = await session.getCurrentOutput!();
+            if (isFinished) return;
 
-            if (currentOutput.length > lastOutputLength && !isFinished) {
-                const delta = currentOutput.slice(lastOutputLength);
-                lastOutputLength = currentOutput.length;
+            // Only process RenderData JSON (custom MIME type)
+            if (options?.mimeType !== MUTSUMI_AGENT_CHAT_MIME) return;
 
-                // Note: delta is now a JSON string fragment (RenderData), not markdown.
-                // Phase 1: keep existing delta logic as-is (known tech debt).
-                const event = {
-                    type: 'content',
-                    content: delta
-                };
-                res.write(`data: ${JSON.stringify(event)}\n\n`);
+            try {
+                const renderData: RenderData = JSON.parse(output);
+                const committed = renderData.committed || [];
+
+                // Emit new committed blocks
+                for (let i = lastCommittedLength; i < committed.length; i++) {
+                    const block: RenderBlock = committed[i];
+                    const blockEvent = { type: 'block', block };
+                    res.write(`data: ${JSON.stringify(blockEvent)}\n\n`);
+                }
+                lastCommittedLength = committed.length;
+
+                // Emit active state
+                const activeEvent = { type: 'active', active: renderData.active };
+                res.write(`data: ${JSON.stringify(activeEvent)}\n\n`);
+            } catch {
+                // If JSON parsing fails, skip (defensive)
             }
         };
 
