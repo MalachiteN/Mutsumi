@@ -75,8 +75,19 @@ export class ShellTask {
 		this.child = cp.spawn(opts.cmd, [], {
 			cwd: opts.cwd,
 			shell: opts.shellPath || true,
-			detached: true,
+			detached: process.platform !== "win32",
+			windowsHide: true,
 		});
+
+		// On Windows, detached is false but the process still runs independently
+		// (Windows does not kill child processes on parent exit by default).
+		// windowsHide:true (CREATE_NO_WINDOW) prevents console creation so output
+		// goes to the pipes instead of a console buffer.
+		// On Unix, detached:true creates a new process group for independence.
+		// unref() lets the parent's event loop exit without waiting for background tasks.
+		if (this.background) {
+			this.child.unref();
+		}
 
 		opts.abortSignal?.addEventListener("abort", () => this.abort());
 
@@ -137,6 +148,7 @@ export class ShellTask {
 	detachToBackground(): void {
 		if (this.isExited || this.background) return;
 		this.background = true;
+		this.child.unref();
 		const cbs = this.detachCbs;
 		this.detachCbs = [];
 		cbs.forEach((fn) => {
