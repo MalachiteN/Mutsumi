@@ -352,6 +352,11 @@ Mutsumi 采用六阶段动态上下文管理架构：
 | [preprocess](https://github.com/jsoverson/preprocess) | ^3.2.0 | Apache-2.0 | 文件预处理器宏 |
 | [uuid](https://github.com/uuidjs/uuid) | ^9.0.1 | MIT | UUID 生成 |
 | [web-tree-sitter](https://github.com/tree-sitter/tree-sitter) | ^0.22.2 | MIT | 语法树解析 |
+| [node-notifier](https://github.com/mikaelbr/node-notifier) | ^10.0.1 | MIT | 原生桌面通知 |
+| [partial-json](https://github.com/promplate/partial-json-parser-js) | ^0.1.7 | MIT | 解析 LLM 生成的部分 JSON |
+| [iconv-lite](https://github.com/ashtuchkov/iconv-lite) | ^0.6.3 | MIT | 字符编码转换 |
+| [express](https://github.com/expressjs/express) | ^5.2.1 | MIT | HTTP 服务器框架 |
+| [body-parser](https://github.com/expressjs/body-parser) | ^2.2.2 | MIT | HTTP 请求体解析 |
 
 感谢所有开源贡献者！🙏
 
