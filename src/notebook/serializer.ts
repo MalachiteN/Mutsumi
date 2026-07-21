@@ -4,9 +4,9 @@ import { AgentContext, AgentMessage, AgentMetadata, MessageContent } from '../ty
 import { AgentOrchestrator } from '../agent/agentOrchestrator';
 import { ToolManager } from '../tools.d/toolManager';
 import { v4 as uuidv4 } from 'uuid';
-import { UIRenderer } from '../agent/uiRenderer';
 import { debugLogger } from '../debugLogger';
 import { resolveAgentDefaults } from '../config/resolver';
+import { RenderBlock, RenderData } from './renderTypes';
 
 // ============================================================================
 // Core Data Structures (VSCode-agnostic)
@@ -130,7 +130,8 @@ export function messagesToGenericCells(messages: AgentMessage[]): GenericCellDat
             }
 
             debugLogger.log(`[messagesToGenericCells]   - Orphan group formed with ${group.length} messages`);
-            const displayText = renderInteractionToMarkdown(group, false);
+            // Orphan cells have no output area; render blocks are flattened to markdown cell source
+            const displayText = renderBlocksToMarkdown(buildInteractionRenderBlocks(group, false));
 
             cells.push({
                 kind: 1,
@@ -231,56 +232,78 @@ export function extractGhostBlocksFromCells(cells: GenericCellData[]): string[] 
 }
 
 /**
- * Render interaction message group to Markdown format.
- * Extracted as pure function for reuse.
+ * Build RenderBlocks from an interaction message group.
+ * Pure function shared by deserializeNotebook output generation and orphan cell rendering.
  */
-function renderInteractionToMarkdown(group: AgentMessage[], isSubAgent: boolean): string {
-    const renderer = new UIRenderer();
+function buildInteractionRenderBlocks(group: AgentMessage[], isSubAgent: boolean): RenderBlock[] {
+    const blocks: RenderBlock[] = [];
     const toolCallMap = new Map<string, { name: string; args: any }>();
 
     for (const m of group) {
         if (m.role === 'assistant') {
+            // Build tool call map
             if (m.tool_calls) {
                 for (const tc of m.tool_calls) {
                     let parsedArgs: any = {};
                     if (tc.function?.arguments) {
-                        try {
-                            parsedArgs = JSON.parse(tc.function.arguments);
-                        } catch {
-                            parsedArgs = {};
-                        }
+                        try { parsedArgs = JSON.parse(tc.function.arguments); } catch { parsedArgs = {}; }
                     }
                     if (tc.id) {
                         toolCallMap.set(tc.id, { name: tc.function.name, args: parsedArgs });
                     }
                 }
             }
-
-            const contentStr = serializeContentToString(m.content);
+            // Add reasoning block if exists
             const reasoningStr = m.reasoning_content || '';
-
-            if (contentStr || reasoningStr) {
-                renderer.commitRoundUI(contentStr ? contentStr + '\n\n' : '', reasoningStr);
+            if (reasoningStr) {
+                blocks.push({ type: 'reasoning', markdown: reasoningStr, collapsed: true });
+            }
+            // Add content block if exists
+            const contentStr = serializeContentToString(m.content);
+            if (contentStr) {
+                blocks.push({ type: 'content', markdown: contentStr });
             }
         } else if (m.role === 'tool') {
+            // Add tool call block
             const contentStr = serializeContentToString(m.content);
             const mapped = m.tool_call_id ? toolCallMap.get(m.tool_call_id) : undefined;
             const toolName = mapped?.name ?? m.name ?? 'unknown';
             const args = mapped?.args ?? {};
             const prettyPrintSummary = mapped
                 ? ToolManager.getInstance().getPrettyPrint(toolName, args, isSubAgent)
-                : `🔧 Tool Call: ${toolName}`;
+                : `Tool Call: ${toolName}`;
 
-            const toolHtml = renderer.formatToolCall(
-                args,
-                prettyPrintSummary,
-                false,
-                contentStr
-            );
-            renderer.appendHtml(toolHtml);
+            blocks.push({
+                type: 'toolCall',
+                name: toolName,
+                args: args,
+                summary: prettyPrintSummary,
+                result: contentStr,
+                isStreaming: false
+            });
         }
     }
-    return renderer.getCommittedHtml();
+    return blocks;
+}
+
+/**
+ * Flatten RenderBlocks to a plain markdown string.
+ * Used for orphan assistant cells whose content is stored directly in cell source
+ * (these cells have no output area, so the custom renderer cannot be used).
+ */
+function renderBlocksToMarkdown(blocks: RenderBlock[]): string {
+    const parts: string[] = [];
+    for (const block of blocks) {
+        if (block.type === 'reasoning') {
+            parts.push(`> **Reasoning**\n>\n> ${block.markdown.split('\n').join('\n> ')}`);
+        } else if (block.type === 'content') {
+            parts.push(block.markdown);
+        } else if (block.type === 'toolCall') {
+            const header = block.summary || `Tool Call: ${block.name}`;
+            parts.push(`**${header}**${block.result ? `\n\n\`\`\`\n${block.result}\n\`\`\`` : ''}`);
+        }
+    }
+    return parts.join('\n\n');
 }
 
 /**
@@ -397,10 +420,11 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
             // Add outputs for user cells with mutsumi_interaction
             // mutsumi_interaction contains assistant/tool messages that should be rendered as output
             if (genCell.metadata?.role === 'user' && genCell.metadata?.mutsumi_interaction) {
-                const displayText = renderInteractionToMarkdown(genCell.metadata.mutsumi_interaction, !!raw.metadata.parent_agent_id);
-                const item = vscode.NotebookCellOutputItem.text(displayText, 'text/markdown');
+                const blocks = buildInteractionRenderBlocks(genCell.metadata.mutsumi_interaction, !!raw.metadata.parent_agent_id);
+                const renderData: RenderData = { committed: blocks, active: null };
+                const item = vscode.NotebookCellOutputItem.json(renderData, 'application/vnd.mutsumi.agent-chat');
                 cell.outputs = [new vscode.NotebookCellOutput([item])];
-                debugLogger.log(`[deserializeNotebook]   - added output for user cell with displayText length: ${displayText.length}`);
+                debugLogger.log(`[deserializeNotebook]   - added output for user cell with ${blocks.length} render blocks`);
             }
 
             return cell;

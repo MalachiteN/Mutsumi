@@ -133,31 +133,33 @@ export class NotebookAgentSession implements IAgentSession {
         return history;
     }
 
-    async appendOutput(content: string, options?: { isMarkdown?: boolean }): Promise<void> {
-        // VSCode Notebook API "append" is actually appending output items.
-        // But our UIRenderer usually constructs a full HTML string and replaces.
-        // If the Runner calls appendOutput, it implies "add this chunk".
-        // Since we don't have the full previous state here easily without UIRenderer logic,
-        // this method assumes the content is a standalone chunk to be appended as a text/plain or markdown item.
-        
-        // Warning: This behaves differently from UIRenderer.appendHtml().
-        // If AgentRunner expects full UIRenderer behavior (accumulating HTML), 
-        // it should handle accumulation and use replaceOutput.
-        
+    async appendOutput(content: string, options?: { isMarkdown?: boolean; mimeType?: string }): Promise<void> {
+        // When mimeType is 'application/vnd.mutsumi.agent-chat', content is a RenderData JSON string
+        // consumed by the custom notebook renderer.
+        const mimeType = options?.mimeType;
+        let outputItem: vscode.NotebookCellOutputItem;
+        if (mimeType === 'application/vnd.mutsumi.agent-chat') {
+            outputItem = vscode.NotebookCellOutputItem.json(JSON.parse(content), mimeType);
+        } else {
+            outputItem = vscode.NotebookCellOutputItem.text(content, options?.isMarkdown ? 'text/markdown' : 'text/plain');
+        }
         await this.execution.appendOutput(
-            new vscode.NotebookCellOutput([
-                vscode.NotebookCellOutputItem.text(content, options?.isMarkdown ? 'text/markdown' : 'text/plain')
-            ])
+            new vscode.NotebookCellOutput([outputItem])
         );
     }
 
-    async replaceOutput(content: string, options?: { isMarkdown?: boolean }): Promise<void> {
-        // This is the primary method used by UIRenderer -> UI
-        // content is the full HTML/Markdown string
+    async replaceOutput(content: string, options?: { isMarkdown?: boolean; mimeType?: string }): Promise<void> {
+        // Primary output path: content is a RenderData JSON string for the custom renderer,
+        // or plain text/markdown for fallback scenarios.
+        const mimeType = options?.mimeType;
+        let outputItem: vscode.NotebookCellOutputItem;
+        if (mimeType === 'application/vnd.mutsumi.agent-chat') {
+            outputItem = vscode.NotebookCellOutputItem.json(JSON.parse(content), mimeType);
+        } else {
+            outputItem = vscode.NotebookCellOutputItem.text(content, options?.isMarkdown ? 'text/markdown' : 'text/plain');
+        }
         await this.execution.replaceOutput([
-            new vscode.NotebookCellOutput([
-                vscode.NotebookCellOutputItem.text(content, options?.isMarkdown ? 'text/markdown' : 'text/plain')
-            ])
+            new vscode.NotebookCellOutput([outputItem])
         ]);
     }
 

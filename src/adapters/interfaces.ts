@@ -80,13 +80,15 @@ export interface IAgentSession {
 
     /**
      * Append output content (streaming UI updates).
+     * When mimeType is 'application/vnd.mutsumi.agent-chat', content is a RenderData JSON string.
      */
-    appendOutput(content: string, options?: { isMarkdown?: boolean }): Promise<void>;
+    appendOutput(content: string, options?: { isMarkdown?: boolean; mimeType?: string }): Promise<void>;
 
     /**
      * Replace current output (full refresh).
+     * When mimeType is 'application/vnd.mutsumi.agent-chat', content is a RenderData JSON string.
      */
-    replaceOutput(content: string, options?: { isMarkdown?: boolean }): Promise<void>;
+    replaceOutput(content: string, options?: { isMarkdown?: boolean; mimeType?: string }): Promise<void>;
 
     /**
      * Persist current session state (Notebook metadata, .mtm file, etc.).

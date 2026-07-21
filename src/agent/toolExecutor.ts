@@ -8,6 +8,7 @@ import type { ToolContext } from "../tools.d/interface";
 import { ToolSession } from "../tools.d/toolSession";
 import type { AgentMessage } from "../types";
 import type { UIRenderer } from "./uiRenderer";
+import type { RenderBlock } from "../notebook/renderTypes";
 import type { IAgentSession } from "../adapters/interfaces";
 import { getCachedResult, setCachedResult } from "../tools.d/cache";
 
@@ -38,8 +39,8 @@ export { clearToolCache, getToolCacheSize } from "../tools.d/cache";
  * @interface ToolExecutorCallbacks
  */
 export interface ToolExecutorCallbacks {
-	/** Append output content to the UI */
-	appendOutput: (content: string) => Promise<void>;
+	/** Append a completed render block to the UI */
+	appendOutput: (block: RenderBlock) => Promise<void>;
 	/** Signal that the task should terminate */
 	signalTermination: () => void;
 }
@@ -95,7 +96,7 @@ export class ToolExecutor {
 	 * @throws {TerminationError} If a termination tool signals task completion
 	 * @example
 	 * const result = await executor.executeTools(toolCalls, abortSignal, {
-	 *     appendOutput: async (content) => { /* update UI * / },
+	 *     appendOutput: async (block) => { /* update UI * / },
 	 *     signalTermination: () => { /* handle termination * / }
 	 * });
 	 */
@@ -139,7 +140,10 @@ export class ToolExecutor {
 				session: this.session,
 				toolSession,
 				abortSignal: toolSession.abortSignal,
-				appendOutput: callbacks.appendOutput,
+				// Tools emit markdown strings via ToolContext; wrap them as content
+			// blocks before forwarding to the RenderBlock-based callback.
+			appendOutput: (content: string) =>
+				callbacks.appendOutput({ type: "content", markdown: content }),
 				signalTermination: (taskComplete = false) => {
 					shouldTerminate = true;
 					isTaskComplete = taskComplete;
@@ -188,6 +192,7 @@ export class ToolExecutor {
 			const config = this.toolSet.getRenderingConfig(toolName);
 			await callbacks.appendOutput(
 				this.uiRenderer.formatToolCall(
+					toolName,
 					toolArgs,
 					prettyPrintSummary,
 					false,

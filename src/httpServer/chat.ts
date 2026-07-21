@@ -185,7 +185,7 @@ export async function handleChat(
         // Override session's replaceOutput to capture streaming content
         const originalReplaceOutput = session.replaceOutput.bind(session);
 
-        session.replaceOutput = async (output: string, options?: { isMarkdown?: boolean }) => {
+        session.replaceOutput = async (output: string, options?: { isMarkdown?: boolean; mimeType?: string }) => {
             // Call original method
             await originalReplaceOutput(output, options);
 
@@ -196,7 +196,8 @@ export async function handleChat(
                 const delta = currentOutput.slice(lastOutputLength);
                 lastOutputLength = currentOutput.length;
 
-                // Send SSE event with delta only
+                // Note: delta is now a JSON string fragment (RenderData), not markdown.
+                // Phase 1: keep existing delta logic as-is (known tech debt).
                 const event = {
                     type: 'content',
                     content: delta

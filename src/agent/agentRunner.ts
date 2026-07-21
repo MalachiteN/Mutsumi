@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { ToolSet } from '../tools.d/toolManager';
 import { AgentMessage } from '../types';
 import { UIRenderer } from './uiRenderer';
+import { MUTSUMI_AGENT_CHAT_MIME, RenderBlock } from '../notebook/renderTypes';
 import { LLMStreamHandler } from './llmStream';
 import { ToolExecutor } from './toolExecutor';
 import { TitleGenerator } from './titleGenerator';
@@ -128,14 +129,14 @@ export class AgentRunner {
                             return;
                         }
 
-                        const pendingToolsHtml = this.uiRenderer.formatPendingToolCalls(
+                        const pendingTools = this.uiRenderer.formatPendingToolCalls(
                             partialToolCalls,
                             this.toolSet,
                             isSubAgent
                         );
 
-                        const display = this.uiRenderer.generateDisplayHtml(content, reasoning, pendingToolsHtml);
-                        await this.session.replaceOutput(display, { isMarkdown: true });
+                        const renderData = this.uiRenderer.updateActive(content, reasoning, pendingTools);
+                        await this.session.replaceOutput(JSON.stringify(renderData), { mimeType: MUTSUMI_AGENT_CHAT_MIME });
                     }
                 );
                 roundContent = result.roundContent;
@@ -167,16 +168,16 @@ export class AgentRunner {
                     }
                 });
 
-                const errorHtml = `\n\n> ⚠️ **Error**: ${errorMessage.replace(/\n/g, ' ')}\n\n*Execution stopped due to network error. Previous output is preserved above.*`;
-                this.uiRenderer.appendHtml(errorHtml);
-                await this.session.replaceOutput(this.uiRenderer.getCommittedHtml(), { isMarkdown: true });
+                const errorMarkdown = `\n\n> ⚠️ **Error**: ${errorMessage.replace(/\n/g, ' ')}\n\n*Execution stopped due to network error. Previous output is preserved above.*`;
+                this.uiRenderer.appendBlock({ type: 'content', markdown: errorMarkdown });
+                await this.session.replaceOutput(JSON.stringify(this.uiRenderer.getCommittedRenderData()), { mimeType: MUTSUMI_AGENT_CHAT_MIME });
 
                 break;
             }
 
             if (!toolCalls.length && !roundContent && !roundReasoning) {
-                this.uiRenderer.appendHtml("_Mutsumi Debug: No content, reasoning, or tool calls received from API._");
-                await this.session.replaceOutput(this.uiRenderer.getCommittedHtml(), { isMarkdown: true });
+                this.uiRenderer.appendBlock({ type: 'content', markdown: '_Mutsumi Debug: No content, reasoning, or tool calls received from API._' });
+                await this.session.replaceOutput(JSON.stringify(this.uiRenderer.getCommittedRenderData()), { mimeType: MUTSUMI_AGENT_CHAT_MIME });
                 const msg: AgentMessage = { role: 'assistant', content: roundContent };
                 if (roundReasoning) {
                     msg.reasoning_content = roundReasoning;
@@ -213,9 +214,9 @@ export class AgentRunner {
                 toolCalls,
                 abortController.signal,
                 {
-                    appendOutput: async (content: string) => {
-                        this.uiRenderer.appendHtml(content);
-                        await this.session.replaceOutput(this.uiRenderer.getCommittedHtml(), {isMarkdown: true});
+                    appendOutput: async (block: RenderBlock) => {
+                        this.uiRenderer.appendBlock(block);
+                        await this.session.replaceOutput(JSON.stringify(this.uiRenderer.getCommittedRenderData()), { mimeType: MUTSUMI_AGENT_CHAT_MIME });
                     },
                     signalTermination: () => {
                         // Termination handled via return values

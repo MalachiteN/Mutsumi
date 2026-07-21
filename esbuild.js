@@ -4,7 +4,8 @@ const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
 
 async function main() {
-	const ctx = await esbuild.context({
+	// === Extension build (Node.js, CJS) ===
+	const extCtx = await esbuild.context({
 		entryPoints: ["src/extension.ts"],
 		bundle: true,
 		format: "cjs",
@@ -26,11 +27,35 @@ async function main() {
 			esbuildProblemMatcherPlugin,
 		],
 	});
+
+	// === Renderer build (Browser, ESM) ===
+	// VS Code loads notebook renderers via import() in the webview,
+	// so the entrypoint must be an ES module. CJS output would crash
+	// at load time with "module is not defined".
+	const rendererCtx = await esbuild.context({
+		entryPoints: ["src/notebook/renderer.ts"],
+		bundle: true,
+		format: "esm",
+		minify: production,
+		sourcemap: !production,
+		sourcesContent: false,
+		platform: "browser",
+		outfile: "dist/notebookRenderer.js",
+		external: [],
+		logLevel: "warning",
+		plugins: [
+			esbuildProblemMatcherPlugin,
+		],
+	});
+
 	if (watch) {
-		await ctx.watch();
+		await extCtx.watch();
+		await rendererCtx.watch();
 	} else {
-		await ctx.rebuild();
-		await ctx.dispose();
+		await extCtx.rebuild();
+		await rendererCtx.rebuild();
+		await extCtx.dispose();
+		await rendererCtx.dispose();
 	}
 }
 

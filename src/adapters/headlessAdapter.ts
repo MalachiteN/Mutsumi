@@ -105,11 +105,11 @@ export class HeadlessAgentSession implements IAgentSession {
         this.fullHistory = history;
     }
 
-    async appendOutput(content: string): Promise<void> {
+    async appendOutput(content: string, _options?: { isMarkdown?: boolean; mimeType?: string }): Promise<void> {
         this.outputBuffer += content;
     }
 
-    async replaceOutput(content: string): Promise<void> {
+    async replaceOutput(content: string, _options?: { isMarkdown?: boolean; mimeType?: string }): Promise<void> {
         this.outputBuffer = content;
     }
 

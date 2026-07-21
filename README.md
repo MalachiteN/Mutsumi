@@ -357,6 +357,8 @@ This project uses the following open source projects and their license declarati
 | [iconv-lite](https://github.com/ashtuchkov/iconv-lite) | ^0.6.3 | MIT | Character encoding conversion |
 | [express](https://github.com/expressjs/express) | ^5.2.1 | MIT | HTTP server framework |
 | [body-parser](https://github.com/expressjs/body-parser) | ^2.2.2 | MIT | HTTP request body parsing |
+| [micromark](https://github.com/micromark/micromark) | ^4.0.0 | MIT | CommonMark-compliant Markdown parser for custom notebook renderer |
+| [micromark-extension-gfm](https://github.com/micromark/micromark-extension-gfm) | ^2.0.0 | MIT | GFM extensions (tables, strikethrough, etc.) for micromark |
 
 Thanks to all open source contributors! 🙏
 

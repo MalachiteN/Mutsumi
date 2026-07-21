@@ -1,0 +1,14 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "lib": ["ES2022", "DOM"],
+        "rootDir": "src",
+        "noEmit": true
+    },
+    "include": [
+        "src/notebook/renderer.ts"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}

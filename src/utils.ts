@@ -161,24 +161,6 @@ export function ensureUniqueFileName(baseName: string, existingNames: string[]):
 }
 
 /**
- * Wraps multi-line HTML content in a themed container with rounded corners and semi-transparent background.
- * @description Creates a responsive container that appears light in dark themes and dark in light themes,
- * using CSS variables and backdrop-filter for adaptive styling.
- * The container width is determined by the longest line of content (inline-block behavior).
- * @param {string} content - The HTML/multi-line string content to wrap
- * @returns {string} Wrapped HTML string with themed container
- * @example
- * const wrapped = wrapInThemedContainer(`<p>Tool output here</p>`);
- * // Returns HTML with adaptive background styling
- */
-export function wrapInThemedContainer(content: string): string {
-    if (!content || content.trim().length === 0) {
-        return '';
-    }
-    return `<div style="background-color: var(--vscode-editor-inactiveSelectionBackground, rgba(128, 128, 128, 0.15)); padding: 12px 16px; border-radius: 8px; margin: 8px 0; display: block; width: fit-content; max-width: 90%;">${content}</div>`;
-}
-
-/**
  * Get language identifier for Markdown code block based on file extension
  */
 export function getLanguageIdentifier(ext: string): string {
