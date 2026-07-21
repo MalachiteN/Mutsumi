@@ -14,6 +14,7 @@ import * as sqliteVec from "sqlite-vec";
 import { TaskQueue } from "./taskQueue";
 import { sha256, f32buf, mkChunk, lineChunks } from "./utils";
 import { debugLogger } from "../../debugLogger";
+import { getBetterSqlite3NativeBinding } from "../../utils";
 import { CodebaseService, type OutlineNode } from "../service";
 
 /**
@@ -197,6 +198,10 @@ export class RagService implements vscode.Disposable {
       return this.workspaceDbMap.get(key)!.db;
     }
 
+    // 计算 better-sqlite3 native 二进制路径（universal 包时使用）
+    const nativeBinding = getBetterSqlite3NativeBinding(this.extCtx.extensionPath);
+    const dbOptions = nativeBinding ? { nativeBinding } : undefined;
+
     // 远程数据库文件位置：工作区/.mutsumi/cache/rag.db
     const remoteDbUri = vscode.Uri.joinPath(wsUri, ".mutsumi", "cache", "rag.db");
 
@@ -206,14 +211,14 @@ export class RagService implements vscode.Disposable {
       const data = await vscode.workspace.fs.readFile(remoteDbUri);
       if (data && data.length > 0) {
         // 从序列化数据创建内存数据库
-        db = new Database(Buffer.from(data));
+        db = new Database(Buffer.from(data), dbOptions);
         this.log(`Loaded existing DB from ${remoteDbUri.toString()}`);
       } else {
-        db = new Database(":memory:");
+        db = new Database(":memory:", dbOptions);
       }
     } catch {
       // 文件不存在或读取失败，创建新内存数据库
-      db = new Database(":memory:");
+      db = new Database(":memory:", dbOptions);
       this.log(`Creating new DB for ${wsUri.toString()}`);
     }
 
