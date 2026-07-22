@@ -1,6 +1,7 @@
 /**
  * @fileoverview Custom notebook renderer for Mutsumi agent chat output.
- * Uses micromark for Markdown parsing and implements incremental DOM rendering.
+ * Uses micromark for Markdown parsing, lowlight (highlight.js) for syntax
+ * highlighting, and implements incremental DOM rendering.
  * @module notebook/renderer
  */
 
@@ -8,6 +9,8 @@ import { RENDERER_CSS } from './css';
 
 import { micromark } from 'micromark';
 import { gfm, gfmHtml } from 'micromark-extension-gfm';
+import { createLowlight, all } from 'lowlight';
+import { toHtml } from 'hast-util-to-html';
 
 // Types matching src/notebook/renderTypes.ts (duplicated here to avoid
 // importing from extension code in the renderer process)
@@ -59,26 +62,53 @@ function renderMarkdown(md: string): string {
   } as any);
 }
 
-// Language identifier map for code block syntax highlighting.
-// Intentionally duplicated from src/utils.ts getLanguageIdentifier.
-// This file runs in the VSCode Notebook Renderer (browser) process and cannot
-// import src/utils.ts which depends on the 'vscode' Node module.
-// If entries are added here, also update src/utils.ts to keep them in sync.
-const langMap: Record<string, string> = {
-  ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
-  py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
-  java: 'java', kt: 'kotlin', swift: 'swift',
-  c: 'c', cpp: 'cpp', cc: 'cpp', h: 'c', hpp: 'cpp',
-  cs: 'csharp', php: 'php', html: 'html', htm: 'html',
-  css: 'css', scss: 'scss', sass: 'sass', less: 'less',
-  json: 'json', xml: 'xml', yaml: 'yaml', yml: 'yaml',
-  toml: 'toml', md: 'markdown', sh: 'bash', bash: 'bash',
-  zsh: 'zsh', fish: 'fish', ps1: 'powershell',
-  sql: 'sql', dockerfile: 'dockerfile', makefile: 'makefile',
-  vue: 'vue', svelte: 'svelte', astro: 'astro',
-};
+// --- Syntax highlighting via lowlight (highlight.js) ---
+// Uses all highlight.js grammars for comprehensive language coverage.
+const lowlight = createLowlight(all);
+
+// Register aliases for file extensions not covered by highlight.js defaults.
+lowlight.registerAlias({ xml: ['htm', 'vue', 'svelte', 'astro'] });
+lowlight.registerAlias('scss', 'sass');
+lowlight.registerAlias('bash', 'fish');
+
+/**
+ * Resolve a file extension to a registered lowlight language identifier.
+ * Checks the extension directly (covers highlight.js built-in aliases like
+ * `ts`→typescript, `py`→python, `h`→c, `hpp`→cpp, etc.) and the custom
+ * aliases registered above.
+ */
 function getLanguageIdentifier(ext: string): string {
-  return langMap[ext.toLowerCase()] || '';
+  const id = ext.toLowerCase();
+  return lowlight.registered(id) ? id : '';
+}
+
+/**
+ * Highlight a `<code>` element's text content using lowlight.
+ * Replaces innerHTML with tokenized HTML if the language is registered.
+ */
+function highlightElement(codeEl: HTMLElement, lang: string): void {
+  if (!lang || !lowlight.registered(lang)) return;
+  const text = codeEl.textContent || '';
+  if (!text) return;
+  try {
+    const tree = lowlight.highlight(lang, text);
+    codeEl.innerHTML = toHtml(tree);
+    codeEl.classList.add('hljs');
+  } catch {
+    // Unknown language or parse failure: leave code as-is
+  }
+}
+
+/**
+ * Find all `<pre><code>` elements in a container and syntax-highlight them.
+ * Used after inserting micromark-generated HTML to apply token highlighting.
+ */
+function highlightCodeBlocks(container: HTMLElement): void {
+  container.querySelectorAll('pre > code').forEach((code) => {
+    const el = code as HTMLElement;
+    const match = el.className.match(/language-([^\s]+)/);
+    highlightElement(el, match ? match[1].toLowerCase() : '');
+  });
 }
 
 /**
@@ -120,6 +150,7 @@ function renderBlock(block: RenderBlock): HTMLElement {
   switch (block.type) {
     case 'content': {
       div.innerHTML = renderMarkdown(block.markdown);
+      highlightCodeBlocks(div);
       break;
     }
     case 'reasoning': {
@@ -131,6 +162,7 @@ function renderBlock(block: RenderBlock): HTMLElement {
       const content = document.createElement('div');
       content.className = 'mutsumi-reasoning-content';
       content.innerHTML = renderMarkdown(block.markdown);
+      highlightCodeBlocks(content);
       details.appendChild(content);
       div.appendChild(details);
       break;
@@ -207,6 +239,7 @@ function renderBlock(block: RenderBlock): HTMLElement {
             code.textContent = String(val);
             pre.appendChild(code);
             argsDiv.appendChild(pre);
+            highlightElement(code, lang);
           }
         }
       }

@@ -273,13 +273,19 @@ function buildInteractionRenderBlocks(group: AgentMessage[], isSubAgent: boolean
                 ? ToolManager.getInstance().getPrettyPrint(toolName, args, isSubAgent)
                 : `Tool Call: ${toolName}`;
 
+            // Look up code-block rendering hints so args like new_content are
+            // rendered as <pre><code> blocks (with language detection) instead
+            // of plain list items when the notebook is re-opened from disk.
+            const renderingConfig = ToolManager.getInstance().getToolRenderingConfig(toolName, isSubAgent);
+
             blocks.push({
                 type: 'toolCall',
                 name: toolName,
                 args: args,
                 summary: prettyPrintSummary,
                 result: contentStr,
-                isStreaming: false
+                isStreaming: false,
+                renderingConfig
             });
         }
     }
