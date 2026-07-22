@@ -389,7 +389,7 @@ class EditService {
 		uriInput: string,
 		newContent: string,
 		context: ToolContext,
-		toolName: string = "edit_file",
+		toolName: string = "edit",
 	): Promise<string> {
 		const uri = resolveUri(uriInput);
 		if (!checkAccess(uri, context.allowedUris)) {
@@ -550,7 +550,7 @@ export async function handleEdit(
 	uriInput: string,
 	newContent: string,
 	context: ToolContext,
-	toolName: string = "edit_file",
+	toolName: string = "edit",
 ): Promise<string> {
 	return EditService.getInstance().requestEdit(
 		uriInput,

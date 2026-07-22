@@ -13,9 +13,9 @@ import { RagService } from '../../codebase/rag/service';
  * - "展示...的代码"
  * 
  * DO NOT use this for:
- * - Exact file path lookups (use read_file)
- * - Directory listings (use ls)
- * - Text grepping (use search_file_contains_keyword)
+ * - Exact file path lookups (use read)
+ * - Directory listings (use glob)
+ * - Text grepping (use grep)
  */
 export const queryCodebaseTool: ITool = {
     name: 'query_codebase',

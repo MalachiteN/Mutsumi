@@ -42,7 +42,7 @@ When the user knows the LLM will inevitably need certain file content or tool ex
 ```markdown
 @[src/main.ts]                      ← Reference file
 @[src/utils.ts:10:20]               ← Reference specific line range
-@[read_file{"uri": "path/to/file"}] ← Pre-execute tool
+@[read{"uri": "path/to/file"}] ← Pre-execute tool
 ```
 
 Context middleware tracks the latest version and hash of referenced files. If the hash is unchanged from the latest version, a command is injected for the Agent to trace back through historical records; if the hash changes, the latest file content is injected and version bumped.
@@ -150,7 +150,7 @@ flowchart LR
 
 **Interaction Details:**
 - Use `@[src/main.ts]` to pre-insert code references, reducing LLM reasoning calls
-- Use `@[search_file{"keyword": "xxx"}]` to pre-execute searches, quickly locating relevant code
+- Use `@[grep{"keyword": "xxx"}]` to pre-execute searches, quickly locating relevant code
 - Use the **Copy Mutsumi Reference** context menu to quickly copy file/symbol references
 
 If the requirement is clearly too large or uncertain, `implementer` should suggest the user switch to the `orchestrator` workflow.
@@ -222,7 +222,7 @@ flowchart TD
 | Mechanism | Usage | Effect |
 |-----------|-------|--------|
 | **@ Schema Reference** | `@[src/main.ts:10:50]` | Precisely reference code snippets |
-| **Tool Pre-execution** | `@[search_file{"keyword": "xxx"}]` | Pre-execute search, inject results into context |
+| **Tool Pre-execution** | `@[grep{"keyword": "xxx"}]` | Pre-execute search, inject results into context |
 | **Copy Mutsumi Reference** | Context Menu | Quickly copy file/symbol @ reference format |
 | **Dynamic Context Tracking** | Automatic version hash | Reference history when files unchanged, inject new version when changed |
 
@@ -274,11 +274,11 @@ If you want to use a different model or provider, configure `mutsumi.providers` 
 
 Mutsumi provides rich built-in tools for intelligent task execution:
 
-- **File Operations** — `read_file`, `edit_file`, `create_file`, `ls`, `get_file_size`
-- **Code Search** — `search_file_contains_keyword`, `search_file_name_includes`, `project_outline`, `query_codebase`
+- **File Operations** — `read`, `glob`
+- **Code Search** — `grep`, `find_filename`, `project_outline`, `query_codebase`
 - **Execution Control** — `shell`, `get_env_var`, `system_info`
-- **File Editing** — `edit_file_search_replace`, `create_or_replace`
-- **Agent Orchestration** — `dispatch_subagents`, `get_available_models`, `task_finish`
+- **File Editing** — `write`, `edit`
+- **Agent Orchestration** — `dispatch_subagents`, `get_agent_types`, `task_finish`
 
 ---
 
@@ -306,7 +306,7 @@ Discover internal reference @[doc/utils.md] → Recursively parse
     ↓
 Return expanded complete content (main.md already contains utils.md)
     ↓
-Discover included @[ls{"uri": "path/to/codebase"}] → Pre-execute tool
+Discover included @[glob{"uri": "path/to/codebase"}] → Pre-execute tool
 ```
 
 **APPEND Mode** (top-level): Content collected into ghost blocks  

@@ -5,11 +5,11 @@ import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
 
 export const editFileSearchReplaceTool: ITool = {
-    name: 'edit_file_search_replace',
+    name: 'edit',
     definition: {
         type: 'function',
         function: {
-            name: 'edit_file_search_replace',
+            name: 'edit',
             description: 'Replace parts of a file using search and replace. The search_replace parameter specifies the content to be replaced, and new_content specifies the replacement content.',
             parameters: {
                 type: 'object',
@@ -74,7 +74,7 @@ export const editFileSearchReplaceTool: ITool = {
         }
 
         // Delegate to core edit handler
-        return handleEdit(args.uri, newContent, context, 'edit_file_search_replace');
+        return handleEdit(args.uri, newContent, context, 'edit');
     },
     prettyPrint: (args: any) => {
         return `✏️ Mutsumi edited ${args.uri || '(unknown file)'}`;

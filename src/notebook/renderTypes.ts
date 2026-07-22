@@ -23,7 +23,7 @@ export type RenderBlock =
     | { type: 'reasoning'; markdown: string; collapsed: boolean }
     | {
         type: 'toolCall';
-        /** Tool name (e.g. 'read_file') */
+        /** Tool name (e.g. 'read') */
         name: string;
         /** Tool arguments (complete or best-effort partial while streaming) */
         args: Record<string, any>;

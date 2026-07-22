@@ -2,11 +2,11 @@ import { ITool, ToolContext } from '../interface';
 import { handleEdit } from '../edit_file';
 
 export const createOrReplaceTool: ITool = {
-    name: 'create_or_replace',
+    name: 'write',
     definition: {
         type: 'function',
         function: {
-            name: 'create_or_replace',
+            name: 'write',
             description: 'Replace the full content of a file. Shows a diff view to the user for confirmation. If the file does not exist, creates a new file.',
             parameters: {
                 type: 'object',
@@ -22,7 +22,7 @@ export const createOrReplaceTool: ITool = {
         if (!args.uri || args.new_content === undefined) {
             return 'Error: Missing arguments (uri, new_content).';
         }
-        return handleEdit(args.uri, args.new_content, context, 'create_or_replace');
+        return handleEdit(args.uri, args.new_content, context, 'write');
     },
     prettyPrint: (args: any) => {
         return `📝 Mutsumi created/replaced ${args.uri || '(unknown file)'}`;

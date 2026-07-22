@@ -163,23 +163,20 @@ Agent Type 不实现通用继承。
     "version": 1,
     "toolSets": {
         "read": [
-            "read_file",
-            "ls",
-            "read_partial_by_range",
-            "read_partial_around_keyword",
-            "search_file_contains_keyword",
-            "search_file_name_includes",
-            "get_file_size",
+            "read",
+            "glob",
+            "grep",
+            "find_filename",
             "get_env_var",
             "system_info",
             "project_outline",
-            "get_warning_error",
+            "diagnostics",
             "query_codebase"
         ],
         "deliver": [
             "shell",
-            "create_or_replace",
-            "edit_file_search_replace",
+            "write",
+            "edit",
             "mkdir"
         ],
         "dispatch": [

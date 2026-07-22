@@ -4,11 +4,11 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 
 export const getWarningErrorTool: ITool = {
-    name: 'get_warning_error',
+    name: 'diagnostics',
     definition: {
         type: 'function',
         function: {
-            name: 'get_warning_error',
+            name: 'diagnostics',
             description: 'Retrieve warnings and errors (diagnostics) for the entire workspace, a specific directory, or a specific file.',
             parameters: {
                 type: 'object',

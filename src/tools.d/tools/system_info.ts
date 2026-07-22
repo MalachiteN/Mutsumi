@@ -253,37 +253,6 @@ export const systemInfoTool: ITool = {
     // so the formatted string can be regenerated cheaply without a second layer of caching.
 };
 
-export const getFileSizeTool: ITool = {
-    name: 'get_file_size',
-    definition: {
-        type: 'function',
-        function: {
-            name: 'get_file_size',
-            description: 'Get the size of a file in KB. **CRITICAL**: Use this BEFORE reading or editing files to decide whether to use partial read/search or full read/replace, to save tokens.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    uri: { type: 'string', description: 'The file URI.' }
-                },
-                required: ['uri']
-            }
-        }
-    },
-    execute: async (args: any, context: ToolContext) => {
-        try {
-            const uri = resolveUri(args.uri);
-            const stat = await vscode.workspace.fs.stat(uri);
-            const sizeKB = (stat.size / 1024).toFixed(2);
-            return `Size: ${sizeKB} KB (${stat.size} bytes)`;
-        } catch (err: any) {
-            return `Error getting file size: ${err.message}`;
-        }
-    },
-    prettyPrint: (args: any) => {
-        return `📊 Mutsumi checked size of ${args.uri || '(unknown file)'}`;
-    }
-};
-
 export const getEnvVarTool: ITool = {
     name: 'get_env_var',
     definition: {

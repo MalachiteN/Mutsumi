@@ -294,7 +294,7 @@ export class SkillManager {
      * @returns Markdown string with JSON code block containing active skills info
      * @example
      * When a skill from the Installed Skills list may be applicable to the current scenario:
-     * 1. Immediately read_file the skill's SKILL.md file to determine if it is truly appropriate
+     * 1. Immediately read the skill's SKILL.md file to determine if it is truly appropriate
      * 2. If it can indeed solve the problem, execute the task following the steps and tool usage described within
      * 3. Skill files may contain specific instructions, tool call specifications, or output format requirements
      * 
@@ -320,7 +320,7 @@ export class SkillManager {
 
         // Build the instruction text
         const instructionText = `When a skill from the Installed Skills list may be applicable to the current scenario:
-1. Immediately read_file the skill's SKILL.md file to determine if it is truly appropriate
+1. Immediately read the skill's SKILL.md file to determine if it is truly appropriate
 2. If it can indeed solve the problem, execute the task following the steps and tool usage described within
 3. Skill files may contain specific instructions, tool call specifications, or output format requirements`;
 

@@ -4,21 +4,14 @@
  */
 
 import type { ITool, ToolContext } from "./interface";
-import { readFileTool } from "./tools/read_file";
-import { lsTool } from "./tools/ls";
+import { readFileTool } from "./tools/read";
+import { globTool } from "./tools/glob";
+import { grepTool } from "./tools/grep";
 import { shellTool } from "./tools/shell_exec";
-import { editFileSearchReplaceTool } from "./tools/edit_file_search_replace";
-import { createOrReplaceTool } from "./tools/create_or_replace";
+import { editFileSearchReplaceTool } from "./tools/edit";
+import { createOrReplaceTool } from "./tools/write";
+import { searchFileNameIncludesTool } from "./tools/find_filename";
 import {
-	readPartialByRangeTool,
-	readPartialAroundKeywordTool,
-} from "./tools/read_partial";
-import {
-	searchFileContainsKeywordTool,
-	searchFileNameIncludesTool,
-} from "./tools/search_fs";
-import {
-	getFileSizeTool,
 	getEnvVarTool,
 	systemInfoTool,
 } from "./tools/system_info";
@@ -29,7 +22,7 @@ import {
 	getAgentTypesTool,
 } from "./tools/agent_control";
 import { projectOutlineTool } from "./tools/project_outline";
-import { getWarningErrorTool } from "./tools/get_warning_error";
+import { getWarningErrorTool } from "./tools/diagnostics";
 import { getShellOutputTool } from "./tools/get_shell_output";
 import { killShellTaskTool } from "./tools/kill_shell_task";
 import { queryCodebaseTool } from "./tools/rag";
@@ -218,21 +211,18 @@ export class ToolRegistry {
 	 * This ensures consistent naming between config and implementation.
 	 */
 	private static readonly TOOL_NAME_MAPPING: Record<string, ITool> = {
-		read_file: readFileTool,
-		ls: lsTool,
+		read: readFileTool,
+		glob: globTool,
+		grep: grepTool,
 		shell: shellTool,
-		create_or_replace: createOrReplaceTool,
-		edit_file_search_replace: editFileSearchReplaceTool,
-		read_partial_by_range: readPartialByRangeTool,
-		read_partial_around_keyword: readPartialAroundKeywordTool,
-		search_file_contains_keyword: searchFileContainsKeywordTool,
-		search_file_name_includes: searchFileNameIncludesTool,
-		get_file_size: getFileSizeTool,
+		write: createOrReplaceTool,
+		edit: editFileSearchReplaceTool,
+		find_filename: searchFileNameIncludesTool,
 		get_env_var: getEnvVarTool,
 		system_info: systemInfoTool,
 		mkdir: mkdirTool,
 		project_outline: projectOutlineTool,
-		get_warning_error: getWarningErrorTool,
+		diagnostics: getWarningErrorTool,
 		get_shell_output: getShellOutputTool,
 		kill_shell_task: killShellTaskTool,
 		dispatch_subagents: dispatchSubagentsTool,
@@ -256,15 +246,12 @@ export class ToolRegistry {
 		// Register all common tools
 		ToolRegistry.commonTools = [
 			readFileTool,
-			lsTool,
+			globTool,
+			grepTool,
 			shellTool,
 			createOrReplaceTool,
 			editFileSearchReplaceTool,
-			readPartialByRangeTool,
-			readPartialAroundKeywordTool,
-			searchFileContainsKeywordTool,
 			searchFileNameIncludesTool,
-			getFileSizeTool,
 			getEnvVarTool,
 			systemInfoTool,
 			mkdirTool,
@@ -311,7 +298,7 @@ export class ToolRegistry {
 
 	/**
 	 * Gets a tool by its config name.
-	 * @param {string} name - Tool name as used in config (e.g., 'read_file')
+	 * @param {string} name - Tool name as used in config (e.g., 'read')
 	 * @returns {ITool | undefined} The tool if found, undefined otherwise
 	 */
 	static getToolByName(name: string): ITool | undefined {
