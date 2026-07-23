@@ -220,10 +220,10 @@ function renderBlock(block: RenderBlock): HTMLElement {
               const pathArgName = block.renderingConfig.codeBlockFilePaths[i];
               if (pathArgName) {
                 const pathVal = block.args[pathArgName];
-                if (typeof pathVal === 'string') {
-                  const ext = pathVal.split('.').pop() || '';
-                  lang = getLanguageIdentifier(ext);
-                }
+                // If the named arg is not a string, treat the entry itself as a literal path
+                const pathToUse = typeof pathVal === 'string' ? pathVal : pathArgName;
+                const ext = pathToUse.split('.').pop() || '';
+                lang = getLanguageIdentifier(ext);
               }
             }
             const label = document.createElement('div');
@@ -232,7 +232,12 @@ function renderBlock(block: RenderBlock): HTMLElement {
             const pre = document.createElement('pre');
             const code = document.createElement('code');
             code.className = lang ? `language-${lang}` : '';
-            code.textContent = String(val);
+            code.textContent =
+              typeof val === 'string'
+                ? val
+                : typeof val === 'object' && val !== null
+                  ? JSON.stringify(val, null, 2)
+                  : String(val);
             pre.appendChild(code);
             argsDiv.appendChild(pre);
           }

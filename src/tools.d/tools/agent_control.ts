@@ -112,7 +112,7 @@ export const dispatchSubagentsTool: ITool = {
         return `🍴 Mutsumi dispatched ${agentCount} sub-agent${agentCount !== 1 ? 's' : ''}`;
     },
     argsToCodeBlock: [ 'sub_agents' ],
-    codeBlockFilePaths: [ undefined ]
+    codeBlockFilePaths: [ 'sub_agents.json' ]
 };
 
 export const taskFinishTool: ITool = {
