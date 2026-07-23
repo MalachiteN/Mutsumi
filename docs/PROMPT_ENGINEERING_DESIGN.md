@@ -327,6 +327,22 @@ The `deliver` capability is essential for `orchestrator`:
 
 `orchestrator` must not use these capabilities to directly implement code changes or deliver engineering results—such work must be delegated to `implementer` agents.
 
+Beyond the tool-level prohibition above, `orchestrator` must also follow an abstraction level discipline: its thinking and expression should stay at the level of requirements, technology selection, architecture, and interface contracts. This discipline binds all of its output channels simultaneously:
+
+- internal reasoning
+- formal replies to the user
+- the final target state document
+- dispatch prompts for child agents
+
+In none of these channels may it write concrete business implementation code, nor may it privately work out full implementations line by line. Abstract code forms are allowed—pseudocode, interface and type definitions, class and method signatures, and data structure shapes—provided they express design decisions rather than implementation decisions.
+
+The boundary is judged by two complementary tests:
+
+- Paste test: if an `implementer` could paste the snippet directly into the codebase with almost no implementation judgment left, the line has been crossed
+- Decision test: if the snippet leaves no substantive implementation decisions to the `implementer`, the line has been crossed
+
+Abstract code defines "what must exist" and "how components connect"; it never dictates "how the work is done inside". Quoting existing repository code to point at a location or a problem is reference, not authorship, and is not prohibited.
+
 #### When to Use `planner`
 
 `orchestrator` does not need to invoke `planner` for every task.
