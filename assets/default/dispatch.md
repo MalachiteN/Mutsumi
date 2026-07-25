@@ -56,13 +56,7 @@ If everything goes into `prompt`, you waste tokens and each agent may miss the g
 
 ### Referencing files for sub-agents
 
-This system supports file injection through pre-execution. When a sub-agent must read a file, prefer to wrap it with `@[path]` inside the `context_broadcast` or the per-agent `prompt`:
-
-```markdown
-@[src/types.ts]
-```
-
-This inserts the file content directly into the child context and reduces the tokens wasted on the child deciding which tools to call and re-reading history.
+This system supports file injection through pre-execution. When a sub-agent must read a file, prefer to wrap it with `@[path/to/file]` inside the `context_broadcast` or the per-agent `prompt`. This inserts the file content directly into the child context and reduces the tokens wasted on the child deciding which tools to call and re-reading history.
 
 ### Informing sub-agents about each other
 

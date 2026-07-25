@@ -96,9 +96,9 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
             }));
 
             const items: SelectModelQuickPickItem[] = [
-                { itemType: 'separator', label: 'Model:', kind: vscode.QuickPickItemKind.Separator },
+                { itemType: 'separator', label: 'Models', kind: vscode.QuickPickItemKind.Separator },
                 ...modelItems,
-                { itemType: 'separator', label: 'Reasoning effort:', kind: vscode.QuickPickItemKind.Separator },
+                { itemType: 'separator', label: 'Reasoning efforts', kind: vscode.QuickPickItemKind.Separator },
                 ...effortItems
             ];
 
