@@ -51,7 +51,7 @@ export function formatShellOutput(
 /**
  * Proxy for a detached child process. Buffers full stdout/stderr, supports
  * abort via SIGTERM, and survives after the process exits so a later
- * get_shell_output / kill_shell_task call can still collect the output.
+ * inspect_shell_task / kill_shell_task call can still collect the output.
  */
 export class ShellTask {
 	readonly id: string;

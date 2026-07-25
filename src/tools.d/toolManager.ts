@@ -23,7 +23,7 @@ import {
 } from "./tools/agent_control";
 import { projectOutlineTool } from "./tools/project_outline";
 import { getWarningErrorTool } from "./tools/diagnostics";
-import { getShellOutputTool } from "./tools/get_shell_output";
+import { inspectShellTaskTool } from "./tools/inspect_shell_task";
 import { killShellTaskTool } from "./tools/kill_shell_task";
 import { queryCodebaseTool } from "./tools/rag";
 import { AgentTypeRegistry } from "../registry/agentTypeRegistry";
@@ -223,7 +223,7 @@ export class ToolRegistry {
 		mkdir: mkdirTool,
 		project_outline: projectOutlineTool,
 		diagnostics: getWarningErrorTool,
-		get_shell_output: getShellOutputTool,
+		inspect_shell_task: inspectShellTaskTool,
 		kill_shell_task: killShellTaskTool,
 		dispatch_subagents: dispatchSubagentsTool,
 		task_finish: taskFinishTool,
@@ -257,7 +257,7 @@ export class ToolRegistry {
 			mkdirTool,
 			projectOutlineTool,
 			getWarningErrorTool,
-			getShellOutputTool,
+			inspectShellTaskTool,
 			killShellTaskTool,
 			dispatchSubagentsTool,
 			getAgentTypesTool,

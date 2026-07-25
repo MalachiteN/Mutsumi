@@ -19,7 +19,7 @@ export const shellTool: ITool = {
 		function: {
 			name: "shell",
 			description:
-				"Execute a shell command. Requires user approval. By default waits for the command to finish (sync). Set background=true to start it detached and return immediately with a task id; use get_shell_output to inspect its output later.",
+				"Execute a shell command. Requires user approval. By default waits for the command to finish (sync). Set background=true to start it detached and return immediately with a task id; use inspect_shell_task to inspect its output later.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -36,7 +36,7 @@ export const shellTool: ITool = {
 					background: {
 						type: "boolean",
 						description:
-							"If true, run detached and return immediately with a task id without waiting for exit. Use get_shell_output to inspect. Default: false (sync wait for exit).",
+							"If true, run detached and return immediately with a task id without waiting for exit. Use inspect_shell_task to inspect. Default: false (sync wait for exit).",
 					},
 				},
 				required: ["uri", "cmd"],
@@ -90,7 +90,7 @@ export const shellTool: ITool = {
 
 			if (background) {
 				shellLogger("--- Detached, returned task id ---");
-				return `[Background] Started shell task ${task.id}, detached.\nCommand: ${cmd}\nUse get_shell_output with task_id="${task.id}" to inspect output.`;
+				return `[Background] Started shell task ${task.id}, detached.\nCommand: ${cmd}\nUse inspect_shell_task with task_id="${task.id}" to inspect output.`;
 			}
 
 			// sync mode: wait for exit, but auto-detach to background after timeout
@@ -126,12 +126,12 @@ export const shellTool: ITool = {
 				shellLogger("--- User moved sync task to background ---");
 				return `[Background] Shell task ${task.id} was moved to background by the user.
 Command: ${cmd}
-Use get_shell_output with task_id="${task.id}" to inspect output.`;
+Use inspect_shell_task with task_id="${task.id}" to inspect output.`;
 			}
 
 			if (timedOut && task.background) {
 				shellLogger("--- Sync timeout, moved to background ---");
-				return `[Background] Shell task ${task.id} exceeded ${timeoutSeconds}s and was moved to background.\nCommand: ${cmd}\nUse get_shell_output with task_id="${task.id}" to inspect output.`;
+				return `[Background] Shell task ${task.id} exceeded ${timeoutSeconds}s and was moved to background.\nCommand: ${cmd}\nUse inspect_shell_task with task_id="${task.id}" to inspect output.`;
 			}
 
 			shellLogger("--- Execution End ---");
