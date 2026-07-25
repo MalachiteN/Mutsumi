@@ -14,6 +14,39 @@ import {
 } from './interfaces';
 import type { AgentMessage, AgentMetadata, AgentContext, ContextItem } from '../types';
 
+/**
+ * Reads a reasoning effort override directly from an agent file.
+ * @param fileUri - URI of the backing .mtm file
+ * @returns The raw metadata value, or undefined when absent
+ */
+export async function readReasoningEffortFromFile(fileUri: vscode.Uri): Promise<string | undefined> {
+    const content = await vscode.workspace.fs.readFile(fileUri);
+    const data = JSON.parse(new TextDecoder().decode(content)) as AgentContext;
+    return data.metadata?.reasoning_effort;
+}
+
+/**
+ * Writes a reasoning effort override directly to an agent file.
+ * @param fileUri - URI of the backing .mtm file
+ * @param effort - Override value; undefined or 'default' removes the key
+ */
+export async function writeReasoningEffortToFile(
+    fileUri: vscode.Uri,
+    effort: string | undefined
+): Promise<void> {
+    const content = await vscode.workspace.fs.readFile(fileUri);
+    const data = JSON.parse(new TextDecoder().decode(content)) as AgentContext;
+
+    if (effort === undefined || effort === 'default') {
+        delete data.metadata.reasoning_effort;
+    } else {
+        data.metadata.reasoning_effort = effort;
+    }
+
+    const encoded = new TextEncoder().encode(JSON.stringify(data, null, 2));
+    await vscode.workspace.fs.writeFile(fileUri, encoded);
+}
+
 export class HeadlessAdapter implements IAgentAdapter {
     private sessions = new Map<string, HeadlessAgentSession>();
 
@@ -42,6 +75,14 @@ export class HeadlessAdapter implements IAgentAdapter {
 
     getSession(sessionId: string): IAgentSession | undefined {
         return this.sessions.get(sessionId);
+    }
+
+    async getReasoningEffort(fileUri: vscode.Uri): Promise<string | undefined> {
+        return readReasoningEffortFromFile(fileUri);
+    }
+
+    async setReasoningEffort(fileUri: vscode.Uri, effort: string | undefined): Promise<void> {
+        await writeReasoningEffortToFile(fileUri, effort);
     }
 }
 

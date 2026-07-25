@@ -11,6 +11,7 @@ import { NotebookAdapter } from './adapters/notebookAdapter';
 import { buildInteractionHistory } from './contextManagement/history';
 import { AgentMetadata } from './types';
 import { getModelCredentials } from './utils';
+import { normalizeReasoningEffort } from './agent/types';
 
 /**
  * Controls the execution of agent notebooks.
@@ -81,6 +82,7 @@ export class AgentController {
         const config = vscode.workspace.getConfiguration('mutsumi');
         const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
         const model = notebook.metadata?.model || defaultModel;
+        const reasoningEffort = normalizeReasoningEffort(notebook.metadata?.reasoning_effort);
 
         // Get credentials for the model
         let credentials: { apiKey: string; baseUrl: string };
@@ -141,7 +143,7 @@ export class AgentController {
 
             try {
                 const runner = new AgentRunner(
-                    { apiKey, baseUrl, model },
+                    { apiKey, baseUrl, model, reasoningEffort },
                     toolSet,
                     session
                 );

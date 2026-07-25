@@ -18,6 +18,10 @@ import {
 import { handleChat } from './chat';
 import { handleSetModel } from './model';
 import {
+    handleGetReasoningEffort,
+    handleSetReasoningEffort
+} from './reasoningEffort';
+import {
     handleListRules,
     handleGetRuleFile,
     handleSetRules
@@ -129,6 +133,10 @@ export class HttpServer {
 
         // Model endpoint
         this.app.put('/agent/:uuid/model', handleSetModel);
+
+        // Reasoning effort endpoints
+        this.app.get('/agent/:uuid/reasoning-effort', handleGetReasoningEffort);
+        this.app.put('/agent/:uuid/reasoning-effort', handleSetReasoningEffort);
 
         // Rules endpoints
         this.app.get('/rules', handleListRules);

@@ -2,10 +2,11 @@ import * as vscode from 'vscode';
 import { IAgentAdapter, IAgentSession, CreateSessionOptions, AgentSessionConfig } from './interfaces';
 import { AgentMessage, AgentMetadata, ContextItem } from '../types';
 import { debugLogger } from '../debugLogger';
+import { readReasoningEffortFromFile, writeReasoningEffortToFile } from './headlessAdapter';
 
 export class NotebookAdapter implements IAgentAdapter {
     constructor(
-        private readonly controller: vscode.NotebookController
+        private readonly controller?: vscode.NotebookController
     ) {}
 
     async createSession(options: CreateSessionOptions): Promise<IAgentSession> {
@@ -30,10 +31,52 @@ export class NotebookAdapter implements IAgentAdapter {
              throw new Error('Notebook cell not found');
         }
 
+        if (!this.controller) {
+            throw new Error('Notebook controller is required to create a session');
+        }
+
         // Create execution
         const execution = this.controller.createNotebookCellExecution(cell);
         
         return new NotebookAgentSession(execution, notebook, options.config);
+    }
+
+    /** Read from open notebook metadata, falling back to the backing file. */
+    async getReasoningEffort(fileUri: vscode.Uri): Promise<string | undefined> {
+        const notebook = vscode.workspace.notebookDocuments.find(
+            document => document.uri.toString() === fileUri.toString()
+        );
+        if (notebook) {
+            return (notebook.metadata as AgentMetadata)?.reasoning_effort;
+        }
+        return readReasoningEffortFromFile(fileUri);
+    }
+
+    /** Update open notebook metadata, falling back to the backing file. */
+    async setReasoningEffort(fileUri: vscode.Uri, effort: string | undefined): Promise<void> {
+        const notebook = vscode.workspace.notebookDocuments.find(
+            document => document.uri.toString() === fileUri.toString()
+        );
+        if (!notebook) {
+            await writeReasoningEffortToFile(fileUri, effort);
+            return;
+        }
+
+        const metadata: AgentMetadata = { ...(notebook.metadata as AgentMetadata) };
+        if (effort === undefined || effort === 'default') {
+            delete metadata.reasoning_effort;
+        } else {
+            metadata.reasoning_effort = effort;
+        }
+
+        const edit = new vscode.WorkspaceEdit();
+        edit.set(notebook.uri, [
+            vscode.NotebookEdit.updateNotebookMetadata(JSON.parse(JSON.stringify(metadata)))
+        ]);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied) {
+            throw new Error('Failed to apply notebook metadata edit');
+        }
     }
 }
 

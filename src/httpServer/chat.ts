@@ -6,6 +6,10 @@ import { RenderData, RenderBlock, MUTSUMI_AGENT_CHAT_MIME } from '../notebook/re
 import { ToolSet, ToolRegistry, createToolSetForAgent } from '../tools.d/toolManager';
 import { getAgentFromRegistry } from './utils';
 import { getModelCredentials } from '../utils';
+import {
+    normalizeReasoningEffort,
+    REASONING_EFFORT_SETTING_VALUES
+} from '../agent/types';
 import type { HeadlessAdapter } from '../adapters/headlessAdapter';
 import type { AgentSessionConfig } from '../adapters/interfaces';
 import type { AgentMessage, AgentMetadata } from '../types';
@@ -19,7 +23,10 @@ export async function handleChat(
 ): Promise<void> {
     const uuidParam = req.params.uuid;
     const uuid = Array.isArray(uuidParam) ? uuidParam[0] : uuidParam;
-    const { prompt, model, stream } = req.body ?? {};
+    const body = req.body ?? {};
+    const { prompt, model, stream } = body;
+    const hasReasoningEffort = Object.prototype.hasOwnProperty.call(body, 'reasoning_effort');
+    const bodyReasoningEffort = body.reasoning_effort;
     const isStreamMode = stream === true;
 
     if (!uuid) {
@@ -29,6 +36,15 @@ export async function handleChat(
 
     if (typeof prompt !== 'string' || !prompt.trim()) {
         res.status(400).json({ status: 'error', content: 'Missing prompt.' });
+        return;
+    }
+
+    if (hasReasoningEffort && (typeof bodyReasoningEffort !== 'string'
+        || !REASONING_EFFORT_SETTING_VALUES.includes(bodyReasoningEffort as any))) {
+        res.status(400).json({
+            status: 'error',
+            content: `Invalid reasoning_effort. Valid values: ${REASONING_EFFORT_SETTING_VALUES.join(', ')}`
+        });
         return;
     }
 
@@ -60,6 +76,10 @@ export async function handleChat(
 
     // Determine model to use: request param > notebook metadata > VS Code config
     const effectiveModel = model || (notebookData.metadata as AgentMetadata)?.model || defaultModel;
+    const reasoningEffort = normalizeReasoningEffort(
+        (hasReasoningEffort ? bodyReasoningEffort as string : undefined)
+            ?? (notebookData.metadata as AgentMetadata)?.reasoning_effort
+    );
 
     if (!effectiveModel) {
         res.status(500).json({ status: 'error', content: 'No model specified. Provide model in request body, notebook metadata, or VS Code settings.' });
@@ -165,7 +185,8 @@ export async function handleChat(
         model: effectiveModel,
         apiKey,
         baseUrl,
-        maxLoops
+        maxLoops,
+        reasoningEffort
     };
 
     // Create AbortController for cancellation

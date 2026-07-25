@@ -22,6 +22,8 @@ export interface LLMClientConfig {
     model: string;
     /** Default headers to include in requests */
     defaultHeaders?: Record<string, string>;
+    /** Top-level reasoning effort value to send with completion requests */
+    reasoningEffort?: string;
 }
 
 /**
@@ -104,6 +106,7 @@ export interface StreamChunk {
 export class LLMClient {
     private openai: OpenAI;
     private model: string;
+    private reasoningEffort: string | undefined;
 
     /**
      * Creates a new LLMClient instance.
@@ -117,6 +120,7 @@ export class LLMClient {
             defaultHeaders: config.defaultHeaders || { 'User-Agent': 'KimiCLI/1.30.0' }
         });
         this.model = config.model;
+        this.reasoningEffort = config.reasoningEffort;
     }
 
     /**
@@ -141,7 +145,10 @@ export class LLMClient {
             tools: options.tools,
             tool_choice: options.tool_choice,
             temperature: options.temperature ?? 1,
-            max_tokens: options.max_tokens
+            max_tokens: options.max_tokens,
+            ...(this.reasoningEffort !== undefined
+                ? { reasoning_effort: this.reasoningEffort as any }
+                : {})
         }, { signal: options.signal });
 
         const choice = response.choices[0];
@@ -188,7 +195,10 @@ export class LLMClient {
             tool_choice: options.tool_choice,
             temperature: options.temperature ?? 1,
             max_tokens: options.max_tokens,
-            stream: true
+            stream: true,
+            ...(this.reasoningEffort !== undefined
+                ? { reasoning_effort: this.reasoningEffort as any }
+                : {})
         }, { signal: options.signal });
 
         for await (const chunk of stream) {

@@ -52,6 +52,21 @@ export interface IAgentAdapter {
     createSession(options?: CreateSessionOptions): Promise<IAgentSession>;
     /** Retrieve an existing session by ID, if supported */
     getSession?(sessionId: string): Promise<IAgentSession | undefined> | IAgentSession | undefined;
+    /**
+     * Read the persisted reasoning effort override for an agent resource.
+     * @param fileUri - URI of the backing agent file
+     * @returns The raw metadata override, or undefined when no override is set and requests omit
+     * the reasoning_effort field, leaving behavior to the server
+     */
+    getReasoningEffort?(fileUri: vscode.Uri): Promise<string | undefined>;
+    /**
+     * Persist a reasoning effort override for an agent resource.
+     * Passing undefined or 'default' physically removes the metadata key, so requests omit the
+     * reasoning_effort field and leave behavior to the server.
+     * @param fileUri - URI of the backing agent file
+     * @param effort - Raw override value, or undefined to clear it
+     */
+    setReasoningEffort?(fileUri: vscode.Uri, effort: string | undefined): Promise<void>;
     /** Dispose the adapter (optional) */
     dispose?(): Promise<void> | void;
 }

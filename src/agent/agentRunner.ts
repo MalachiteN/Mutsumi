@@ -66,7 +66,8 @@ export class AgentRunner {
             apiKey: options.apiKey,
             baseUrl: options.baseUrl,
             model: options.model,
-            defaultHeaders: { 'User-Agent': 'KimiCLI/1.30.0' }
+            defaultHeaders: { 'User-Agent': 'KimiCLI/1.30.0' },
+            reasoningEffort: options.reasoningEffort
         });
         this.uiRenderer = new UIRenderer();
         this.llmStreamHandler = new LLMStreamHandler(this.llmClient);
