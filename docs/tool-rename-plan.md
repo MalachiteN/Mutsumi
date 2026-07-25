@@ -26,7 +26,7 @@
 | `get_warning_error` | `diagnostics` | 纯改名 |
 | `read_partial_by_range` | `read_partial` | 纯改名 |
 
-**未列入上表的工具一律不改名**（`shell`, `get_env_var`, `system_info`, `mkdir`, `project_outline`, `get_shell_output`, `kill_shell_task`, `dispatch_subagents`, `task_finish`, `get_agent_types`, `query_codebase`）。
+**未列入上表的工具一律不改名**（`shell`, `get_env_var`, `system_info`, `mkdir`, `project_outline`, `inspect_shell_task`, `kill_shell_task`, `dispatch_subagents`, `task_finish`, `get_agent_types`, `query_codebase`）。
 
 > 命名说明：`glob` 一词在此处的语义是"文件系统条目枚举与元信息查询"（文件则报大小，目录则列条目），不是"按模式匹配"（那是 `find_filename` 的职责）。实施者若认为实现后有更贴切的命名，可提出但需在交付说明中显式声明并全量一致替换。
 
