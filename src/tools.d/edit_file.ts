@@ -423,12 +423,13 @@ class EditService {
 				// Register transaction
 				this.transactions.set(uriKey, transaction);
 
-				// Open diff editor
-				await this.diffController.openDiff(uri, transaction.getEditUri());
-
 				// Determine auto-approve status
 				const shouldAutoApprove =
 					isAutoApproveEnabled() || isInRuleParsingMode();
+
+				// Open diff editor
+				if(! shouldAutoApprove)
+					await this.diffController.openDiff(uri, transaction.getEditUri());
 
 				// Register with Permission Manager
 				const requestId = approvalManager.createRequest(
