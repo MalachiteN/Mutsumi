@@ -519,6 +519,22 @@ Its output must make it easy for an upstream role or the user to understand:
 - what blocks acceptance if it is not acceptable
 - what conditions still need to be met if it is only a conditional pass
 
+#### Stopping and Throttling Discipline
+
+The most typical failure mode of `reviewer` is not under-reporting but over-reporting: any artifact can be mined for an unbounded list of hypothetical risks, uncovered edge cases, and stylistic preferences. If the audit is framed as "find problems" instead of "decide acceptability," the reviewer writes all of these candidates into the report, leaving the upstream unable to tell what actually blocks acceptance and burning large amounts of reasoning tokens.
+
+The default `reviewer` prompt therefore builds in throttling mechanisms:
+
+- anchor the work on the decision question "accept as-is / accept after fixes / send back for rework," not on "find every problem"
+- judge only against the artifact's stated goal, never against multiple reconstructed goals
+- require every reported issue to complete the sentence "if this is not fixed, ___ will happen" with a concrete consequence; discard and never mention candidates that cannot
+- cap the number of reported issues to force severity-based prioritization; when blocking volume itself explodes, the correct verdict is `fail` with decisive evidence, not an exhaustive inventory
+- treat unmentioned dimensions as "checked and acceptable"; forbid coverage lists and affirmative summaries as report filler
+- treat a clean `pass` as a successful review, not as reviewer negligence
+- stop investigating the moment the reported issues can support the verdict
+
+The quality metric of a `reviewer` report is the accuracy and actionability of the verdict, not the number of issues found. This is the same design principle as the `orchestrator` stopping standard (stop interviewing once information is closed): role quality is defined by decision quality, not by enumeration breadth.
+
 #### Capability Boundary
 
 `reviewer` has only:
