@@ -4,6 +4,74 @@ import { isCommonIgnored } from '../tools.d/utils';
 import { ToolManager } from '../tools.d/toolManager';
 
 /**
+ * Recursively append a JSON-shaped snippet placeholder for a tool parameter schema.
+ * Supports primitive defaults, enum/choice, boolean true/false picker, arrays and objects.
+ */
+function appendSchemaSnippet(snip: vscode.SnippetString, schema: any): void {
+    if (!schema || typeof schema !== 'object') {
+        snip.appendPlaceholder('');
+        return;
+    }
+
+    const enumValues = schema.enum;
+    if (Array.isArray(enumValues) && enumValues.length > 0) {
+        const choices = enumValues.map(v => String(v));
+        snip.appendChoice(choices);
+        return;
+    }
+
+    const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+
+    switch (type) {
+        case 'boolean':
+            snip.appendChoice(['true', 'false']);
+            break;
+
+        case 'number':
+        case 'integer':
+            snip.appendPlaceholder('0');
+            break;
+
+        case 'string':
+            snip.appendText('"');
+            snip.appendPlaceholder('');
+            snip.appendText('"');
+            break;
+
+        case 'array': {
+            snip.appendText('[');
+            const itemSchema = schema.items;
+            if (itemSchema && typeof itemSchema === 'object') {
+                appendSchemaSnippet(snip, itemSchema);
+            } else {
+                snip.appendPlaceholder('');
+            }
+            snip.appendText(']');
+            break;
+        }
+
+        case 'object': {
+            snip.appendText('{');
+            const props = schema.properties || {};
+            const keys = Object.keys(props);
+            keys.forEach((key, idx) => {
+                if (idx > 0) {
+                    snip.appendText(', ');
+                }
+                snip.appendText(`"${key}": `);
+                appendSchemaSnippet(snip, props[key]);
+            });
+            snip.appendText('}');
+            break;
+        }
+
+        default:
+            snip.appendPlaceholder('');
+            break;
+    }
+}
+
+/**
  * @description Provider class for reference auto-completion functionality
  * @class ReferenceCompletionProvider
  * @implements {vscode.CompletionItemProvider}
@@ -97,32 +165,20 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
                 const required = parameters.required || [];
                 const paramNames = Object.keys(properties);
 
-                if (paramNames.length === 0) {
-                    item.insertText = `[${name}{}]`;
-                } else {
-                    const snippets: string[] = [];
-                    paramNames.forEach((paramName) => {
-                        const paramDef = properties[paramName];
-                        const paramType = paramDef.type || 'any';
+                const snip = new vscode.SnippetString();
+                snip.appendText(`[${name}{`);
 
-                        let defaultValue = '""';
-                        if (paramType === 'number' || paramType === 'integer') {
-                            defaultValue = '0';
-                        } else if (paramType === 'boolean') {
-                            defaultValue = 'false';
-                        } else if (paramType === 'array') {
-                            defaultValue = '[]';
-                        } else if (paramType === 'object') {
-                            defaultValue = '{}';
-                        }
+                paramNames.forEach((paramName, idx) => {
+                    if (idx > 0) {
+                        snip.appendText(', ');
+                    }
+                    snip.appendText(`"${paramName}": `);
+                    appendSchemaSnippet(snip, properties[paramName]);
+                });
 
-                        snippets.push(`"${paramName}": ${defaultValue}`);
-                    });
-
-                    item.insertText = new vscode.SnippetString(
-                        `[${name}{${snippets.join(', ')}}]`
-                    );
-                }
+                snip.appendText('}]');
+                snip.appendTabstop(0);
+                item.insertText = snip;
 
                 let docContent = desc;
                 if (paramNames.length > 0) {
@@ -130,7 +186,7 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
                     paramNames.forEach(paramName => {
                         const paramDef = properties[paramName];
                         const isRequired = required.includes(paramName);
-                        const paramType = paramDef.type || 'any';
+                        const paramType = Array.isArray(paramDef.type) ? paramDef.type.join(' | ') : (paramDef.type || 'any');
                         const paramDesc = paramDef.description || '';
 
                         const reqMarker = isRequired ? '**(required)**' : '(optional)';
