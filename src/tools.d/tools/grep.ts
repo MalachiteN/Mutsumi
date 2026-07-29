@@ -12,7 +12,7 @@ export const grepTool: ITool = {
 		function: {
 			name: "grep",
 			description:
-				'Search for a keyword in a file or directory. Accepts both file and directory URIs — for directories, recursively searches all files (ignoring common patterns, skipping binary files, truncating long lines); for files, returns matching lines with optional context. Output format: "path:line:content".',
+				'Search for a pattern in a file or directory. By default the keyword is interpreted as an ECMAScript regular expression (like `grep -E`). Use `regex: false` to search for the exact literal text. Supports case-insensitive, whole-word, and inverted matching. For directories, recursively searches all files (ignoring common patterns, skipping binary files, truncating long lines). For files, returns matching lines with optional context. Output format: "path:line:content".',
 			parameters: {
 				type: "object",
 				properties: {
@@ -23,17 +23,42 @@ export const grepTool: ITool = {
 					},
 					keyword: {
 						type: "string",
-						description: "The keyword to search for.",
+						description:
+							'The search pattern. By default treated as an ECMAScript regular expression (like `grep -E`). Set `regex: false` to search for the exact literal text. Supported regex features: `.`, `*`, `+`, `?`, `^`, `$`, `|`, `[...]`, `\\b`, `(?:...)`, character classes, and quantifiers. Lookaround, back-references, and PCRE-only syntax are not supported.',
+					},
+					regex: {
+						type: "boolean",
+						default: true,
+						description:
+							"If true (default), the keyword is treated as an ECMAScript regular expression. If false, the keyword is matched as a literal string.",
+					},
+					case_insensitive: {
+						type: "boolean",
+						default: false,
+						description:
+							"If true, matching is case-insensitive (equivalent to `grep -i`).",
+					},
+					whole_word: {
+						type: "boolean",
+						default: false,
+						description:
+							"If true, only match whole words (equivalent to `grep -w`). Adds word boundaries around the pattern; do not combine with line anchors like `^` or `$` in the same keyword.",
+					},
+					invert_match: {
+						type: "boolean",
+						default: false,
+						description:
+							"If true, return lines that do NOT match the pattern (equivalent to `grep -v`). Context lines are ignored when inverted matching is enabled.",
 					},
 					lines_before: {
 						type: "integer",
 						description:
-							"Number of context lines before each match (file mode only, default 0).",
+							"Number of context lines before each match (file mode only, default 0). Ignored when `invert_match` is true.",
 					},
 					lines_after: {
 						type: "integer",
 						description:
-							"Number of context lines after each match (file mode only, default 0).",
+							"Number of context lines after each match (file mode only, default 0). Ignored when `invert_match` is true.",
 					},
 				},
 				required: ["uri", "keyword"],
@@ -46,11 +71,37 @@ export const grepTool: ITool = {
 			const { uri: uriInput, keyword } = args;
 			if (!uriInput || !keyword)
 				return "Error: Missing arguments (uri, keyword).";
+			if (keyword === "")
+				return "Error: keyword cannot be empty.";
 
 			const linesBefore =
 				typeof args.lines_before === "number" ? args.lines_before : 0;
 			const linesAfter =
 				typeof args.lines_after === "number" ? args.lines_after : 0;
+			const regex =
+				typeof args.regex === "boolean" ? args.regex : true;
+			const caseInsensitive =
+				typeof args.case_insensitive === "boolean"
+					? args.case_insensitive
+					: false;
+			const wholeWord =
+				typeof args.whole_word === "boolean"
+					? args.whole_word
+					: false;
+			const invertMatch =
+				typeof args.invert_match === "boolean"
+					? args.invert_match
+					: false;
+
+			const matcherResult = buildMatcher(
+				keyword,
+				regex,
+				caseInsensitive,
+				wholeWord,
+				invertMatch,
+			);
+			if ("error" in matcherResult) return matcherResult.error;
+			const matcher = matcherResult.matcher;
 
 			const rootUri = resolveUri(uriInput);
 
@@ -66,13 +117,14 @@ export const grepTool: ITool = {
 			}
 
 			if (stat.type === vscode.FileType.Directory) {
-				return await searchDirectory(rootUri, keyword, abortSignal);
+				return await searchDirectory(rootUri, matcher, abortSignal);
 			} else {
 				return await searchFile(
 					rootUri,
-					keyword,
+					matcher,
 					linesBefore,
 					linesAfter,
+					invertMatch,
 					abortSignal,
 				);
 			}
@@ -88,6 +140,58 @@ export const grepTool: ITool = {
 	},
 };
 
+interface Matcher {
+	match: (line: string) => boolean;
+}
+
+/**
+ * Build a line matcher from the user-provided options.
+ *
+ * - `regex` controls whether the keyword is a regex or a literal string.
+ * - `caseInsensitive` adds the `i` flag.
+ * - `wholeWord` wraps the pattern in `\b...\b`.
+ * - `invertMatch` inverts the result.
+ *
+ * Returns either a `matcher` object with a `match` function, or an `error`
+ * string if the keyword is not a valid regular expression.
+ */
+function buildMatcher(
+	keyword: string,
+	regex: boolean,
+	caseInsensitive: boolean,
+	wholeWord: boolean,
+	invertMatch: boolean,
+): { matcher: Matcher } | { error: string } {
+	let source = keyword;
+	const flags = caseInsensitive ? "i" : "";
+
+	try {
+		if (!regex) {
+			source = escapeRegExp(keyword);
+		}
+		if (wholeWord) {
+			source = `\\b(?:${source})\\b`;
+		}
+		const re = new RegExp(source, flags);
+		return {
+			matcher: {
+				match: (line: string) => {
+					const matched = re.test(line);
+					return invertMatch ? !matched : matched;
+				},
+			},
+		};
+	} catch (err: any) {
+		return {
+			error: `Invalid search expression "${keyword}": ${err?.message ?? String(err)}`,
+		};
+	}
+}
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Recursive directory search — mirrors the behaviour of the former directory
  * search tool: ignore COMMON_IGNORE_GLOBS, cap result files, skip binary
@@ -95,7 +199,7 @@ export const grepTool: ITool = {
  */
 async function searchDirectory(
 	rootUri: vscode.Uri,
-	keyword: string,
+	matcher: Matcher,
 	abortSignal: AbortSignal,
 ): Promise<string> {
 	const relativePattern = new vscode.RelativePattern(rootUri, "**/*");
@@ -143,7 +247,7 @@ async function searchDirectory(
 				: relPath;
 			for (let idx = 0; idx < fileLines.length; idx++) {
 				const line = fileLines[idx];
-				if (line.includes(keyword)) {
+				if (matcher.match(line)) {
 					const displayLine =
 						line.length > 300
 							? line.substring(0, 300) + "..."
@@ -167,9 +271,10 @@ async function searchDirectory(
  */
 async function searchFile(
 	uri: vscode.Uri,
-	keyword: string,
+	matcher: Matcher,
 	linesBefore: number,
 	linesAfter: number,
+	invertMatch: boolean,
 	abortSignal: AbortSignal,
 ): Promise<string> {
 	let content: string;
@@ -194,17 +299,21 @@ async function searchFile(
 		if (abortSignal.aborted) {
 			return "[Interrupted] The grep tool execution was forcibly stopped by the user.";
 		}
-		if (fileLines[i].includes(keyword)) {
-			const start = Math.max(0, i - linesBefore);
-			const end = Math.min(lineCount - 1, i + linesAfter);
-			for (let j = start; j <= end; j++) {
-				indicesToKeep.add(j);
+		if (matcher.match(fileLines[i])) {
+			if (invertMatch) {
+				indicesToKeep.add(i);
+			} else {
+				const start = Math.max(0, i - linesBefore);
+				const end = Math.min(lineCount - 1, i + linesAfter);
+				for (let j = start; j <= end; j++) {
+					indicesToKeep.add(j);
+				}
 			}
 		}
 	}
 
 	if (indicesToKeep.size === 0)
-		return `No matches found for "${keyword}".`;
+		return "No matches found.";
 
 	const sortedIndices = Array.from(indicesToKeep).sort((x, y) => x - y);
 	const relPath = vscode.workspace.asRelativePath(uri);
