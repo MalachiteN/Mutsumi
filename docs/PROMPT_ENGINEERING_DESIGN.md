@@ -245,6 +245,7 @@ This corresponds to a real user pattern:
 
 - does not proactively read the project
 - does not proactively analyze the repository
+- has read-only access: when the user explicitly asks about project content, it may read files and answer accurately
 - does not take on formal engineering execution work
 - does not take on planning, implementation, review, or coordination duties
 - dispatches no roles

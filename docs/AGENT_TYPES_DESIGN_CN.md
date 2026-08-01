@@ -186,7 +186,7 @@ Agent Type 不实现通用继承。
     },
     "agentTypes": {
         "chat": {
-            "toolSets": [],
+            "toolSets": ["read"],
             "defaultModel": "moonshotai/kimi-k2.5",
             "defaultRules": ["default/chat.md"],
             "defaultSkills": [],
