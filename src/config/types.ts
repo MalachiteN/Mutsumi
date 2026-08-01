@@ -89,16 +89,8 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
 			defaultModel: "kimi-for-coding",
 			defaultRules: ["default/orchestrator.md"],
 			defaultSkills: [],
-			allowedChildTypes: ["planner", "implementer", "reviewer"],
+			allowedChildTypes: ["implementer", "reviewer"],
 			isEntry: true,
-		},
-		planner: {
-			toolSets: ["read", "dispatch"],
-			defaultModel: "kimi-for-coding",
-			defaultRules: ["default/planner.md"],
-			defaultSkills: [],
-			allowedChildTypes: ["reviewer"],
-			isEntry: false,
 		},
 		reviewer: {
 			toolSets: ["read"],

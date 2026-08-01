@@ -98,21 +98,21 @@ So the default role set should be kept to a small number of roles with truly dis
 
 ## Default Role Set
 
-The current default role set is reduced to these five roles:
+The current default role set is reduced to these four roles:
 
 - `chat`
 - `orchestrator`
-- `planner`
 - `implementer`
 - `reviewer`
 
-The following candidate roles are not implemented:
+The following candidate roles are not implemented, or were removed after being tried:
 
 - `sub`
 - `summarizer`
 - `readonly-expert`
+- `planner`
 
-They are not removed because the names are meaningless, but because under the current collaboration topology and user workflow they are no longer good default roles.
+They are not kept out because the names are meaningless, but because under the current collaboration topology and user workflow they are not good default roles.
 
 ## Why `summarizer` Is Not Implemented
 
@@ -159,19 +159,35 @@ If it merely means "can read but cannot write", it still does not answer:
 
 By contrast:
 
-- `planner` already owns planning
 - `reviewer` already owns auditing
-- `orchestrator` already owns interviewing and convergence
+- `orchestrator` already owns interviewing, convergence, and planning
 
 So `readonly-expert` would create semantic overlap in the default role set.
+
+## Why `planner` Is Not a Default Role
+
+`planner` existed as a dedicated role for milestone design and dependency analysis. It was removed for the same reason `summarizer` was never implemented: under a tree-shaped reporting topology, a single-purpose middle layer between `orchestrator` and `implementer` is an information compressor.
+
+The collaboration used to look like this:
+
+- `orchestrator` compresses the final target state into a dispatch prompt for `planner`
+- `planner` produces a plan in its own context
+- `orchestrator` receives the plan and must re-interpret it before dispatching `implementer` agents
+
+That is one full compress-decompress round trip, and the re-interpretation step is unavoidable because `orchestrator` remains responsible for milestone-by-milestone execution governance either way.
+
+Planning is also the same judgment continuum as orchestration: deciding milestone order, deciding when a milestone is sufficiently resolved, and diagnosing execution failures are inseparable decisions. Splitting them across two agents does not create a division of labor; it splits one decision process in half.
+
+Capability-wise, `planner` was a strict subset of `orchestrator` (`read` plus dispatching `reviewer`), so merging costs nothing at the tool layer. What the dedicated role uniquely offered was a clean, isolated planning context. That property is deliberately traded away for one less reporting layer; the plan-audit path is preserved because `orchestrator` can still send its own plan to `reviewer`.
+
+Milestone planning is now an internal duty of `orchestrator`, not a delegated role.
 
 ## Collaboration Overview
 
 The default roles collaborate like this:
 
 - `chat`: a pure chat entry point that never enters the engineering execution tree
-- `orchestrator`: the global task convergence and coordination center
-- `planner`: the designer of milestones and dependency-aware plans
+- `orchestrator`: the global task convergence, planning, and coordination center
 - `implementer`: the concrete engineering worker
 - `reviewer`: the pure auditor
 
@@ -179,9 +195,8 @@ The default child-role relationships are:
 
 - `chat` -> `[]`
 - `reviewer` -> `[]`
-- `planner` -> `['reviewer']`
 - `implementer` -> `['implementer', 'reviewer']`
-- `orchestrator` -> `['planner', 'implementer', 'reviewer']`
+- `orchestrator` -> `['implementer', 'reviewer']`
 
 The default entry roles are:
 
@@ -190,7 +205,7 @@ The default entry roles are:
 - `implementer`
 - `reviewer`
 
-`planner` is not an entry role.
+With `planner` gone, every default role is also an entry role.
 
 ## AgentType and the ROLE Macro
 
@@ -279,7 +294,7 @@ It is responsible for:
 - interviewing the user
 - identifying omissions, conflicts, edge cases, and decision points
 - converging toward a single authoritative final target state
-- deciding whether to involve `planner`
+- planning milestones, dependencies, and parallelization itself
 - dispatching `implementer` agents by phase
 - involving `reviewer` at key checkpoints
 - aggregating outcomes and reporting back to the user
@@ -291,7 +306,7 @@ One of the most important outputs of `orchestrator` is the final target state do
 That document serves as:
 
 - the single source of truth for later phases of the task
-- the basis for `planner`
+- the basis for `orchestrator`'s own milestone planning
 - the basis for `implementer`
 - one of the main references for `reviewer`
 
@@ -344,22 +359,22 @@ The boundary is judged by two complementary tests:
 
 Abstract code defines "what must exist" and "how components connect"; it never dictates "how the work is done inside". Quoting existing repository code to point at a location or a problem is reference, not authorship, and is not prohibited.
 
-#### When to Use `planner`
+#### Planning
 
-`orchestrator` does not need to invoke `planner` for every task.
+`orchestrator` plans by itself. There is no separate planning role in the default set.
 
-The default rule is:
+For large feature work, refactors, and complex multi-phase efforts, `orchestrator` should produce an explicit milestone plan before dispatching implementation. The plan should make clear:
 
-- large feature work, refactors, and complex multi-phase efforts should consider using `planner`
-- tasks that are already clear enough to move directly into implementation may skip it and go straight to `implementer`
+- what the major milestones are
+- what state change each milestone achieves
+- which tasks can run in parallel inside a milestone
+- which work must finish before later work can begin
+- which checkpoints require review or validation
+- what risks or uncertainties still remain
 
-This is not a fully automatic hard rule.
+Tasks that are already clear enough to move directly into implementation may skip explicit upfront planning and go straight to `implementer`.
 
-The user stays in the loop:
-
-- if `orchestrator` tries to skip `planner`
-- and the user believes planning is required first
-- the user can interrupt and require it to dispatch a `planner`
+`orchestrator` may send its plan to `reviewer` for audit. The purpose is to correct missed dependencies, wrong parallelization assumptions, or risky decomposition decisions — not to become an infinite self-iteration machine. If reviewer feedback actually reveals that the final target state itself is unclear, `orchestrator` should return to interview-and-revision mode instead of papering over the ambiguity.
 
 #### Failure and Recovery
 
@@ -370,58 +385,6 @@ During execution, if an `implementer` reports confusion or early failure:
 - if the problem is just a hole in the current milestone, it should open a narrower implementation task to patch that hole before continuing
 
 In large efforts, `orchestrator` should push work milestone by milestone rather than spraying out all implementation tasks at once and losing control.
-
-### `planner`
-
-#### Role Positioning
-
-`planner` is responsible for:
-
-- identifying the intermediate milestone states between the starting state and the final target state
-- determining which tasks can run in parallel and which must remain serial
-- producing a dependency-aware and executable development plan
-
-It is not an executor and not a global coordinator.
-
-#### Output Requirements
-
-`planner` should not produce a loose unordered task list.
-
-It should clearly express:
-
-- what the major milestones are
-- what state change each milestone achieves
-- which tasks can run in parallel inside a milestone
-- which work must finish before later work can begin
-- which checkpoints require review or validation
-- what risks or uncertainties still remain
-
-#### Capability Boundary
-
-`planner` has:
-
-- `read`
-- `dispatch`
-
-But it can dispatch only:
-
-- `reviewer`
-
-It cannot dispatch `implementer`.
-
-This preserves the separation between plan design and execution dispatch, and keeps real execution control in the hands of `orchestrator`.
-
-#### Relationship with `reviewer`
-
-`planner` may call `reviewer` to audit its plan.
-
-The purpose is not to become an infinite self-iteration machine, but to correct:
-
-- missed dependencies
-- wrong parallelization assumptions
-- risky decomposition decisions
-
-If `reviewer`'s negative feedback actually reveals that the final target state itself is unclear, `planner` should state that plainly instead of trying to paper over the ambiguity.
 
 ### `implementer`
 
@@ -501,7 +464,7 @@ If `implementer` is a non-root agent:
 It may review:
 
 - the final target state produced by `orchestrator`
-- the plan produced by `planner`
+- the milestone plan produced by `orchestrator`
 - the code and docs produced by `implementer`
 - comment quality and engineering expression style
 - existing repositories or design materials manually submitted by the user
@@ -594,16 +557,15 @@ When the user brings a large feature, refactor, code review request, or substant
 - the user confirms decisions step by step
 - `orchestrator` stops asking at the right moment and produces the final target state document
 - if needed, it sends that target state to `reviewer`
-- then it decides whether to create a `planner`
+- then it plans the execution itself, producing explicit milestones when the task warrants them
 
 ### 3. Planning and Milestones
 
-If the task is complex enough to require a planning phase:
+If the task is complex enough to require an explicit planning phase:
 
-- `orchestrator` creates `planner`
-- `planner` produces a milestone-based plan
-- if needed, `planner` creates `reviewer` to audit the plan
-- `planner` returns the revised plan to `orchestrator`
+- `orchestrator` produces a milestone-based plan itself
+- if needed, it sends the plan to `reviewer` for audit
+- it revises the plan based on the audit, or returns to interview-and-revision if the audit exposes target-state ambiguity
 - `orchestrator` advances the task phase by phase according to that plan
 
 ### 4. Implementation Progression

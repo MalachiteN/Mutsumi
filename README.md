@@ -115,13 +115,12 @@ Unlike traditional single-conversation long-dialogue modes, Mutsumi implements a
 
 ### 🤖 AgentType Role System
 
-Mutsumi includes five default roles with clear responsibility boundaries:
+Mutsumi includes four default roles with clear responsibility boundaries:
 
 | Role | Responsibility | Forkable Sub-roles |
 |------|----------------|--------------------|
 | **chat** | Pure chat entry point, does not enter the engineering execution tree, supports read-only queries when explicitly asked | — |
-| **orchestrator** | Global task convergence and dispatch center, interviews users, produces final state documents, and dispatches execution | planner / implementer / reviewer |
-| **planner** | Milestone and dependency planner, identifies intermediate states and parallel/serial relationships | reviewer |
+| **orchestrator** | Global task convergence and dispatch center, interviews users, produces final state documents, plans milestones, and dispatches execution | implementer / reviewer |
 | **implementer** | Concrete engineering implementer, writes code, validates implementations, and integrates sub-results | implementer / reviewer |
 | **reviewer** | Pure auditor, read-only review of outputs, adopts pass/conditional pass/fail three-state conclusion | — |
 
@@ -170,8 +169,7 @@ flowchart TD
     ESD -.->|Optional| R1[🔍 reviewer Review]
     R1 --> ESD
     
-    ESD -.->|Complex Task| P[📋 planner]
-    P -->|Create| MP[🗓️ Milestone Plan]
+    O -->|Plan Itself| MP[🗓️ Milestone Plan]
     
     MP -.->|Optional| R2[🔍 reviewer Review]
     R2 --> MP
@@ -192,7 +190,7 @@ flowchart TD
     O -->|Integration Report| U
 ```
 
-`orchestrator` is responsible for interviewing users, converging requirements, producing final state documents, and optionally introducing `planner` for detailed planning before phased dispatching of `implementer` execution.
+`orchestrator` is responsible for interviewing users, converging requirements, producing final state documents, planning milestones itself, and then phased dispatching of `implementer` execution.
 
 ### Execution Failure Feedback Loop
 

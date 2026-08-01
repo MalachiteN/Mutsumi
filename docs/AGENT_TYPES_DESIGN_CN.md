@@ -206,16 +206,8 @@ Agent Type 不实现通用继承。
             "defaultModel": "moonshotai/kimi-k2.5",
             "defaultRules": ["default/orchestrator.md"],
             "defaultSkills": [],
-            "allowedChildTypes": ["planner", "implementer", "reviewer"],
+            "allowedChildTypes": ["implementer", "reviewer"],
             "isEntry": true
-        },
-        "planner": {
-            "toolSets": ["read", "dispatch"],
-            "defaultModel": "moonshotai/kimi-k2.5",
-            "defaultRules": ["default/planner.md"],
-            "defaultSkills": [],
-            "allowedChildTypes": ["reviewer"],
-            "isEntry": false
         },
         "reviewer": {
             "toolSets": ["read"],

@@ -128,7 +128,7 @@ export class AgentFileOperations {
      * @param {string[]} allowedUris - Allowed URIs for the agent
      * @param {string} [model] - Model identifier to use (overrides agent type default)
      * @param {ContextItem[]} [contextItems] - Context items for the agent
-     * @param {string} agentType - Agent type identifier (e.g., 'chat', 'orchestrator', 'planner', 'implementer', 'reviewer')
+     * @param {string} agentType - Agent type identifier (e.g., 'chat', 'orchestrator', 'implementer', 'reviewer')
      * @returns {Promise<vscode.Uri | undefined>} The created file URI or undefined on failure
      * @example
      * const uri = await AgentFileOperations.createAgentFile(

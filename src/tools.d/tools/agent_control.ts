@@ -31,7 +31,7 @@ export const dispatchSubagentsTool: ITool = {
                                 },
                                 agent_type: {
                                     type: 'string',
-                                    description: 'The agent type for this sub-agent (e.g., "chat", "orchestrator", "planner", "implementer", "reviewer"). The model and capabilities are determined by the agent type configuration. Defaults to "implementer" if not specified.'
+                                    description: 'The agent type for this sub-agent (e.g., "chat", "orchestrator", "implementer", "reviewer"). The model and capabilities are determined by the agent type configuration. Defaults to "implementer" if not specified.'
                                 }
                             },
                             required: ['prompt', 'allowed_uris']

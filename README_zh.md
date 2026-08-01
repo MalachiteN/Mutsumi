@@ -115,13 +115,12 @@ Rules 或被引文件也可以使用 @[] schema 递归插入文件或预执行�
 
 ### 🤖 AgentType 角色系统
 
-Mutsumi 内置五种默认角色，每种都有清晰的职责边界：
+Mutsumi 内置四种默认角色，每种都有清晰的职责边界：
 
 | 角色 | 职责 | 可 Fork 子角色 |
 |------|------|----------------|
 | **chat** | 纯闲聊入口，不进入工程执行树，支持被明确询问时的只读查询 | — |
-| **orchestrator** | 全局任务收敛与调度中心，访谈用户、产出终状态文档、调度执行 | planner / implementer / reviewer |
-| **planner** | 里程碑与依赖计划设计者，识别中间状态与并行/串行关系 | reviewer |
+| **orchestrator** | 全局任务收敛与调度中心，访谈用户、产出终状态文档、规划里程碑、调度执行 | implementer / reviewer |
 | **implementer** | 具体工程实现者，编写代码、验证实现、整合子结果 | implementer / reviewer |
 | **reviewer** | 纯审计者，只读审查产出，采用 pass/conditional pass/fail 三态结论 | — |
 
@@ -170,8 +169,7 @@ flowchart TD
     ESD -.->|可选| R1[🔍 reviewer审查]
     R1 --> ESD
     
-    ESD -.->|复杂任务| P[📋 planner]
-    P -->|制定| MP[🗓️ 里程碑计划]
+    O -->|自行规划| MP[🗓️ 里程碑计划]
     
     MP -.->|可选| R2[🔍 reviewer审查]
     R2 --> MP
@@ -192,7 +190,7 @@ flowchart TD
     O -->|整合汇报| U
 ```
 
-`orchestrator` 负责采访用户、收敛需求、产出终状态文档，再视情况引入 `planner` 做详细计划，最后分阶段调度 `implementer` 执行。
+`orchestrator` 负责采访用户、收敛需求、产出终状态文档，自行制定里程碑计划，最后分阶段调度 `implementer` 执行。
 
 ### 执行失败的回路
 

@@ -137,7 +137,6 @@ try {
 AgentType 通过组合这些工具集定义能力边界。例如：
 - `chat`: `['read']`
 - `orchestrator`: `['read', 'deliver', 'dispatch']`
-- `planner`: `['read', 'dispatch']`
 - `implementer`: `['read', 'deliver', 'dispatch']`
 - `reviewer`: `['read']`
 

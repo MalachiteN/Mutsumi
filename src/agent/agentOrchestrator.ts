@@ -425,7 +425,7 @@ export class AgentOrchestrator {
      * @param {string} parentId - Parent agent ID
      * @param {string} prompt - Initial prompt for the agent
      * @param {string[]} allowedUris - Allowed URIs for the agent
-     * @param {string} agentType - Agent type identifier (e.g., 'chat', 'orchestrator', 'planner', 'implementer', 'reviewer')
+     * @param {string} agentType - Agent type identifier (e.g., 'chat', 'orchestrator', 'implementer', 'reviewer')
      * @param {string} [model] - Model identifier to use
      * @param {ContextItem[]} [contextItems] - Context items for the agent (not inherited, empty for sub-agents)
      * @returns {Promise<void>}
