@@ -135,7 +135,7 @@ try {
 - `dispatch` - Agent 编排（`dispatch_subagents`, `get_agent_types`）
 
 AgentType 通过组合这些工具集定义能力边界。例如：
-- `chat`: `[]`
+- `chat`: `['read']`
 - `orchestrator`: `['read', 'deliver', 'dispatch']`
 - `planner`: `['read', 'dispatch']`
 - `implementer`: `['read', 'deliver', 'dispatch']`

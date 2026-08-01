@@ -69,7 +69,7 @@ export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
 	},
 	agentTypes: {
 		chat: {
-			toolSets: [],
+			toolSets: ["read"],
 			defaultModel: "kimi-for-coding",
 			defaultRules: ["default/chat.md"],
 			defaultSkills: [],

@@ -119,7 +119,7 @@ Mutsumi includes five default roles with clear responsibility boundaries:
 
 | Role | Responsibility | Forkable Sub-roles |
 |------|----------------|--------------------|
-| **chat** | Pure chat entry point, does not enter the engineering execution tree | — |
+| **chat** | Pure chat entry point, does not enter the engineering execution tree, supports read-only queries when explicitly asked | — |
 | **orchestrator** | Global task convergence and dispatch center, interviews users, produces final state documents, and dispatches execution | planner / implementer / reviewer |
 | **planner** | Milestone and dependency planner, identifies intermediate states and parallel/serial relationships | reviewer |
 | **implementer** | Concrete engineering implementer, writes code, validates implementations, and integrates sub-results | implementer / reviewer |

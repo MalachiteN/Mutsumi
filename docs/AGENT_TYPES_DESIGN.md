@@ -186,7 +186,7 @@ If the file does not exist, Mutsumi loads built-in defaults from `src/config/typ
     },
     "agentTypes": {
         "chat": {
-            "toolSets": [],
+            "toolSets": ["read"],
             "defaultModel": "moonshotai/kimi-k2.5",
             "defaultRules": ["default/chat.md"],
             "defaultSkills": [],
