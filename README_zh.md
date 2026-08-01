@@ -290,7 +290,7 @@ Mutsumi 采用六阶段动态上下文管理架构：
 2. System Prompt 构建 — 集成 Rules 和运行时环境
 3. 用户输入解析 — TemplateEngine 递归处理文件引用
 4. 增量快照与版本控制 — 智能检测变更，节省 Token
-5. 持久化与元数据更新 — 保存幽灵块到 Cell Metadata
+5. 持久化与元数据更新 — 以结构化对象保存幽灵块到 Cell Metadata，发送前再投影为同一 markdown
 6. 最终消息组装 — 前缀一致，最大化利用 LLM 的 KV Cache
 
 ### 递归文件引用与工具预执行的解析

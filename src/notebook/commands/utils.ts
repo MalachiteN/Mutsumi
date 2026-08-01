@@ -7,6 +7,8 @@ import * as vscode from 'vscode';
 import { IAgentSession } from '../../adapters/interfaces';
 import { AgentMessage, AgentMetadata } from '../../types';
 import { LiteAdapter, LiteAgentSessionConfig } from '../../adapters/liteAdapter';
+import { GhostBlock } from '../../contextManagement/interfaces';
+import { decodeGhostBlock } from '../../contextManagement/ghostBlocks';
 
 /**
  * Format an array of AgentMessage into a readable string representation.
@@ -95,10 +97,9 @@ export async function createDebugSessionFromNotebook(
     }
 
     // Collect ghost blocks from previous cells
-    const ghostBlocks: string[] = [];
+    const ghostBlocks: (GhostBlock | null)[] = [];
     for (let i = 0; i < cellIndex; i++) {
-        const ghostBlock = notebook.cellAt(i).metadata?.last_ghost_block;
-        ghostBlocks.push(typeof ghostBlock === 'string' ? ghostBlock : '');
+        ghostBlocks.push(decodeGhostBlock(notebook.cellAt(i).metadata?.last_ghost_block));
     }
 
     const adapter = new LiteAdapter();
@@ -115,9 +116,9 @@ export async function createDebugSessionFromNotebook(
         config: liteConfig
     });
 
-    // Pre-populate ghost blocks
+    // Pre-populate ghost blocks, preserving user-cell alignment with null placeholders
     for (const gb of ghostBlocks) {
-        await session.persistGhostBlock!(gb);
+        await session.persistGhostBlock!(gb ?? { files: [], tools: [] });
     }
 
     return session;

@@ -3,8 +3,13 @@ import { AgentMessage, AgentMetadata, MessageContent, ContextItem } from '../typ
 import { IAgentSession } from '../adapters/interfaces';
 import { getSystemPrompt, getRulesContext } from './prompts';
 import { TemplateEngine } from './templateEngine';
-import { ContextPresenter } from './contextPresenter';
 import { SkillManager } from './skillManager';
+import {
+    collectAvailableFileVersions,
+    ghostBlockFromContextItems,
+    ghostBlockToMarkdown,
+    isEmptyGhostBlock
+} from './ghostBlocks';
 import {
     parseUserMessageWithImages,
     extractMacroDefinitions,
@@ -12,48 +17,9 @@ import {
 } from './utils';
 
 /**
- * Collect available file versions from previous ghost blocks.
- * Parses ghost blocks to track which file versions have been shown.
- */
-function collectAvailableFileVersions(ghostBlocks: string[]): Set<string> {
-    const available = new Set<string>();
-
-    for (const ghostBlock of ghostBlocks) {
-        if (!ghostBlock || typeof ghostBlock !== 'string') {
-            continue;
-        }
-
-        const sections = ghostBlock.split('\n# Source: ');
-        for (let s = 1; s < sections.length; s++) {
-            const section = sections[s];
-            const newlineIndex = section.indexOf('\n');
-            const header = (newlineIndex === -1 ? section : section.slice(0, newlineIndex)).trim();
-
-            const match = header.match(/^(.*?)(?:\s*\(v(\d+)\))?$/);
-            if (!match) {
-                continue;
-            }
-
-            const key = match[1].trim();
-            const version = match[2] ? Number(match[2]) : undefined;
-            if (!key || !version || Number.isNaN(version)) {
-                continue;
-            }
-
-            const body = newlineIndex === -1 ? '' : section.slice(newlineIndex + 1);
-            if (body.includes('> Content unchanged. See previous version')) {
-                continue;
-            }
-
-            available.add(`${key}::${version}`);
-        }
-    }
-
-    return available;
-}
-
-/**
- * @description Build Agent's conversation history context
+ * @description Build Agent's conversation history context.
+ * Ghost blocks are consumed and persisted as structured GhostBlock objects;
+ * markdown is projected only when assembling provider-facing message content.
  * @param session - The agent session providing history and persistence
  * @param currentPrompt - Optional current user prompt (if not provided, uses session.getInput())
  * @returns Object containing messages array, allowed URIs, and sub-agent status
@@ -207,14 +173,17 @@ export async function buildInteractionHistory(
                 typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
             );
             // Append the persisted ghost block if it exists
-            const savedGhostBlock = previousGhostBlocks[ghostBlockIndex] || '';
+            const savedGhostBlock = previousGhostBlocks[ghostBlockIndex] ?? null;
             ghostBlockIndex++;
+            const savedGhostMarkdown = savedGhostBlock && !isEmptyGhostBlock(savedGhostBlock)
+                ? ghostBlockToMarkdown(savedGhostBlock)
+                : '';
 
-            if (savedGhostBlock) {
+            if (savedGhostMarkdown) {
                 if (Array.isArray(multiModalContent)) {
-                    messages.push({ role: 'user', content: [...multiModalContent, { type: 'text', text: savedGhostBlock }] });
+                    messages.push({ role: 'user', content: [...multiModalContent, { type: 'text', text: savedGhostMarkdown }] });
                 } else {
-                    messages.push({ role: 'user', content: multiModalContent + savedGhostBlock });
+                    messages.push({ role: 'user', content: multiModalContent + savedGhostMarkdown });
                 }
             } else {
                 messages.push({ role: 'user', content: multiModalContent });
@@ -240,8 +209,10 @@ export async function buildInteractionHistory(
     }
 
     // 4. Assemble Final User Message
-    // Pass empty array for rules because they are in system prompt
-    const ghostBlock = ContextPresenter.format([], finalItemsToDisplay);
+    const currentGhostBlock = ghostBlockFromContextItems(finalItemsToDisplay);
+    const currentGhostMarkdown = isEmptyGhostBlock(currentGhostBlock)
+        ? ''
+        : ghostBlockToMarkdown(currentGhostBlock);
 
     // 5. Persist context items and ghost block via session
     if (session.updateContextItems) {
@@ -249,17 +220,17 @@ export async function buildInteractionHistory(
     }
 
     if (session.persistGhostBlock) {
-        await session.persistGhostBlock(ghostBlock);
+        await session.persistGhostBlock(currentGhostBlock);
     }
 
     // 6. Push final message
     const currentMultiModalContent = await parseUserMessageWithImages(processedPrompt);
-    if (ghostBlock) {
+    if (currentGhostMarkdown) {
         if (Array.isArray(currentMultiModalContent)) {
-            currentMultiModalContent.push({ type: 'text', text: ghostBlock });
+            currentMultiModalContent.push({ type: 'text', text: currentGhostMarkdown });
             messages.push({ role: 'user', content: currentMultiModalContent });
         } else {
-            messages.push({ role: 'user', content: currentMultiModalContent + ghostBlock });
+            messages.push({ role: 'user', content: currentMultiModalContent + currentGhostMarkdown });
         }
     } else {
         messages.push({ role: 'user', content: currentMultiModalContent });

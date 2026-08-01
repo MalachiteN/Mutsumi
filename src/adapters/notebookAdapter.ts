@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { IAgentAdapter, IAgentSession, CreateSessionOptions, AgentSessionConfig } from './interfaces';
 import { AgentMessage, AgentMetadata, ContextItem } from '../types';
+import { GhostBlock } from '../contextManagement/interfaces';
+import { decodeGhostBlock, isEmptyGhostBlock } from '../contextManagement/ghostBlocks';
 import { debugLogger } from '../debugLogger';
 import { readReasoningEffortFromFile, writeReasoningEffortToFile } from './headlessAdapter';
 
@@ -87,7 +89,7 @@ export class NotebookAgentSession implements IAgentSession {
     private rawHistoryLength: number = 0;  // Length of raw (unexpanded) history from getHistory
     private fullHistory: AgentMessage[] | undefined;  // Full expanded history set by setHistory
     private config?: AgentSessionConfig;
-    private pendingGhostBlock?: string;
+    private pendingGhostBlock?: GhostBlock | null;
     private pendingContextItems?: ContextItem[];
 
     // We keep track of the accumulated output string if needed,
@@ -240,7 +242,11 @@ export class NotebookAgentSession implements IAgentSession {
 
         // Apply pending ghost block if any
         if (this.pendingGhostBlock !== undefined) {
-            newCellMetadata.last_ghost_block = this.pendingGhostBlock;
+            if (this.pendingGhostBlock === null) {
+                delete newCellMetadata.last_ghost_block;
+            } else {
+                newCellMetadata.last_ghost_block = this.pendingGhostBlock;
+            }
         }
 
         // Calculate the new interaction for this cell
@@ -368,16 +374,16 @@ export class NotebookAgentSession implements IAgentSession {
 
     /**
      * Get ghost blocks from previous cells for content version tracking.
-     * Iterates through all cells before the current one to collect ghost blocks.
+     * Iterates through all cells before the current one and decodes persisted
+     * metadata; invalid values become null placeholders to preserve alignment.
      */
-    async getPreviousGhostBlocks(): Promise<string[]> {
-        const ghostBlocks: string[] = [];
+    async getPreviousGhostBlocks(): Promise<(GhostBlock | null)[]> {
+        const ghostBlocks: (GhostBlock | null)[] = [];
         const currentIndex = this.execution.cell.index;
 
         for (let i = 0; i < currentIndex; i++) {
             const cell = this.notebook.cellAt(i);
-            const ghostBlock = cell.metadata?.last_ghost_block;
-            ghostBlocks.push(typeof ghostBlock === 'string' ? ghostBlock : '');
+            ghostBlocks.push(decodeGhostBlock(cell.metadata?.last_ghost_block));
         }
 
         return ghostBlocks;
@@ -385,10 +391,12 @@ export class NotebookAgentSession implements IAgentSession {
 
     /**
      * Persist ghost block for the current cell.
-     * Stores in cell metadata via pending state (applied on save).
+     * Stores in cell metadata via pending state (applied on save). An empty
+     * block is normalized to a pending clear so rerunning without context does
+     * not leave a stale ghost object behind.
      */
-    async persistGhostBlock(ghostBlock: string): Promise<void> {
-        this.pendingGhostBlock = ghostBlock;
+    async persistGhostBlock(ghostBlock: GhostBlock): Promise<void> {
+        this.pendingGhostBlock = isEmptyGhostBlock(ghostBlock) ? null : ghostBlock;
     }
 
     /**

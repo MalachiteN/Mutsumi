@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { AgentMessage, AgentMetadata, ContextItem } from '../types';
+import { GhostBlock } from '../contextManagement/interfaces';
 
 /**
  * Configuration for an agent session.
@@ -142,18 +143,21 @@ export interface IAgentSession {
 
     /**
      * Get ghost blocks from previous messages for content version tracking.
-     * Each ghost block corresponds to a previous user message's context.
+     * Each entry corresponds to a previous user message's context and preserves
+     * user-message alignment: invalid or absent persisted values are decoded to
+     * null rather than removed from the array.
      * Used by history.ts for differential context updates.
-     * @returns Array of ghost block strings, indexed by message position
+     * @returns Array of structured ghost blocks or null placeholders, indexed by message position
      */
-    getPreviousGhostBlocks?(): Promise<string[]>;
+    getPreviousGhostBlocks?(): Promise<(GhostBlock | null)[]>;
 
     /**
      * Persist ghost block for the current message.
      * Called after processing current prompt to save context references.
-     * @param ghostBlock - The formatted ghost block string to persist
+     * Adapters may normalize an empty block to a metadata clear for the current cell.
+     * @param ghostBlock - The structured ghost block to persist
      */
-    persistGhostBlock?(ghostBlock: string): Promise<void>;
+    persistGhostBlock?(ghostBlock: GhostBlock): Promise<void>;
 
     /**
      * Update persisted context items after processing.
@@ -168,8 +172,11 @@ export interface IAgentSession {
  * Used to persist per-cell state like ghost blocks.
  */
 export interface CellMetadata {
-    /** Persisted ghost block from this cell's context */
-    last_ghost_block?: string;
+    /**
+     * Persisted structured ghost block from this cell's context.
+     * Raw notebook metadata is untrusted and must be decoded before use.
+     */
+    last_ghost_block?: GhostBlock;
     /** Message role (user/assistant) */
     role?: string;
     /** Pre-built interaction array for assistant cells */

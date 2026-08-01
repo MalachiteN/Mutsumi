@@ -7,6 +7,8 @@ import {
     CreateSessionOptions
 } from './interfaces';
 import { AgentMessage, ContextItem } from '../types';
+import { GhostBlock } from '../contextManagement/interfaces';
+import { isEmptyGhostBlock } from '../contextManagement/ghostBlocks';
 
 /**
  * Lightweight session config for utility/background agent tasks.
@@ -42,7 +44,7 @@ export class LiteAgentSession implements IAgentSession {
     private inputPrompt = '';
     private history: AgentMessage[] = [];
     private outputBuffer = '';
-    private ghostBlocks: string[] = [];
+    private ghostBlocks: (GhostBlock | null)[] = [];
 
     constructor(id: string, config?: LiteAgentSessionConfig) {
         this.id = id;
@@ -106,18 +108,18 @@ export class LiteAgentSession implements IAgentSession {
 
     /**
      * Get ghost blocks from previous messages.
-     * For Lite sessions, returns the in-memory ghost blocks.
+     * For Lite sessions, returns the in-memory ghost blocks with null placeholders preserved.
      */
-    async getPreviousGhostBlocks(): Promise<string[]> {
+    async getPreviousGhostBlocks(): Promise<(GhostBlock | null)[]> {
         return [...this.ghostBlocks];
     }
 
     /**
      * Persist ghost block for the current message.
-     * For Lite sessions, simply adds to the in-memory array.
+     * For Lite sessions, adds to the in-memory array; empty blocks become null placeholders.
      */
-    async persistGhostBlock(ghostBlock: string): Promise<void> {
-        this.ghostBlocks.push(ghostBlock);
+    async persistGhostBlock(ghostBlock: GhostBlock): Promise<void> {
+        this.ghostBlocks.push(isEmptyGhostBlock(ghostBlock) ? null : ghostBlock);
     }
 
     /**

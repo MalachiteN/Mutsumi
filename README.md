@@ -290,7 +290,7 @@ Mutsumi adopts a six-phase dynamic context management architecture:
 2. System Prompt Construction — Integrate Rules and runtime environment
 3. User Input Parsing — TemplateEngine recursively processes file references
 4. Incremental Snapshots and Version Control — Intelligent change detection to save Tokens
-5. Persistence and Metadata Update — Save ghost blocks to Cell Metadata
+5. Persistence and Metadata Update — Persist ghost blocks to Cell Metadata as structured objects, projected to the same markdown before sending
 6. Final Message Assembly — Consistent prefix to maximize LLM KV Cache utilization
 
 ### Recursive File Reference and Tool Pre-execution Parsing

@@ -13,6 +13,8 @@ import {
     CreateSessionOptions
 } from './interfaces';
 import type { AgentMessage, AgentMetadata, AgentContext, ContextItem } from '../types';
+import { GhostBlock } from '../contextManagement/interfaces';
+import { isEmptyGhostBlock } from '../contextManagement/ghostBlocks';
 
 /**
  * Reads a reasoning effort override directly from an agent file.
@@ -103,7 +105,7 @@ export class HeadlessAgentSession implements IAgentSession {
     private fullHistory: AgentMessage[] | undefined;  // Full expanded history from setHistory
     private inputPrompt = '';
     private outputBuffer = '';
-    private pendingGhostBlock?: string;  // Ghost block for current message (applied on save)
+    private pendingGhostBlock?: GhostBlock | null;  // Ghost block for current message (applied on save)
 
     constructor(options: HeadlessAgentSessionOptions) {
         this.id = options.id;
@@ -193,7 +195,11 @@ export class HeadlessAgentSession implements IAgentSession {
                 const cell = genericCells[i];
                 if (cell.kind === 2) {  // Code cell = user
                     cell.metadata = cell.metadata || {};
-                    cell.metadata.last_ghost_block = this.pendingGhostBlock;
+                    if (this.pendingGhostBlock === null) {
+                        delete cell.metadata.last_ghost_block;
+                    } else {
+                        cell.metadata.last_ghost_block = this.pendingGhostBlock;
+                    }
                     break;
                 }
             }
@@ -267,9 +273,9 @@ export class HeadlessAgentSession implements IAgentSession {
 
     /**
      * Get ghost blocks from previous messages for content version tracking.
-     * Converts messages to cells and extracts ghost blocks (same logic as NotebookAdapter).
+     * Converts messages to cells and extracts decoded ghost blocks (same logic as NotebookAdapter).
      */
-    async getPreviousGhostBlocks(): Promise<string[]> {
+    async getPreviousGhostBlocks(): Promise<(GhostBlock | null)[]> {
         // Convert messages to generic cells and extract ghost blocks
         const cells = messagesToGenericCells(this.history);
         return extractGhostBlocksFromCells(cells);
@@ -277,10 +283,11 @@ export class HeadlessAgentSession implements IAgentSession {
 
     /**
      * Persist ghost block for the current message.
-     * Stored pending until save() writes it to file.
+     * Stored pending until save() writes it to file; empty blocks are stored as
+     * a pending clear for the current user cell.
      */
-    async persistGhostBlock(ghostBlock: string): Promise<void> {
-        this.pendingGhostBlock = ghostBlock;
+    async persistGhostBlock(ghostBlock: GhostBlock): Promise<void> {
+        this.pendingGhostBlock = isEmptyGhostBlock(ghostBlock) ? null : ghostBlock;
     }
 
     /**

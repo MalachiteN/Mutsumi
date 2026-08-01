@@ -7,6 +7,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { debugLogger } from '../debugLogger';
 import { resolveAgentDefaults } from '../config/resolver';
 import { RenderBlock, RenderData } from './renderTypes';
+import { GhostBlock } from '../contextManagement/interfaces';
+import { decodeGhostBlock } from '../contextManagement/ghostBlocks';
 
 // ============================================================================
 // Core Data Structures (VSCode-agnostic)
@@ -24,7 +26,8 @@ export interface GenericCellData {
     /** Cell metadata including role, ghost blocks, interaction */
     metadata?: {
         role?: 'user' | 'assistant' | 'system';
-        last_ghost_block?: string;
+        /** Raw persisted ghost block metadata; decoded at adapter/serializer boundaries */
+        last_ghost_block?: unknown;
         mutsumi_interaction?: AgentMessage[];
         [key: string]: any;
     };
@@ -215,16 +218,18 @@ export function genericCellsToMessages(cells: GenericCellData[]): AgentMessage[]
 }
 
 /**
- * Extract ghost blocks from generic cells.
- * Returns array of ghost blocks in order of user cells.
+ * Extract and decode ghost blocks from generic cells.
+ * Returns one entry per user cell in order; absent or structurally invalid
+ * persisted values decode to null so history replay stays index-aligned.
+ * @param cells - Generic cells converted from messages or notebook data
+ * @returns Structured ghost blocks or null placeholders in user-cell order
  */
-export function extractGhostBlocksFromCells(cells: GenericCellData[]): string[] {
-    const ghostBlocks: string[] = [];
+export function extractGhostBlocksFromCells(cells: GenericCellData[]): (GhostBlock | null)[] {
+    const ghostBlocks: (GhostBlock | null)[] = [];
 
     for (const cell of cells) {
         if (cell.metadata?.role === 'user' || (!cell.metadata?.role && cell.kind === 2)) {
-            const ghostBlock = cell.metadata?.last_ghost_block;
-            ghostBlocks.push(typeof ghostBlock === 'string' ? ghostBlock : '');
+            ghostBlocks.push(decodeGhostBlock(cell.metadata?.last_ghost_block));
         }
     }
 

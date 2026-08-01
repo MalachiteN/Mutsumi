@@ -111,7 +111,7 @@ try {
 
 - `.mtm` 文件是 JSON 格式，包含 Agent 元数据和对话历史
 - `Code` Cell → 用户输入 / `Markup` Cell → 助手回复
-- 临时引用内容使用 Ghost Block 机制，保存时自动剥离
+- 临时引用内容使用 Ghost Block 机制：Cell 文本保存时自动剥离 `<content_reference>`；Cell Metadata 中的 `last_ghost_block` 以结构化对象持久化（files/tools 列表），发送前再投影为同一 markdown。非法或旧格式 metadata 在边界解码失败时按“无 ghost block”处理，不做迁移。
 
 ### 2. 动态上下文系统
 
