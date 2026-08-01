@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as net from 'net';
+import * as crypto from 'crypto';
 import express = require('express');
 import bodyParser = require('body-parser');
 import { HeadlessAdapter } from '../adapters/headlessAdapter';
@@ -43,12 +44,14 @@ export class HttpServer {
     private readonly adapter: HeadlessAdapter;
     private readonly abortControllers = new Map<string, AbortController>();
     private readonly extensionUri: vscode.Uri;
+    private readonly host: string;
     private readonly startPort: number;
     private readonly maxPort: number;
 
     constructor(adapter: HeadlessAdapter, extensionUri: vscode.Uri, options?: HttpServerOptions) {
         this.adapter = adapter;
         this.extensionUri = extensionUri;
+        this.host = options?.host ?? '127.0.0.1';
         this.startPort = options?.port ?? 3000;
         this.maxPort = this.startPort + 100; // Try up to 100 ports
     }
@@ -81,7 +84,7 @@ export class HttpServer {
                     });
                 });
 
-                server.listen(port, '127.0.0.1');
+                server.listen(port, this.host);
             };
 
             tryPort(this.startPort);
@@ -94,8 +97,8 @@ export class HttpServer {
         try {
             this.actualPort = await this.findAvailablePort();
             this.configureServer();
-            this.server = this.app.listen(this.actualPort, '127.0.0.1', () => {
-                const message = `已于 http://127.0.0.1:${this.actualPort} 启动服务器`;
+            this.server = this.app.listen(this.actualPort, this.host, () => {
+                const message = `已于 http://${this.host}:${this.actualPort} 启动服务器`;
                 debugLogger.log(message);
             });
         } catch (error) {
@@ -116,6 +119,35 @@ export class HttpServer {
     }
 
     private configureServer(): void {
+        // Bearer-token authentication, registered before ALL routes so it covers
+        // every endpoint (including SSE streaming chat and approval endpoints).
+        // The password is read from the live configuration on each request, so
+        // changes to mutsumi.httpServer.password take effect without a restart.
+        // Comparison uses SHA-256 digests + timingSafeEqual to avoid timing
+        // side channels (timingSafeEqual requires equal-length buffers).
+        this.app.use((req, res, next) => {
+            const password = vscode.workspace
+                .getConfiguration('mutsumi')
+                .get<string>('httpServer.password', '');
+            const header = req.headers.authorization;
+            let authorized = false;
+            if (password && header) {
+                // Bearer scheme is case-insensitive per RFC 7235
+                const token = /^Bearer\s+(.+)$/i.exec(header)?.[1];
+                if (token) {
+                    const tokenHash = crypto.createHash('sha256').update(token).digest();
+                    const passwordHash = crypto.createHash('sha256').update(password).digest();
+                    authorized = crypto.timingSafeEqual(tokenHash, passwordHash);
+                }
+            }
+            if (!authorized) {
+                res.setHeader('WWW-Authenticate', 'Bearer realm="mutsumi"');
+                res.status(401).json({ status: 'error', content: 'Unauthorized.' });
+                return;
+            }
+            next();
+        });
+
         this.app.use(bodyParser.json({ limit: '2mb' }));
 
         // Agents endpoints

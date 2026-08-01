@@ -196,6 +196,12 @@
                 "icon": "$(clear-all)"
             },
             {
+                "command": "mutsumi.generateHttpServerPassword",
+                "title": "Generate HTTP Server Password",
+                "category": "Mutsumi",
+                "icon": "$(key)"
+            },
+            {
                 "command": "mutsumi.detachShellTask",
                 "title": "Move to Background",
                 "icon": "$(debug-disconnect)"
@@ -413,6 +419,28 @@
                     "default": 60,
                     "minimum": 0,
                     "description": "Seconds a synchronous (non-background) shell call may run before being auto-detached to background. Set 0 to disable auto-detach."
+                },
+                "mutsumi.httpServer.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable the Mutsumi HTTP Server (disabled by default). All endpoints require Bearer token authentication when enabled."
+                },
+                "mutsumi.httpServer.password": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Bearer token password for the Mutsumi HTTP Server. Stored in PLAINTEXT in settings. If empty while the server is enabled, the server refuses to start. Use the 'Mutsumi: Generate HTTP Server Password' command to create one."
+                },
+                "mutsumi.httpServer.host": {
+                    "type": "string",
+                    "default": "127.0.0.1",
+                    "description": "Address the HTTP Server binds to. WARNING: changing this to 0.0.0.0 exposes the server to your LAN or the public internet — set a strong password (mutsumi.httpServer.password) first."
+                },
+                "mutsumi.httpServer.port": {
+                    "type": "number",
+                    "default": 3000,
+                    "minimum": 1,
+                    "maximum": 65535,
+                    "description": "Starting port for the HTTP Server. If occupied, subsequent ports are scanned (up to +100)."
                 },
                 "mutsumi.agentConfig": {
                     "type": "object",

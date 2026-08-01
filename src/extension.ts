@@ -5,6 +5,7 @@
 
 import * as vscode from "vscode";
 import * as path from "path";
+import * as crypto from "crypto";
 import { MutsumiSerializer } from "./notebook/serializer";
 import { AgentController } from "./controller";
 import { AgentSidebarProvider } from "./sidebar/agentSidebar";
@@ -148,17 +149,135 @@ export async function activate(
 	await AgentOrchestrator.getInstance().initialize();
 
 	// Initialize HeadlessAdapter and HttpServer
+	// The HTTP Server is gated by mutsumi.httpServer.* configuration (disabled by
+	// default). See docs/HTTP_SERVER_SECURITY_DESIGN_CN.md for the behavior contract.
 	const headlessAdapter = new HeadlessAdapter();
-	const httpServer = new HttpServer(headlessAdapter, context.extensionUri);
-	httpServer.start().catch((err) => {
-		debugLogger.log(`[Extension] Failed to start HTTP server: ${err}`);
-	});
+	let httpServer: HttpServer | undefined;
+
+	const getHttpServerConfig = () => {
+		const config = vscode.workspace.getConfiguration("mutsumi");
+		return {
+			enabled: config.get<boolean>("httpServer.enabled", false),
+			password: config.get<string>("httpServer.password", ""),
+			host: config.get<string>("httpServer.host", "127.0.0.1"),
+			port: config.get<number>("httpServer.port", 3000),
+		};
+	};
+
+	const stopHttpServer = () => {
+		httpServer?.stop();
+		httpServer = undefined;
+	};
+
+	const warnHttpServerEmptyPassword = () => {
+		const OPEN_SETTINGS = "Open Settings";
+		const GENERATE_PASSWORD = "Generate Random Password";
+		vscode.window
+			.showWarningMessage(
+				"Mutsumi HTTP Server is enabled but no password is set (mutsumi.httpServer.password). The server refuses to start.",
+				OPEN_SETTINGS,
+				GENERATE_PASSWORD,
+			)
+			.then(async (choice) => {
+				if (choice === OPEN_SETTINGS) {
+					await vscode.commands.executeCommand(
+						"workbench.action.openSettings",
+						"mutsumi.httpServer.password",
+					);
+				} else if (choice === GENERATE_PASSWORD) {
+					await vscode.commands.executeCommand(
+						"mutsumi.generateHttpServerPassword",
+					);
+				}
+			});
+	};
+
+	const startHttpServer = async () => {
+		if (httpServer) {
+			return;
+		}
+		const cfg = getHttpServerConfig();
+		if (!cfg.enabled) {
+			return;
+		}
+		if (!cfg.password) {
+			warnHttpServerEmptyPassword();
+			return;
+		}
+		const server = new HttpServer(headlessAdapter, context.extensionUri, {
+			host: cfg.host,
+			port: cfg.port,
+		});
+		try {
+			await server.start();
+			httpServer = server;
+		} catch (err) {
+			debugLogger.log(`[Extension] Failed to start HTTP server: ${err}`);
+		}
+	};
+
 	context.subscriptions.push({
 		dispose: () => {
-			httpServer.stop();
+			stopHttpServer();
 			headlessAdapter.dispose();
 		},
 	});
+
+	// Start on activation if enabled (and password is set)
+	void startHttpServer();
+
+	// React to mutsumi.httpServer.* configuration changes:
+	// - enabled toggle -> start / stop immediately
+	// - host / port change -> restart if running (or pending)
+	// - password change -> no restart needed; the auth middleware reads the
+	//   live configuration on every request
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration(async (event) => {
+			if (!event.affectsConfiguration("mutsumi.httpServer")) {
+				return;
+			}
+			const cfg = getHttpServerConfig();
+			if (!cfg.enabled) {
+				stopHttpServer();
+				return;
+			}
+			if (
+				event.affectsConfiguration("mutsumi.httpServer.enabled") ||
+				event.affectsConfiguration("mutsumi.httpServer.host") ||
+				event.affectsConfiguration("mutsumi.httpServer.port")
+			) {
+				stopHttpServer();
+				await startHttpServer();
+			}
+		}),
+	);
+
+	// Command: generate a cryptographically secure random password, write it to
+	// the user-level (Global) setting, copy it to the clipboard, and start the
+	// server if it was waiting for a password.
+	context.subscriptions.push(
+		vscode.commands.registerCommand(
+			"mutsumi.generateHttpServerPassword",
+			async () => {
+				const password = crypto.randomBytes(32).toString("base64url");
+				await vscode.workspace
+					.getConfiguration("mutsumi")
+					.update(
+						"httpServer.password",
+						password,
+						vscode.ConfigurationTarget.Global,
+					);
+				await vscode.env.clipboard.writeText(password);
+				vscode.window.showInformationMessage(
+					"Generated a random HTTP Server password, saved it to your user settings, and copied it to the clipboard.",
+				);
+				const cfg = getHttpServerConfig();
+				if (cfg.enabled && !httpServer) {
+					await startHttpServer();
+				}
+			},
+		),
+	);
 
 	// 1. Notebook Serializer
 	context.subscriptions.push(

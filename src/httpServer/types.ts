@@ -3,6 +3,7 @@ import express = require('express');
 import { HeadlessAdapter } from '../adapters/headlessAdapter';
 
 export interface HttpServerOptions {
+    host?: string;
     port?: number;
 }
 
