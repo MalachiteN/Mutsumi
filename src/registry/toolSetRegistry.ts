@@ -20,6 +20,10 @@ import { DEFAULT_MUTSUMI_CONFIG } from "../config/types";
  * It is a singleton that should be initialized during extension activation
  * with configuration loaded from the `mutsumi.agentConfig` VSCode Setting.
  *
+ * Unlike a one-shot init, `initialize()` may be called again (e.g. when the
+ * `mutsumi.agentConfig` setting changes) to reload the configuration in place.
+ * The `ready` flag only guards against reads before the first successful init.
+ *
  * @example
  * ```typescript
  * const registry = ToolSetRegistry.getInstance();
@@ -30,7 +34,7 @@ import { DEFAULT_MUTSUMI_CONFIG } from "../config/types";
 export class ToolSetRegistry {
 	private static instance: ToolSetRegistry | null = null;
 	private toolSets: Map<string, string[]> = new Map();
-	private initialized = false;
+	private ready = false;
 
 	/**
 	 * Gets the singleton instance of ToolSetRegistry.
@@ -49,10 +53,11 @@ export class ToolSetRegistry {
 	private constructor() {}
 
 	/**
-	 * Initializes the registry with tool set configurations.
+	 * Loads (or reloads) the registry with tool set configurations.
 	 *
-	 * This should be called once during extension activation after
-	 * the configuration has been loaded.
+	 * May be called multiple times: each call fully replaces the previous
+	 * configuration. This is used during activation and again whenever the
+	 * `mutsumi.agentConfig` setting changes.
 	 *
 	 * The RAG tool 'query_codebase' is handled specially:
 	 * - If embedding endpoint is NOT configured, it's removed from all tool sets
@@ -62,11 +67,7 @@ export class ToolSetRegistry {
 	 * @throws {Error} If a tool set references a non-existent tool
 	 */
 	initialize(config: ToolSetsConfig): void {
-		if (this.initialized) {
-			return;
-		}
-
-		// Clear existing tool sets
+		// Clear existing tool sets so a reload fully replaces prior state
 		this.toolSets.clear();
 
 		// Check if RAG is enabled (embedding endpoint configured)
@@ -92,7 +93,8 @@ export class ToolSetRegistry {
 			this.toolSets.set(name, processedToolNames);
 		}
 
-		this.initialized = true;
+		// Mark the registry as ready for queries
+		this.ready = true;
 	}
 
 	/**
@@ -129,7 +131,7 @@ export class ToolSetRegistry {
 	 * @throws {Error} If the tool set does not exist
 	 */
 	getToolSet(name: string): ITool[] {
-		this.ensureInitialized();
+		this.ensureReady();
 
 		const toolNames = this.toolSets.get(name);
 		if (!toolNames) {
@@ -148,7 +150,7 @@ export class ToolSetRegistry {
 	 * @throws {Error} If any tool set does not exist
 	 */
 	getCombinedToolSet(names: string[]): ITool[] {
-		this.ensureInitialized();
+		this.ensureReady();
 
 		const seenTools = new Map<string, ITool>();
 
@@ -170,7 +172,7 @@ export class ToolSetRegistry {
 	 * @returns {boolean} True if the tool set exists
 	 */
 	hasToolSet(name: string): boolean {
-		this.ensureInitialized();
+		this.ensureReady();
 		return this.toolSets.has(name);
 	}
 
@@ -180,7 +182,7 @@ export class ToolSetRegistry {
 	 * @returns {string[]} Array of all tool set names
 	 */
 	getAllToolSetNames(): string[] {
-		this.ensureInitialized();
+		this.ensureReady();
 		return Array.from(this.toolSets.keys());
 	}
 
@@ -213,13 +215,13 @@ export class ToolSetRegistry {
 	}
 
 	/**
-	 * Ensures the registry has been initialized.
+	 * Guards against reads before the registry has been populated.
 	 *
 	 * @private
-	 * @throws {Error} If not initialized
+	 * @throws {Error} If `initialize()` has never been called successfully
 	 */
-	private ensureInitialized(): void {
-		if (!this.initialized) {
+	private ensureReady(): void {
+		if (!this.ready) {
 			throw new Error(
 				"ToolSetRegistry not initialized. Call initialize() first.",
 			);
@@ -231,6 +233,6 @@ export class ToolSetRegistry {
 	 */
 	reset(): void {
 		this.toolSets.clear();
-		this.initialized = false;
+		this.ready = false;
 	}
 }

@@ -8,13 +8,17 @@ import { DEFAULT_MUTSUMI_CONFIG } from "../config/types";
 
 /**
  * Stores agent type configurations, validates toolSets/child types, provides entry type queries.
- * Initialize during extension activation with config from the `mutsumi.agentConfig` VSCode Setting.
+ *
+ * Initialized during extension activation with config from the `mutsumi.agentConfig`
+ * VSCode Setting. Unlike a one-shot init, `initialize()` may be called again (e.g.
+ * when the setting changes) to reload the configuration in place. The `ready` flag
+ * only guards against reads before the first successful init.
  */
 export class AgentTypeRegistry {
 	private static instance: AgentTypeRegistry | null = null;
 	private agentTypes: Map<string, AgentTypeConfig> = new Map();
 	private toolSetNames: Set<string> = new Set();
-	private initialized = false;
+	private ready = false;
 
 	/**
 	 * Gets the singleton instance.
@@ -33,10 +37,11 @@ export class AgentTypeRegistry {
 	private constructor() {}
 
 	/**
-	 * Initializes the registry with agent type configurations.
+	 * Loads (or reloads) the registry with agent type configurations.
 	 *
-	 * This should be called once during extension activation after
-	 * the configuration has been loaded. It validates all references
+	 * May be called multiple times: each call fully replaces the previous
+	 * configuration. This is used during activation and again whenever the
+	 * `mutsumi.agentConfig` setting changes. It validates all references
 	 * to ensure consistency.
 	 *
 	 * @param {AgentTypeConfigMap} config - Agent type configuration
@@ -44,11 +49,7 @@ export class AgentTypeRegistry {
 	 * @throws {Error} If validation fails
 	 */
 	initialize(config: AgentTypeConfigMap, toolSetNames: string[]): void {
-		if (this.initialized) {
-			return;
-		}
-
-		// Clear existing types
+		// Clear existing types so a reload fully replaces prior state
 		this.agentTypes.clear();
 		this.toolSetNames = new Set(toolSetNames);
 
@@ -61,7 +62,8 @@ export class AgentTypeRegistry {
 			this.agentTypes.set(name, { ...typeConfig }); // Clone
 		}
 
-		this.initialized = true;
+		// Mark the registry as ready for queries
+		this.ready = true;
 	}
 
 	/**
@@ -105,7 +107,7 @@ export class AgentTypeRegistry {
 	 * @returns {AgentTypeConfig | undefined} The configuration or undefined if not found
 	 */
 	getAgentType(name: string): AgentTypeConfig | undefined {
-		this.ensureInitialized();
+		this.ensureReady();
 		return this.agentTypes.get(name);
 	}
 
@@ -114,7 +116,7 @@ export class AgentTypeRegistry {
 	 * @returns {string[]} Array of entry type names
 	 */
 	listEntryTypes(): string[] {
-		this.ensureInitialized();
+		this.ensureReady();
 		const entries: string[] = [];
 		for (const [name, config] of this.agentTypes) {
 			if (config.isEntry) {
@@ -131,7 +133,7 @@ export class AgentTypeRegistry {
 	 * @returns {boolean} True if the child type is allowed
 	 */
 	isValidChildType(parentType: string, childType: string): boolean {
-		this.ensureInitialized();
+		this.ensureReady();
 		const parent = this.agentTypes.get(parentType);
 		if (!parent) {
 			return false;
@@ -144,7 +146,7 @@ export class AgentTypeRegistry {
 	 * @returns {string[]} Array of all agent type names
 	 */
 	getAllTypes(): string[] {
-		this.ensureInitialized();
+		this.ensureReady();
 		return Array.from(this.agentTypes.keys());
 	}
 
@@ -154,7 +156,7 @@ export class AgentTypeRegistry {
 	 * @returns {boolean} True if the type exists
 	 */
 	hasAgentType(name: string): boolean {
-		this.ensureInitialized();
+		this.ensureReady();
 		return this.agentTypes.has(name);
 	}
 
@@ -164,17 +166,18 @@ export class AgentTypeRegistry {
 	 * @returns {string[] | undefined} The tool set names or undefined
 	 */
 	getToolSetNames(name: string): string[] | undefined {
-		this.ensureInitialized();
+		this.ensureReady();
 		return this.agentTypes.get(name)?.toolSets;
 	}
 
 	/**
-	 * Ensures the registry has been initialized.
+	 * Guards against reads before the registry has been populated.
+	 *
 	 * @private
-	 * @throws {Error} If not initialized
+	 * @throws {Error} If `initialize()` has never been called successfully
 	 */
-	private ensureInitialized(): void {
-		if (!this.initialized) {
+	private ensureReady(): void {
+		if (!this.ready) {
 			throw new Error(
 				"AgentTypeRegistry not initialized. Call initialize() first.",
 			);
@@ -187,6 +190,6 @@ export class AgentTypeRegistry {
 	reset(): void {
 		this.agentTypes.clear();
 		this.toolSetNames.clear();
-		this.initialized = false;
+		this.ready = false;
 	}
 }
