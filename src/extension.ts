@@ -53,6 +53,33 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
 }
 
 /**
+ * Initializes the Agent Type System by loading the Mutsumi configuration and
+ * populating both the ToolSetRegistry and AgentTypeRegistry.
+ *
+ * Single source of truth for (re)initializing the Agent Type System, shared
+ * between extension activation and the onDidChangeConfiguration handler so
+ * that behavior stays consistent.
+ */
+function initializeAgentTypeSystem(): void {
+	// 1. Load Mutsumi configuration (merged with built-in defaults + validated)
+	const mutsumiConfig = loadMutsumiConfig();
+	debugLogger.log("[Extension] Mutsumi config loaded successfully");
+
+	// 2. Initialize ToolSetRegistry with configured tool sets
+	const toolSetRegistry = ToolSetRegistry.getInstance();
+	toolSetRegistry.initialize(mutsumiConfig.toolSets);
+	debugLogger.log("[Extension] ToolSetRegistry initialized");
+
+	// 3. Initialize AgentTypeRegistry with configured agent types
+	const agentTypeRegistry = AgentTypeRegistry.getInstance();
+	agentTypeRegistry.initialize(
+		mutsumiConfig.agentTypes,
+		Object.keys(mutsumiConfig.toolSets),
+	);
+	debugLogger.log("[Extension] AgentTypeRegistry initialized");
+}
+
+/**
  * Activates the Mutsumi extension.
  * @description Registers all extension components including notebook serializer,
  * sidebar provider, controller, event listeners, commands, and completion providers.
@@ -75,37 +102,15 @@ export async function activate(
 	ToolRegistry.initialize();
 
 	// Initialize Agent Type System (Config + Registries)
-	// 1. Load Mutsumi configuration from VSCode Settings (merged with built-in defaults)
-	const mutsumiConfig = loadMutsumiConfig();
-	debugLogger.log("[Extension] Mutsumi config loaded successfully");
-
-	// 2. Initialize ToolSetRegistry with configured tool sets
-	const toolSetRegistry = ToolSetRegistry.getInstance();
-	toolSetRegistry.initialize(mutsumiConfig.toolSets);
-	debugLogger.log("[Extension] ToolSetRegistry initialized");
-
-	// 3. Initialize AgentTypeRegistry with configured agent types
-	const agentTypeRegistry = AgentTypeRegistry.getInstance();
-	agentTypeRegistry.initialize(
-		mutsumiConfig.agentTypes,
-		Object.keys(mutsumiConfig.toolSets),
-	);
-	debugLogger.log("[Extension] AgentTypeRegistry initialized");
+	initializeAgentTypeSystem();
 
 	// Agent Type System 应在 settings.json 内容变化时重新加载
 	// 配置项为 mutsumi.agentConfig
-	// 复用 loadMutsumiConfig() 以保持与启动时一致的 merge + validate 行为
+	// 复用 initializeAgentTypeSystem() 以保持与启动时一致的 load + validate + init 行为
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e: vscode.ConfigurationChangeEvent) => {
 		if (e.affectsConfiguration("mutsumi.agentConfig")) {
 			try {
-				const mutsumiConfig = loadMutsumiConfig();
-				const toolSetRegistry = ToolSetRegistry.getInstance();
-				toolSetRegistry.initialize(mutsumiConfig.toolSets);
-				const agentTypeRegistry = AgentTypeRegistry.getInstance();
-				agentTypeRegistry.initialize(
-					mutsumiConfig.agentTypes,
-					Object.keys(mutsumiConfig.toolSets),
-				);
+				initializeAgentTypeSystem();
 				debugLogger.log("[Extension] Agent Type System reloaded after config change");
 			} catch (err) {
 				debugLogger.log(`[Extension] Failed to reload Agent Type System: ${err}`);
