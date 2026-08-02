@@ -1,9 +1,8 @@
 import * as vscode from 'vscode';
 import { TemplateEngine } from '../contextManagement/templateEngine';
-import { decodeGhostBlock, removeGhostFiles } from '../contextManagement/ghostBlocks';
-import { GhostFileEntry } from '../contextManagement/interfaces';
 import { AgentMetadata } from '../types';
 import { ContextTreeDataProvider } from './contextTreeProvider';
+import { buildGhostStripEdits } from '../notebook/commands/utils';
 
 /**
  * @description Context item type definition
@@ -215,43 +214,6 @@ export class ContextTreeItem extends vscode.TreeItem {
 
         return md;
     }
-}
-
-/**
- * @description Builds NotebookEdits that strip ghost file entries from every cell's last_ghost_block.
- * Only cells whose ghost block actually changes produce an edit. Metadata is
- * edited in place (no cell insertion/deletion), preserving ghost-block index
- * alignment; blocks that become empty are normalized by deleting the key,
- * matching persistGhostBlock's behavior.
- * @param {vscode.NotebookDocument} notebook - The notebook whose cells are scanned
- * @param {(file: GhostFileEntry) => boolean} remove - Predicate selecting file entries to remove
- * @returns {vscode.NotebookEdit[]} Cell metadata edits for affected cells
- */
-function buildGhostStripEdits(
-    notebook: vscode.NotebookDocument,
-    remove: (file: GhostFileEntry) => boolean
-): vscode.NotebookEdit[] {
-    const edits: vscode.NotebookEdit[] = [];
-    for (let i = 0; i < notebook.cellCount; i++) {
-        const cell = notebook.cellAt(i);
-        const raw = cell.metadata?.last_ghost_block;
-        if (raw === undefined || raw === null) {
-            continue;
-        }
-        const block = decodeGhostBlock(raw);
-        if (!block || !block.files.some(remove)) {
-            continue;
-        }
-        const stripped = removeGhostFiles(block, remove);
-        const newMetadata = { ...(cell.metadata ?? {}) };
-        if (stripped === null) {
-            delete newMetadata.last_ghost_block;
-        } else {
-            newMetadata.last_ghost_block = stripped;
-        }
-        edits.push(vscode.NotebookEdit.updateCellMetadata(cell.index, newMetadata));
-    }
-    return edits;
 }
 
 /**

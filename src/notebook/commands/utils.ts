@@ -7,8 +7,46 @@ import * as vscode from 'vscode';
 import { IAgentSession } from '../../adapters/interfaces';
 import { AgentMessage, AgentMetadata } from '../../types';
 import { LiteAdapter, LiteAgentSessionConfig } from '../../adapters/liteAdapter';
-import { GhostBlock } from '../../contextManagement/interfaces';
-import { decodeGhostBlock } from '../../contextManagement/ghostBlocks';
+import { GhostBlock, GhostFileEntry } from '../../contextManagement/interfaces';
+import { decodeGhostBlock, removeGhostFiles } from '../../contextManagement/ghostBlocks';
+
+/**
+ * Builds NotebookEdits that strip ghost file entries from every cell's last_ghost_block.
+ * Only cells whose ghost block actually changes produce an edit. Metadata is
+ * edited in place (no cell insertion/deletion), preserving ghost-block index
+ * alignment; blocks that become empty are normalized by deleting the key,
+ * matching persistGhostBlock's behavior.
+ * Shared by the sidebar file actions and the notebook toolbar prune command.
+ * @param {vscode.NotebookDocument} notebook - The notebook whose cells are scanned
+ * @param {(file: GhostFileEntry) => boolean} remove - Predicate selecting file entries to remove
+ * @returns {vscode.NotebookEdit[]} Cell metadata edits for affected cells
+ */
+export function buildGhostStripEdits(
+    notebook: vscode.NotebookDocument,
+    remove: (file: GhostFileEntry) => boolean
+): vscode.NotebookEdit[] {
+    const edits: vscode.NotebookEdit[] = [];
+    for (let i = 0; i < notebook.cellCount; i++) {
+        const cell = notebook.cellAt(i);
+        const raw = cell.metadata?.last_ghost_block;
+        if (raw === undefined || raw === null) {
+            continue;
+        }
+        const block = decodeGhostBlock(raw);
+        if (!block || !block.files.some(remove)) {
+            continue;
+        }
+        const stripped = removeGhostFiles(block, remove);
+        const newMetadata = { ...(cell.metadata ?? {}) };
+        if (stripped === null) {
+            delete newMetadata.last_ghost_block;
+        } else {
+            newMetadata.last_ghost_block = stripped;
+        }
+        edits.push(vscode.NotebookEdit.updateCellMetadata(cell.index, newMetadata));
+    }
+    return edits;
+}
 
 /**
  * Format an array of AgentMessage into a readable string representation.

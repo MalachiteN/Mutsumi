@@ -52,6 +52,8 @@ Mutsumi 是一款 VS Code LLM 多 Agent 插件，强调用户在回路中，Agen
 - **Prune Old Versions（裁剪旧版本）** — 保留版本跟踪，但从所有 Cell 的幽灵块中回溯剥离该文件全部非最新版本的条目，上下文中只保留最新版本内容。
 - **Remove File（彻底移除）** — 彻底丢弃版本跟踪，并从所有 Cell 的幽灵块中回溯剥离该文件的全部条目，使其不再出现在组装后上下文的任何位置。
 
+如需会话级大扫除，Notebook 工具栏提供一键 **Prune Old Ghost Versions** 操作，可将会话内所有被跟踪文件一次性裁剪到最新版本。
+
 这两个操作都会真正缩短上下文，代价是从最早被修改的 Cell 起使 LLM 前缀缓存失效；反之，不操作边栏则能保持跨轮次的缓存命中。
 
 Rules 或被引文件也可以使用 @[] schema 递归插入文件或预执行工具。例如 [我们的默认 Rules 文件](assets/default/implementer.md)。

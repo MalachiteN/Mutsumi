@@ -52,6 +52,8 @@ Tracked files can be managed from the **Context sidebar**, with two inline actio
 - **Prune Old Versions** — Keeps version tracking intact, but retroactively strips every ghost-block entry of older versions from all cells, keeping only the latest version's content in context.
 - **Remove File** — Drops version tracking entirely and retroactively strips every ghost-block entry of that file from all cells, so the file disappears from the assembled context completely.
 
+For a session-wide cleanup, the notebook toolbar provides a one-click **Prune Old Ghost Versions** action that prunes every tracked file to its latest version at once.
+
 Both actions genuinely shorten the context, at the cost of invalidating the LLM prefix cache from the earliest modified cell onward; conversely, leaving the sidebar untouched preserves cache hits across turns.
 
 Rules or referenced files can also recursively insert files or pre-execute tools using the `@[]` schema. For example, [our default Rules file](assets/default/implementer.md).

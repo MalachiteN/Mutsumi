@@ -130,6 +130,12 @@
                 "icon": "$(debug-console)"
             },
             {
+                "command": "mutsumi.pruneGhostBlocks",
+                "title": "Prune Old Ghost Versions",
+                "category": "Mutsumi",
+                "icon": "$(history)"
+            },
+            {
                 "command": "mutsumi.toggleAutoApprove",
                 "title": "Enter Auto-Approve",
                 "category": "Mutsumi",
@@ -332,6 +338,11 @@
                 {
                     "command": "mutsumi.renameSession",
                     "group": "navigation@3",
+                    "when": "notebookType == mutsumi-notebook"
+                },
+                {
+                    "command": "mutsumi.pruneGhostBlocks",
+                    "group": "navigation@4",
                     "when": "notebookType == mutsumi-notebook"
                 },
                 {
