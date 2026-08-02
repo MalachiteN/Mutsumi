@@ -1,6 +1,6 @@
 {
-	"Mutsumi Debug": "Mutsumi 调试",
-	"Mutsumi Tools": "Mutsumi 工具",
+	"outputChannel.debug": "Mutsumi 调试",
+	"outputChannel.tools": "Mutsumi 工具",
 	"context.readError": "读取错误: {0}",
 
 	"httpServer.emptyPassword.warning": "Mutsumi HTTP Server 已启用但未设置密码（mutsumi.httpServer.password）。服务器拒绝启动。",
@@ -39,6 +39,15 @@
 	"approval.details": "📝 详情:\n```\n{0}\n```\n\n",
 	"approval.time": "🕐 时间: {0}",
 	"approval.status": "状态: {0}",
+	"approval.requestNotification": "Agent 请求: {0}",
+	"approval.shell.action": "在 {1} 执行 \"{0}\"",
+	"approval.shell.details": "命令:\n{0}\n\nShell: {1}\n后台: {2}",
+	"approval.shell.yes": "是",
+	"approval.shell.no": "否",
+	"approval.mkdir.action": "创建目录",
+	"approval.edit.customAction": "审查 Diff",
+	"approval.edit.details": "在 Diff 编辑器中审查更改。你可以手动编辑右侧（User Final）的内容。",
+	"approval.edit.action": "Agent 想要编辑 {0}",
 
 	"shellTask.bg": "后台 {0}秒",
 	"shellTask.fg": "前台 {0}秒",
@@ -73,6 +82,9 @@
 
 	"notebook.noEditor": "没有活动的笔记本编辑器。",
 	"notebook.onlyMutsumi": "此命令仅适用于 Mutsumi 笔记本。",
+	"notebook.noCodeCell": "笔记本中没有代码 Cell。",
+
+	"notebookController.displayName": "Mutsumi Agent",
 
 	"selectModel.noModels": "设置中未配置任何模型。",
 	"selectModel.placeHolder": "选择模型或推理强度（切换模型会将强度重置为默认；当前: {0} / {1}）",
@@ -81,6 +93,8 @@
 	"selectModel.separatorModels": "模型",
 	"selectModel.separatorReasoning": "推理强度",
 	"selectModel.effortDefault": "默认",
+	"selectModel.effortDefaultDesc": "不发送；由服务器决定",
+	"selectModel.current": "当前",
 	"selectModel.effort.none": "禁用推理",
 	"selectModel.effort.minimal": "最小推理",
 	"selectModel.effort.low": "低推理",
@@ -128,15 +142,12 @@
 
 	"permission.rejectPrompt": "拒绝 {0} 的原因:",
 	"permission.rejectPlaceHolder": "输入原因（ESC 中止生成）",
-	"permission.rejected": "[已拒绝] {0} 操作已被用户拒绝。",
-	"permission.rejectedWithReason": "[已拒绝并附带原因] {0} 操作已被用户拒绝。原因: {1}",
 
 	"agentFile.openFailed": "打开 Agent 文件失败: {0}",
 
 	"editFile.reopenFailed": "重新打开编辑器失败: {0}",
 
 	"serializer.newAgent": "新 Agent",
-	"renderer.parseError": "错误: 解析渲染数据失败\n  原因: {0}\n",
 
 	"notify.approvalNeededSubtitle": "需要审批",
 	"notify.approvalNeededMessage": "{0} — 请在侧边栏查看"

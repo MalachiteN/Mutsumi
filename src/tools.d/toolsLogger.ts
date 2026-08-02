@@ -14,7 +14,7 @@ class ToolsLogger {
      */
     public initialize(context: vscode.ExtensionContext): void {
         if (!this.outputChannel) {
-            this.outputChannel = vscode.window.createOutputChannel(t('Mutsumi Tools'));
+            this.outputChannel = vscode.window.createOutputChannel(t('outputChannel.tools'));
             context.subscriptions.push(this.outputChannel);
         }
     }

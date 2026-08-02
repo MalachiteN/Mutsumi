@@ -460,7 +460,7 @@ class EditService {
 							await transaction.cleanup(this.diffController);
 						},
 						customAction: {
-							label: "Review Diff",
+							label: t("approval.edit.customAction"),
 							handler: async () => {
 								try {
 									await this.diffController.openDiff(
@@ -475,7 +475,7 @@ class EditService {
 							},
 						},
 					},
-					"Review changes in Diff Editor. You can edit the right side (User Final) manually.",
+					t("approval.edit.details"),
 					shouldAutoApprove,
 				);
 
@@ -491,7 +491,7 @@ class EditService {
 				// Native OS notification only when user action is required.
 				if (!shouldAutoApprove) {
 					notifyApprovalNeeded(
-						`Agent wants to edit ${path.basename(uri.path)}`,
+						t("approval.edit.action", path.basename(uri.path)),
 					);
 				}
 			} catch (e) {

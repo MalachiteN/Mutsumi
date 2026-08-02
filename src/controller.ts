@@ -175,15 +175,15 @@ export class AgentController {
                 // Only show notification here as a fallback for unhandled errors
                 const errorMessage = err.message || String(err);
                 console.error('Agent execution error:', err);
-            
+
                 const copyDetailsBtn = t('controller.copyDetails');
                 vscode.window.showErrorMessage(
-                	t('controller.mutsumiError', errorMessage),
-                	copyDetailsBtn
+                    t('controller.mutsumiError', errorMessage),
+                    copyDetailsBtn
                 ).then(selection => {
-                	if (selection === copyDetailsBtn) {
-                		vscode.env.clipboard.writeText(err.stack || errorMessage);
-                	}
+                    if (selection === copyDetailsBtn) {
+                        vscode.env.clipboard.writeText(err.stack || errorMessage);
+                    }
                 });
 
                 // Do NOT replace output - preserve any streamed content that was displayed

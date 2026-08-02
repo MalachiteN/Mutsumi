@@ -14,7 +14,7 @@ class DebugLogger {
      */
     public initialize(context: vscode.ExtensionContext): void {
         if (!this.outputChannel) {
-            this.outputChannel = vscode.window.createOutputChannel(t('Mutsumi Debug'));
+            this.outputChannel = vscode.window.createOutputChannel(t('outputChannel.debug'));
             context.subscriptions.push(this.outputChannel);
         }
     }

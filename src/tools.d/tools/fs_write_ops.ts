@@ -1,6 +1,7 @@
 import { ITool, ToolContext } from '../interface';
 import { resolveUri, checkAccess } from '../utils';
 import { requestApproval } from '../permission';
+import { t } from '../../i18n';
 import * as vscode from 'vscode';
 
 export const mkdirTool: ITool = {
@@ -32,7 +33,7 @@ export const mkdirTool: ITool = {
             }
 
             // Approval
-            const rejectionMsg = await requestApproval('Create Directory', uriInput, context, 'mkdir');
+            const rejectionMsg = await requestApproval(t('approval.mkdir.action'), uriInput, context, 'mkdir');
             if (rejectionMsg !== null) {
                 return rejectionMsg;
             }

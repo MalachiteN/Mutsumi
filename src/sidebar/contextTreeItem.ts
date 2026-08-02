@@ -305,7 +305,7 @@ export function registerContextCommands(
                         const skillText = new TextDecoder().decode(skillContent);
                         displayContent = skillText;
                     } catch (innerError) {
-                        displayContent = t('context.readError', String(error));
+                        displayContent = t('context.readError', String(innerError));
                     }
                 }
             } else if (args.type === 'file') {

@@ -465,17 +465,17 @@ function registerCommands(context: vscode.ExtensionContext): void {
 				vscode.window.showErrorMessage(t("newAgent.noWorkspace"));
 				return;
 			}
-	
+
 			// AgentType Step 1: Show QuickPick for Agent Type Selection
 			const entryTypes = getEntryAgentTypes();
-	
+
 			if (entryTypes.length === 0) {
 				vscode.window.showErrorMessage(
 					t("newAgent.noEntryTypes"),
 				);
 				return;
 			}
-	
+
 			// Build QuickPick items with descriptions
 			const typeItems = entryTypes.map(({ name, config }) => ({
 				label: name,
@@ -488,7 +488,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 				),
 				typeName: name,
 			}));
-	
+
 			// Show QuickPick for agent type selection
 			const selectedType = await vscode.window.showQuickPick(typeItems, {
 				placeHolder: t("newAgent.quickPickPlaceHolder"),

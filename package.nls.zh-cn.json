@@ -8,7 +8,6 @@
 	"view.shellTasks.name": "Shell 任务",
 	"notebook.displayName": "Mutsumi Agent 会话",
 	"notebookRenderer.displayName": "Mutsumi Agent 聊天渲染器",
-	"notebookController.displayName": "Mutsumi Agent",
 
 	"command.newAgent.title": "Mutsumi: 新建 Agent",
 	"command.openAgentFile.title": "打开 Agent 笔记本",

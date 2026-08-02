@@ -163,7 +163,7 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
                     const compressedMetadata: AgentMetadata = {
                         ...originalMetadata,
                         uuid: uuidv4(),
-                        name: t('compress.nameSuffix', originalMetadata?.name || 'Compressed'),
+                        name: t('compress.nameSuffix', originalMetadata?.name || t('serializer.newAgent')),
                         created_at: new Date().toISOString(),
                         parent_agent_id: null
                     };

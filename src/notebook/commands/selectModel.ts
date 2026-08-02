@@ -74,7 +74,7 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
             const modelItems: ModelQuickPickItem[] = modelNames.map(name => {
                 const label = modelsConfig[name];
                 const description = label ? `🏷️ ${label}` : undefined;
-                const detail = name === currentModel ? '$(check) Current' : undefined;
+                const detail = name === currentModel ? '$(check) ' + t('selectModel.current') : undefined;
                 return {
                     itemType: 'model',
                     value: name,
@@ -88,11 +88,11 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
             const effortItems: ReasoningEffortQuickPickItem[] = REASONING_EFFORT_SETTING_VALUES.map(value => ({
                 itemType: 'reasoningEffort',
                 value,
-                label: value,
+                label: value === 'default' ? t('selectModel.effortDefault') : value,
                 description: value === 'default'
-                    ? "Don't send; server decides"
+                    ? t('selectModel.effortDefaultDesc')
                     : reasoningEffortDescriptions[value],
-                detail: value === effectiveReasoningEffort ? '$(check) Current' : undefined,
+                detail: value === effectiveReasoningEffort ? '$(check) ' + t('selectModel.current') : undefined,
                 picked: value === effectiveReasoningEffort
             }));
 
@@ -104,7 +104,11 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
             ];
 
             const selected = await vscode.window.showQuickPick(items, {
-                placeHolder: t('selectModel.placeHolder', currentModel || 'default', effectiveReasoningEffort)
+                placeHolder: t(
+                    'selectModel.placeHolder',
+                    currentModel || 'default',
+                    effectiveReasoningEffort === 'default' ? t('selectModel.effortDefault') : effectiveReasoningEffort
+                )
             });
 
             if (!selected || selected.itemType === 'separator') {

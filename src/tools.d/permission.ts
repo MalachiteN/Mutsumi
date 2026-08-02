@@ -340,9 +340,9 @@ export async function handleRejectionFlow(
 
 	if (reason === undefined || reason.trim() === "") {
 		signalTermination(false);
-		return t("permission.rejected", toolName);
+		return `[Rejected] The ${toolName} operation was rejected by user.`;
 	} else {
-		return t("permission.rejectedWithReason", toolName, reason);
+		return `[Rejected with Reason] The ${toolName} operation was rejected by user. Reason: ${reason}`;
 	}
 }
 
@@ -399,6 +399,6 @@ export async function requestApproval(
 		);
 
 		// Native OS notification only — approval actions live in the sidebar.
-		notifyApprovalNeeded(`Agent requests: ${actionDescription}`);
+		notifyApprovalNeeded(t("approval.requestNotification", actionDescription));
 	});
 }

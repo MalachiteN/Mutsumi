@@ -20,9 +20,10 @@ import * as vscode from "vscode";
  * Translate a message string using the active VS Code locale.
  *
  * Pass the bundle key as the first argument. If the key is not found, the key
- * itself is returned (which for this project is always a readable English
- * sentence). Additional positional arguments are substituted into `{0}`,
- * `{1}`, ... placeholders inside the translated string.
+ * itself is returned. English text is provided by the default bundle
+ * `l10n/bundle.l10n.json`, so every key must be defined there. Additional
+ * positional arguments are substituted into `{0}`, `{1}`, ... placeholders
+ * inside the translated string.
  *
  * @param message The bundle key (or literal message) to translate.
  * @param args Values to substitute into `{n}` placeholders.
