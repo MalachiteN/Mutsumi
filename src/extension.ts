@@ -92,6 +92,27 @@ export async function activate(
 	);
 	debugLogger.log("[Extension] AgentTypeRegistry initialized");
 
+	// Agent Type System 应在 settings.json 内容变化时重新加载
+	// 配置项为 mutsumi.agentConfig
+	// 复用 loadMutsumiConfig() 以保持与启动时一致的 merge + validate 行为
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e: vscode.ConfigurationChangeEvent) => {
+		if (e.affectsConfiguration("mutsumi.agentConfig")) {
+			try {
+				const mutsumiConfig = loadMutsumiConfig();
+				const toolSetRegistry = ToolSetRegistry.getInstance();
+				toolSetRegistry.initialize(mutsumiConfig.toolSets);
+				const agentTypeRegistry = AgentTypeRegistry.getInstance();
+				agentTypeRegistry.initialize(
+					mutsumiConfig.agentTypes,
+					Object.keys(mutsumiConfig.toolSets),
+				);
+				debugLogger.log("[Extension] Agent Type System reloaded after config change");
+			} catch (err) {
+				debugLogger.log(`[Extension] Failed to reload Agent Type System: ${err}`);
+			}
+		}
+	}))
+
 	// Initialize SkillManager
 	const skillManager = SkillManager.getInstance();
 	await skillManager.initialize(context);

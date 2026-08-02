@@ -62,9 +62,10 @@ export class ToolSetRegistry {
 	 * @throws {Error} If a tool set references a non-existent tool
 	 */
 	initialize(config: ToolSetsConfig): void {
-		if (this.initialized) {
-			return;
-		}
+		// 禁用只能 initialize 一次的特性
+		// if (this.initialized) {
+		// 	return;
+		// }
 
 		// Clear existing tool sets
 		this.toolSets.clear();
@@ -91,7 +92,8 @@ export class ToolSetRegistry {
 			this.validateToolNames(processedToolNames, name);
 			this.toolSets.set(name, processedToolNames);
 		}
-
+		
+		// 鉴于兼容性，依然需要保存初始化状态
 		this.initialized = true;
 	}
 

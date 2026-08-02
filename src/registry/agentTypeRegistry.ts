@@ -44,9 +44,10 @@ export class AgentTypeRegistry {
 	 * @throws {Error} If validation fails
 	 */
 	initialize(config: AgentTypeConfigMap, toolSetNames: string[]): void {
-		if (this.initialized) {
-			return;
-		}
+		// 禁用只能 initialize 一次的特性
+		// if (this.initialized) {
+		// 	return;
+		// }
 
 		// Clear existing types
 		this.agentTypes.clear();
@@ -60,7 +61,8 @@ export class AgentTypeRegistry {
 			this.validateAgentType(name, typeConfig, allTypeNames);
 			this.agentTypes.set(name, { ...typeConfig }); // Clone
 		}
-
+		
+		// 鉴于兼容性，依然需要保存初始化状态
 		this.initialized = true;
 	}
 
