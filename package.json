@@ -137,6 +137,12 @@
                 "icon": "$(history)"
             },
             {
+                "command": "mutsumi.displayMode",
+                "title": "%command.displayMode.title%",
+                "category": "Mutsumi",
+                "icon": "$(lightbulb)"
+            },
+            {
                 "command": "mutsumi.toggleAutoApprove",
                 "title": "%command.toggleAutoApprove.title%",
                 "category": "Mutsumi",
@@ -331,6 +337,11 @@
                 }
             ],
             "notebook/toolbar": [
+                {
+                    "command": "mutsumi.displayMode",
+                    "group": "navigation@0",
+                    "when": "notebookType == mutsumi-notebook"
+                },
                 {
                     "command": "mutsumi.selectModel",
                     "group": "navigation@1",

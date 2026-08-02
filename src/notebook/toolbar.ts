@@ -13,12 +13,14 @@ import {
     registerCompressConversationCommand,
     registerPruneGhostBlocksCommand
 } from './commands';
+import { registerModeDisplayCommand } from './commands/modeDisplay';
 
 /**
  * Registers all toolbar-related commands for Mutsumi notebooks.
  * @param {vscode.ExtensionContext} context - Extension context for registering disposables
  */
 export function registerToolbarCommands(context: vscode.ExtensionContext): void {
+    registerModeDisplayCommand(context);
     registerSelectModelCommand(context);
     registerRenameSessionCommand(context);
     registerDebugContextCommand(context);

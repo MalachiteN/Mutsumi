@@ -36,6 +36,7 @@
 	"command.detachShellTask.title": "Move to Background",
 	"command.killShellTask.title": "Stop",
 	"command.removeShellTask.title": "Remove",
+	"command.displayMode.title": "Display Current Mode",
 
 	"configuration.title": "Mutsumi",
 	"configuration.providers.markdownDescription": "Configured LLM API providers\n\nExample:\n```json\n\"mutsumi.providers\": [\n    {\n        \"name\": \"kimi-for-coding\",\n        \"baseurl\": \"https://api.kimi.com/coding/v1\",\n        \"api_key\": \"sk-kimi-XXXXXXXXXXXXXXXXXXXXXX\"\n    }\n]\n```",

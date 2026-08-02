@@ -74,6 +74,9 @@
 	"notebook.noEditor": "没有活动的笔记本编辑器。",
 	"notebook.onlyMutsumi": "此命令仅适用于 Mutsumi 笔记本。",
 
+	"modeDisplay.currentMode": "当前模式： {0}",
+	"modeDisplay.unknown": "元数据异常",
+
 	"selectModel.noModels": "设置中未配置任何模型。",
 	"selectModel.placeHolder": "选择模型或推理强度（切换模型会将强度重置为默认；当前: {0} / {1}）",
 	"selectModel.modelChanged": "模型已切换为: {0}；推理强度已重置为默认。",

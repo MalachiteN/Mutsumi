@@ -75,6 +75,9 @@
 	"notebook.noEditor": "No active notebook editor.",
 	"notebook.onlyMutsumi": "This command only works with Mutsumi notebooks.",
 	"notebook.noCodeCell": "No code cell found in notebook.",
+	
+	"modeDisplay.currentMode": "Current mode: {0}",
+	"modeDisplay.unknown": "Unknown",
 
 	"selectModel.noModels": "No models configured in settings.",
 	"selectModel.placeHolder": "Select model or reasoning effort (switching model resets effort to default; current: {0} / {1})",
@@ -141,4 +144,5 @@
 
 	"notify.approvalNeededSubtitle": "Approval needed",
 	"notify.approvalNeededMessage": "{0} — review in the sidebar"
+	
 }

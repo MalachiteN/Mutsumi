@@ -36,6 +36,7 @@
 	"command.detachShellTask.title": "移至后台",
 	"command.killShellTask.title": "停止",
 	"command.removeShellTask.title": "移除",
+	"command.displayMode.title": "显示当前模式",
 
 	"configuration.title": "Mutsumi",
 	"configuration.providers.markdownDescription": "已配置的 LLM API 提供商\n\n示例：\n```json\n\"mutsumi.providers\": [\n    {\n        \"name\": \"kimi-for-coding\",\n        \"baseurl\": \"https://api.kimi.com/coding/v1\",\n        \"api_key\": \"sk-kimi-XXXXXXXXXXXXXXXXXXXXXX\"\n    }\n]\n```",
