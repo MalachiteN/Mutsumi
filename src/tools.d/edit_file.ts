@@ -11,6 +11,7 @@ import {
 	handleRejectionFlow,
 } from "./permission";
 import { notifyApprovalNeeded } from "../notifications";
+import { t } from "../i18n";
 
 // ============================================================================
 // Types and Interfaces
@@ -468,7 +469,7 @@ class EditService {
 									);
 								} catch (e: any) {
 									vscode.window.showErrorMessage(
-										`Failed to reopen editor: ${e.message}`,
+										t("editFile.reopenFailed", e.message),
 									);
 								}
 							},

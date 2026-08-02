@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { AgentMetadata } from '../../types';
 import { decodeGhostBlock } from '../../contextManagement/ghostBlocks';
 import { buildGhostStripEdits } from './utils';
+import { t } from '../../i18n';
 
 /**
  * Register the prune ghost blocks command.
@@ -23,12 +24,12 @@ export function registerPruneGhostBlocksCommand(context: vscode.ExtensionContext
         vscode.commands.registerCommand('mutsumi.pruneGhostBlocks', async () => {
             const editor = vscode.window.activeNotebookEditor;
             if (!editor) {
-                vscode.window.showWarningMessage('No active notebook editor.');
+                vscode.window.showWarningMessage(t('notebook.noEditor'));
                 return;
             }
 
             if (editor.notebook.notebookType !== 'mutsumi-notebook') {
-                vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
+                vscode.window.showWarningMessage(t('notebook.onlyMutsumi'));
                 return;
             }
 
@@ -59,14 +60,14 @@ export function registerPruneGhostBlocksCommand(context: vscode.ExtensionContext
             );
 
             if (edits.length === 0) {
-                vscode.window.showInformationMessage('All file references are already at their latest versions.');
+                vscode.window.showInformationMessage(t('pruneGhostBlocks.alreadyLatest'));
                 return;
             }
 
             const edit = new vscode.WorkspaceEdit();
             edit.set(notebook.uri, edits);
             await vscode.workspace.applyEdit(edit);
-            vscode.window.showInformationMessage(`Pruned old ghost versions from ${edits.length} cell(s).`);
+            vscode.window.showInformationMessage(t('pruneGhostBlocks.done', edits.length));
         })
     );
 }

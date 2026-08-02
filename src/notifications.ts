@@ -1,4 +1,5 @@
 import { NotificationCenter, WindowsToaster } from "node-notifier";
+import { t } from "./i18n";
 
 type MacNotifier = InstanceType<typeof NotificationCenter>;
 type WinNotifier = InstanceType<typeof WindowsToaster>;
@@ -59,7 +60,7 @@ export function notifyWaitingForApproval(
 export function notifyApprovalNeeded(actionDescription: string): void {
 	notifyWaitingForApproval(
 		"Mutsumi",
-		`${actionDescription} — review in the sidebar`,
-		"Approval needed",
+		t("notify.approvalNeededMessage", actionDescription),
+		t("notify.approvalNeededSubtitle"),
 	);
 }

@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import type { ToolContext } from "./interface";
 import { v4 as uuidv4 } from "uuid";
 import { notifyApprovalNeeded } from "../notifications";
+import { t } from "../i18n";
 
 // ====== Auto Approval Configuration ======
 
@@ -333,15 +334,15 @@ export async function handleRejectionFlow(
 	signalTermination: (isTaskComplete?: boolean) => void,
 ): Promise<string> {
 	const reason = await vscode.window.showInputBox({
-		prompt: `Reason for rejecting ${toolName}:`,
-		placeHolder: "Enter reason (ESC to abort generation)",
+		prompt: t("permission.rejectPrompt", toolName),
+		placeHolder: t("permission.rejectPlaceHolder"),
 	});
 
 	if (reason === undefined || reason.trim() === "") {
 		signalTermination(false);
-		return `[Rejected] The ${toolName} operation was rejected by user.`;
+		return t("permission.rejected", toolName);
 	} else {
-		return `[Rejected with Reason] The ${toolName} operation was rejected by user. Reason: ${reason}`;
+		return t("permission.rejectedWithReason", toolName, reason);
 	}
 }
 

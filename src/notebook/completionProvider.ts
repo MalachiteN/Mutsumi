@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { isCommonIgnored } from '../tools.d/utils';
 import { ToolManager } from '../tools.d/toolManager';
+import { t } from '../i18n';
 
 /**
  * Recursively append a JSON-shaped snippet placeholder for a tool parameter schema.
@@ -116,8 +117,8 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
             const item = new vscode.CompletionItem(relPath, vscode.CompletionItemKind.File);
 
             item.insertText = `[${relPath}]`;
-            item.detail = 'File Reference';
-            item.documentation = new vscode.MarkdownString(`Reference content of \`${relPath}\``);
+            item.detail = t('completion.fileReference');
+            item.documentation = new vscode.MarkdownString(t('completion.referenceDoc', relPath));
             item.sortText = '000_' + relPath;
             items.push(item);
         }
@@ -137,7 +138,7 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
 
                         const item = new vscode.CompletionItem(displayLabel, vscode.CompletionItemKind.Folder);
                         item.insertText = `[${displayLabel}]`;
-                        item.detail = 'Directory Reference';
+                        item.detail = t('completion.directoryReference');
                         item.sortText = '001_' + displayLabel;
                         items.push(item);
                     }
@@ -155,11 +156,11 @@ export class ReferenceCompletionProvider implements vscode.CompletionItemProvide
             for (const tool of tools) {
                 const fn = (tool as any).function;
                 const name = fn.name;
-                const desc = fn.description || 'Tool';
+                const desc = fn.description || t('completion.tool');
                 const parameters = fn.parameters || {};
 
                 const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Function);
-                item.detail = 'Tool Call';
+                item.detail = t('completion.toolCall');
 
                 const properties = parameters.properties || {};
                 const required = parameters.required || [];
