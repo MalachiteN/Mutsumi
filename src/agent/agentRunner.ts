@@ -17,6 +17,7 @@ import { LiteAgentSession } from '../adapters/liteAdapter';
 import { debugLogger } from '../debugLogger';
 import { getModelCredentials } from '../utils';
 import { AgentRunOptions } from './types';
+import { t } from '../i18n';
 
 export { AgentRunOptions } from './types';
 
@@ -160,11 +161,12 @@ export class AgentRunner {
                 console.error('LLM Stream Error:', error);
                 
                 // Show error as VSCode notification (non-modal)
+                const copyDetailsBtn = t('controller.copyDetails');
                 vscode.window.showErrorMessage(
-                    `Mutsumi LLM Error: ${errorMessage}`,
-                    'Copy Details'
+                    t('agentRunner.llmError', errorMessage),
+                    copyDetailsBtn
                 ).then(selection => {
-                    if (selection === 'Copy Details') {
+                    if (selection === copyDetailsBtn) {
                         vscode.env.clipboard.writeText(error.stack || errorMessage);
                     }
                 });

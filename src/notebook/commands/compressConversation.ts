@@ -12,6 +12,7 @@ import type { AgentRunOptions } from '../../agent/types';
 import { MutsumiSerializer } from '../serializer';
 import { formatMessagesToString, createDebugSessionFromNotebook } from './utils';
 import { getModelCredentials } from '../../utils';
+import { t } from '../../i18n';
 
 /**
  * Register the compress conversation command.
@@ -22,12 +23,12 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
         vscode.commands.registerCommand('mutsumi.compressConversation', async () => {
             const editor = vscode.window.activeNotebookEditor;
             if (!editor) {
-                vscode.window.showWarningMessage('No active notebook editor.');
+                vscode.window.showWarningMessage(t('notebook.noEditor'));
                 return;
             }
 
             if (editor.notebook.notebookType !== 'mutsumi-notebook') {
-                vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
+                vscode.window.showWarningMessage(t('notebook.onlyMutsumi'));
                 return;
             }
 
@@ -41,7 +42,7 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
             }
 
             if (lastCodeCellIndex === -1) {
-                vscode.window.showWarningMessage('No code cell found in notebook.');
+                vscode.window.showWarningMessage(t('notebook.noCodeCell'));
                 return;
             }
 
@@ -51,7 +52,7 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
                 const compressModel = config.get<string>('compressModel') || config.get<string>('titleGeneratorModel') || config.get<string>('defaultModel');
 
                 if (!compressModel) {
-                    vscode.window.showErrorMessage('Please configure mutsumi.compressModel or mutsumi.defaultModel in settings.');
+                    vscode.window.showErrorMessage(t('compress.noModel'));
                     return;
                 }
 
@@ -59,7 +60,7 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
                 try {
                     credentials = getModelCredentials(compressModel);
                 } catch (err: any) {
-                    vscode.window.showErrorMessage(`Compression failed: ${err.message}`);
+                    vscode.window.showErrorMessage(t('compress.failed', err.message));
                     return;
                 }
                 const { apiKey, baseUrl } = credentials;
@@ -69,14 +70,14 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
                 const { messages } = await buildInteractionHistory(session);
 
                 if (messages.length <= 1) {
-                    vscode.window.showWarningMessage('Not enough conversation content to compress.');
+                    vscode.window.showWarningMessage(t('compress.notEnough'));
                     return;
                 }
 
                 // Show progress
                 await vscode.window.withProgress({
                     location: vscode.ProgressLocation.Notification,
-                    title: 'Compressing conversation...',
+                    title: t('compress.progress'),
                     cancellable: false
                 }, async () => {
                     // Dynamically import AgentRunner to avoid circular dependency
@@ -162,7 +163,7 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
                     const compressedMetadata: AgentMetadata = {
                         ...originalMetadata,
                         uuid: uuidv4(),
-                        name: `${originalMetadata?.name || 'Compressed'} (Compressed)`,
+                        name: t('compress.nameSuffix', originalMetadata?.name || 'Compressed'),
                         created_at: new Date().toISOString(),
                         parent_agent_id: null
                     };
@@ -193,11 +194,11 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
                     const doc = await vscode.workspace.openNotebookDocument(newUri);
                     await vscode.window.showNotebookDocument(doc);
 
-                    vscode.window.showInformationMessage(`Conversation compressed and saved to: ${newFileName}`);
+                    vscode.window.showInformationMessage(t('compress.done', newFileName));
                 });
             } catch (error: any) {
                 console.error('Failed to compress conversation:', error);
-                vscode.window.showErrorMessage(`Failed to compress conversation: ${error.message}`);
+                vscode.window.showErrorMessage(t('compress.failedOverall', error.message));
             }
         })
     );

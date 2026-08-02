@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { toggleAutoApprove, isAutoApproveEnabled } from '../../tools.d/permission';
+import { t } from '../../i18n';
 
 /**
  * Register the toggle auto approve commands.
@@ -20,13 +21,13 @@ export function registerToggleAutoApproveCommands(context: vscode.ExtensionConte
                 await vscode.commands.executeCommand('setContext', 'mutsumi:autoApproveEnabled', newState);
                 
                 if (newState) {
-                    vscode.window.showWarningMessage('Auto-approve mode is now ON. Tools will be executed without confirmation.');
+                    vscode.window.showWarningMessage(t('toggleAutoApprove.on'));
                 } else {
-                    vscode.window.showInformationMessage('Auto-approve mode is now OFF. Tools will require confirmation.');
+                    vscode.window.showInformationMessage(t('toggleAutoApprove.off'));
                 }
             } catch (error) {
                 console.error('Failed to toggle auto-approve:', error);
-                vscode.window.showErrorMessage(`Failed to toggle auto-approve: ${error}`);
+                vscode.window.showErrorMessage(t('toggleAutoApprove.failed', String(error)));
             }
         })
     );
@@ -40,13 +41,13 @@ export function registerToggleAutoApproveCommands(context: vscode.ExtensionConte
                 await vscode.commands.executeCommand('setContext', 'mutsumi:autoApproveEnabled', newState);
                 
                 if (newState) {
-                    vscode.window.showWarningMessage('Auto-approve mode is now ON. Tools will be executed without confirmation.');
+                    vscode.window.showWarningMessage(t('toggleAutoApprove.on'));
                 } else {
-                    vscode.window.showInformationMessage('Auto-approve mode is now OFF. Tools will require confirmation.');
+                    vscode.window.showInformationMessage(t('toggleAutoApprove.off'));
                 }
             } catch (error) {
                 console.error('Failed to toggle auto-approve:', error);
-                vscode.window.showErrorMessage(`Failed to toggle auto-approve: ${error}`);
+                vscode.window.showErrorMessage(t('toggleAutoApprove.failed', String(error)));
             }
         })
     );

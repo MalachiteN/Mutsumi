@@ -12,6 +12,7 @@ import { buildInteractionHistory } from './contextManagement/history';
 import { AgentMetadata } from './types';
 import { getModelCredentials } from './utils';
 import { normalizeReasoningEffort } from './agent/types';
+import { t } from './i18n';
 
 /**
  * Controls the execution of agent notebooks.
@@ -174,14 +175,15 @@ export class AgentController {
                 // Only show notification here as a fallback for unhandled errors
                 const errorMessage = err.message || String(err);
                 console.error('Agent execution error:', err);
-                
+            
+                const copyDetailsBtn = t('controller.copyDetails');
                 vscode.window.showErrorMessage(
-                    `Mutsumi Error: ${errorMessage}`,
-                    'Copy Details'
+                	t('controller.mutsumiError', errorMessage),
+                	copyDetailsBtn
                 ).then(selection => {
-                    if (selection === 'Copy Details') {
-                        vscode.env.clipboard.writeText(err.stack || errorMessage);
-                    }
+                	if (selection === copyDetailsBtn) {
+                		vscode.env.clipboard.writeText(err.stack || errorMessage);
+                	}
                 });
 
                 // Do NOT replace output - preserve any streamed content that was displayed

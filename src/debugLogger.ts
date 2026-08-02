@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { t } from './i18n';
 
 /**
  * Shared debug logger for all Mutsumi modules.
@@ -13,7 +14,7 @@ class DebugLogger {
      */
     public initialize(context: vscode.ExtensionContext): void {
         if (!this.outputChannel) {
-            this.outputChannel = vscode.window.createOutputChannel('Mutsumi Debug');
+            this.outputChannel = vscode.window.createOutputChannel(t('Mutsumi Debug'));
             context.subscriptions.push(this.outputChannel);
         }
     }

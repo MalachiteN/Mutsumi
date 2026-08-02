@@ -22,6 +22,7 @@ import {
 import { ImagePasteProvider } from "./contextManagement/imagePasteProvider";
 import { SkillManager } from "./contextManagement/skillManager";
 import { sanitizeFileName } from "./utils";
+import { t } from "./i18n";
 import { registerToolbarCommands } from "./notebook/toolbar";
 import { HeadlessAdapter } from "./adapters/headlessAdapter";
 import { ToolRegistry } from "./tools.d/toolManager";
@@ -196,11 +197,11 @@ export async function activate(
 	};
 
 	const warnHttpServerEmptyPassword = () => {
-		const OPEN_SETTINGS = "Open Settings";
-		const GENERATE_PASSWORD = "Generate Random Password";
+		const OPEN_SETTINGS = t("httpServer.emptyPassword.openSettings");
+		const GENERATE_PASSWORD = t("httpServer.emptyPassword.generate");
 		vscode.window
 			.showWarningMessage(
-				"Mutsumi HTTP Server is enabled but no password is set (mutsumi.httpServer.password). The server refuses to start.",
+				t("httpServer.emptyPassword.warning"),
 				OPEN_SETTINGS,
 				GENERATE_PASSWORD,
 			)
@@ -295,7 +296,7 @@ export async function activate(
 					);
 				await vscode.env.clipboard.writeText(password);
 				vscode.window.showInformationMessage(
-					"Generated a random HTTP Server password, saved it to your user settings, and copied it to the clipboard.",
+					t("httpServer.passwordGenerated"),
 				);
 				const cfg = getHttpServerConfig();
 				if (cfg.enabled && !httpServer) {
@@ -324,7 +325,7 @@ export async function activate(
 	const controller = vscode.notebooks.createNotebookController(
 		"mutsumi-agent",
 		"mutsumi-notebook",
-		"Mutsumi Agent",
+		t("notebookController.displayName"),
 	);
 	controller.supportedLanguages = ["markdown"];
 	controller.supportsExecutionOrder = true;
@@ -487,32 +488,37 @@ function registerCommands(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand("mutsumi.newAgent", async () => {
 			const wsFolders = vscode.workspace.workspaceFolders;
 			if (!wsFolders) {
-				vscode.window.showErrorMessage("Please open a workspace folder first.");
+				vscode.window.showErrorMessage(t("newAgent.noWorkspace"));
 				return;
 			}
-
+	
 			// AgentType Step 1: Show QuickPick for Agent Type Selection
 			const entryTypes = getEntryAgentTypes();
-
+	
 			if (entryTypes.length === 0) {
 				vscode.window.showErrorMessage(
-					"No entry agent types available. Please check your configuration.",
+					t("newAgent.noEntryTypes"),
 				);
 				return;
 			}
-
+	
 			// Build QuickPick items with descriptions
 			const typeItems = entryTypes.map(({ name, config }) => ({
 				label: name,
 				description: `${config.toolSets.join("+")}`,
-				detail: `Model: ${config.defaultModel} | Rules: ${config.defaultRules.length} | Skills: ${config.defaultSkills.length}`,
+				detail: t(
+					"newAgent.detail",
+					config.defaultModel,
+					config.defaultRules.length,
+					config.defaultSkills.length,
+				),
 				typeName: name,
 			}));
-
+	
 			// Show QuickPick for agent type selection
 			const selectedType = await vscode.window.showQuickPick(typeItems, {
-				placeHolder: "Select an agent type to create",
-				title: "Mutsumi: New Agent",
+				placeHolder: t("newAgent.quickPickPlaceHolder"),
+				title: t("newAgent.quickPickTitle"),
 			});
 
 			if (!selectedType) {
@@ -573,7 +579,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
 			// Show confirmation message with agent type info
 			vscode.window.showInformationMessage(
-				`Created ${selectedAgentType} agent with ${defaults.rules.length} rules and ${defaults.skills.length} skills`,
+				t(
+					"newAgent.created",
+					selectedAgentType,
+					defaults.rules.length,
+					defaults.skills.length,
+				),
 			);
 		}),
 	);
@@ -592,7 +603,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 						targetUri = editor.document.uri;
 						selection = editor.selection;
 					} else {
-						vscode.window.showErrorMessage("No file selected or active.");
+						vscode.window.showErrorMessage(t("copyReference.noFile"));
 						return;
 					}
 				} else {
@@ -610,7 +621,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
 				const workspaceFolder = vscode.workspace.getWorkspaceFolder(targetUri);
 				if (!workspaceFolder) {
-					vscode.window.showErrorMessage("File is not in the workspace.");
+					vscode.window.showErrorMessage(t("copyReference.notInWorkspace"));
 					return;
 				}
 
@@ -656,7 +667,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
 				await vscode.env.clipboard.writeText(refString);
 				vscode.window.setStatusBarMessage(
-					`Copied reference: ${refString}`,
+					t("copyReference.statusBar", refString),
 					3000,
 				);
 			},
@@ -667,7 +678,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand("mutsumi.clearToolCache", () => {
 			clearToolCache();
-			vscode.window.showInformationMessage("Tool result cache cleared.");
+			vscode.window.showInformationMessage(t("clearToolCache.done"));
 		}),
 	);
 

@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { regenerateTitleForSession, extractMessagesFromNotebook, getTitleGeneratorConfig, sanitizeFileName, updateNotebookMetadataWithSync } from '../../agent/titleGenerator';
 import { LiteAdapter, LiteAgentSessionConfig } from '../../adapters/liteAdapter';
 import { AgentMetadata } from '../../types';
+import { t } from '../../i18n';
 
 /**
  * Register the regenerate title command.
@@ -17,19 +18,19 @@ export function registerRenameSessionCommand(context: vscode.ExtensionContext): 
         vscode.commands.registerCommand('mutsumi.renameSession', async () => {
             const editor = vscode.window.activeNotebookEditor;
             if (!editor) {
-                vscode.window.showWarningMessage('No active notebook editor.');
+                vscode.window.showWarningMessage(t('notebook.noEditor'));
                 return;
             }
 
             if (editor.notebook.notebookType !== 'mutsumi-notebook') {
-                vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
+                vscode.window.showWarningMessage(t('notebook.onlyMutsumi'));
                 return;
             }
 
             const currentTitle = editor.notebook.metadata?.name || '';
             const titleInput = await vscode.window.showInputBox({
                 value: currentTitle,
-                prompt: 'Enter new session title (leave empty to auto-generate)'
+                prompt: t('renameSession.prompt')
             });
 
             if (titleInput === undefined) {
@@ -40,9 +41,9 @@ export function registerRenameSessionCommand(context: vscode.ExtensionContext): 
                 try {
                     const sanitized = sanitizeFileName(titleInput);
                     await updateNotebookMetadataWithSync(editor.notebook, sanitized);
-                    vscode.window.showInformationMessage(`Session renamed: ${sanitized}`);
+                    vscode.window.showInformationMessage(t('renameSession.renamed', sanitized));
                 } catch (error: any) {
-                    vscode.window.showErrorMessage(`Failed to rename session: ${error.message}`);
+                    vscode.window.showErrorMessage(t('renameSession.failed', error.message));
                 }
                 return;
             }
@@ -65,10 +66,10 @@ export function registerRenameSessionCommand(context: vscode.ExtensionContext): 
                 });
 
                 const title = await regenerateTitleForSession(session, messages, config, editor.notebook);
-                vscode.window.showInformationMessage(`Title regenerated: ${title}`);
+                vscode.window.showInformationMessage(t('renameSession.regenerated', title));
             } catch (error: any) {
                 console.error('Failed to regenerate title:', error);
-                vscode.window.showErrorMessage(`Failed to regenerate title: ${error.message}`);
+                vscode.window.showErrorMessage(t('renameSession.regenerateFailed', error.message));
             }
         })
     );

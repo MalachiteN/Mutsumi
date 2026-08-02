@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { type ShellTask, formatShellOutput } from "../tools.d/shell/shellTask";
 import { shellTaskRegistry } from "../tools.d/shell/registry";
+import { t } from "../i18n";
 
 /**
  * Shell task tree node for the Shell Tasks sidebar view.
@@ -20,35 +21,35 @@ export class ShellTaskTreeItem extends vscode.TreeItem {
 	private formatDescription(): string {
 		const elapsed = Math.floor((Date.now() - this.task.createdAt) / 1000);
 		if (this.task.isRunning) {
-			return this.task.background ? `bg ${elapsed}s` : `fg ${elapsed}s`;
+			return this.task.background ? t("shellTask.bg", elapsed) : t("shellTask.fg", elapsed);
 		}
 		const snap = this.task.snapshot();
-		if (snap.aborted) return "stopped";
-		const sig = snap.signal ? ` (${snap.signal})` : "";
-		return `exit ${snap.exitCode}${sig}`;
+		if (snap.aborted) return t("shellTask.stopped");
+		const sig = snap.signal ? t("shellTask.signal", snap.signal) : "";
+		return t("shellTask.exit", String(snap.exitCode), sig);
 	}
 
 	private buildTooltip(): vscode.MarkdownString {
 		const md = new vscode.MarkdownString();
 		md.appendMarkdown(`**${this.task.cmd}**\n\n`);
-		md.appendMarkdown(`📁 CWD: \`${this.task.cwd}\`\n\n`);
-		md.appendMarkdown(`🆔 Task: \`${this.task.id}\`\n\n`);
-		md.appendMarkdown(`🖥️ Agent Session: \`${this.task.agentSessionId}\`\n\n`);
+		md.appendMarkdown(t("shellTask.cwd", this.task.cwd) + `\n\n`);
+		md.appendMarkdown(t("shellTask.task", this.task.id) + `\n\n`);
+		md.appendMarkdown(t("shellTask.agentSession", this.task.agentSessionId) + `\n\n`);
 		md.appendMarkdown(
-			`Mode: ${this.task.background ? "background" : "foreground"}\n\n`,
+			t("shellTask.mode", this.task.background ? t("shellTask.modeBackground") : t("shellTask.modeForeground")),
 		);
 		const snap = this.task.snapshot();
 		if (snap.aborted) {
-			md.appendMarkdown(`Status: 🛑 stopped\n\n`);
+			md.appendMarkdown(t("shellTask.statusStopped"));
 		} else if (this.task.isRunning) {
-			md.appendMarkdown(`Status: ▶️ running\n\n`);
+			md.appendMarkdown(t("shellTask.statusRunning"));
 		} else {
-			const sig = snap.signal ? ` (signal: ${snap.signal})` : "";
-			md.appendMarkdown(`Status: ✅ exit ${snap.exitCode}${sig}\n\n`);
+			const sig = snap.signal ? t("shellTask.signal", snap.signal) : "";
+			md.appendMarkdown(t("shellTask.statusExit", String(snap.exitCode), sig));
 		}
 		const out = formatShellOutput(snap, { showExit: true });
 		if (out && out !== "(no output)") {
-			md.appendMarkdown(`Output:\n\`\`\`\n${out}\n\`\`\``);
+			md.appendMarkdown(t("shellTask.output", out));
 		}
 		return md;
 	}

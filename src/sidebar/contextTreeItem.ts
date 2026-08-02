@@ -3,6 +3,7 @@ import { TemplateEngine } from '../contextManagement/templateEngine';
 import { AgentMetadata } from '../types';
 import { ContextTreeDataProvider } from './contextTreeProvider';
 import { buildGhostStripEdits } from '../notebook/commands/utils';
+import { t } from '../i18n';
 
 /**
  * @description Context item type definition
@@ -180,15 +181,15 @@ export class ContextTreeItem extends vscode.TreeItem {
         if (type === 'category') {
             switch (category) {
                 case 'rules':
-                    return 'Rules: Active context rules for Agents';
+                    return t('context.category.rules');
                 case 'skills':
-                    return 'Skills: Active context skills for Agents';
+                    return t('context.category.skills');
                 case 'macros':
-                    return 'Macros: Reusable text snippets';
+                    return t('context.category.macros');
                 case 'files':
-                    return 'Files: Referenced context files';
+                    return t('context.category.files');
                 default:
-                    return 'Category';
+                    return t('context.category.default');
             }
         }
 
@@ -197,7 +198,7 @@ export class ContextTreeItem extends vscode.TreeItem {
         // Type label
         let typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
         if ((type === 'rule' || type === 'skill') && isActive !== undefined) {
-            typeLabel += isActive ? ' (Active)' : ' (Inactive)';
+            typeLabel += isActive ? t('context.active') : t('context.inactive');
         }
         md.appendMarkdown(`**${typeLabel}**: \`${this.data.key}\`\n\n`);
 
@@ -231,7 +232,7 @@ export function registerContextCommands(
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.refreshContextTree', async () => {
             await contextTreeDataProvider.refreshAll();
-            vscode.window.showInformationMessage('Context tree refreshed');
+            vscode.window.showInformationMessage(t('context.refreshed'));
         })
     );
     // Register view context item command
@@ -282,7 +283,7 @@ export function registerContextCommands(
                         displayContent = renderedText;
                     }
                 } catch (error) {
-                    displayContent = `Error reading rule: ${error}`;
+                    displayContent = t('context.readError', String(error));
                 }
             } else if (args.type === 'skill') {
                 // Skills: read skill file and display as markdown (no TemplateEngine expansion)
@@ -304,7 +305,7 @@ export function registerContextCommands(
                         const skillText = new TextDecoder().decode(skillContent);
                         displayContent = skillText;
                     } catch (innerError) {
-                        displayContent = `Error reading skill: ${error}`;
+                        displayContent = t('context.readError', String(error));
                     }
                 }
             } else if (args.type === 'file') {
@@ -333,7 +334,7 @@ export function registerContextCommands(
                         displayContent = fileItem.content;
                     }
                 } else {
-                    displayContent = `File not found: ${args.key}`;
+                    displayContent = t('context.fileNotFound', args.key);
                 }
             }
 
@@ -374,11 +375,11 @@ export function registerContextCommands(
             if (index === -1) {
                 // Add to active rules
                 activeRules.push(ruleName);
-                vscode.window.showInformationMessage(`Rule "${ruleName}" activated`);
+                vscode.window.showInformationMessage(t('context.ruleActivated', ruleName));
             } else {
                 // Remove from active rules
                 activeRules.splice(index, 1);
-                vscode.window.showInformationMessage(`Rule "${ruleName}" deactivated`);
+                vscode.window.showInformationMessage(t('context.ruleDeactivated', ruleName));
             }
 
             // Update notebook metadata
@@ -417,11 +418,11 @@ export function registerContextCommands(
             if (index === -1) {
                 // Add to active skills
                 activeSkills.push(skillName);
-                vscode.window.showInformationMessage(`Skill "${item.data.key}" activated`);
+                vscode.window.showInformationMessage(t('context.skillActivated', item.data.key));
             } else {
                 // Remove from active skills
                 activeSkills.splice(index, 1);
-                vscode.window.showInformationMessage(`Skill "${item.data.key}" deactivated`);
+                vscode.window.showInformationMessage(t('context.skillDeactivated', item.data.key));
             }
 
             // Update notebook metadata
@@ -537,7 +538,7 @@ export function registerContextCommands(
                 file => file.key === key && file.version !== latestVersion
             );
             if (edits.length === 0) {
-                vscode.window.showInformationMessage(`No older versions of "${key}" to prune`);
+                vscode.window.showInformationMessage(t('context.noOlderVersions', key));
                 return;
             }
 

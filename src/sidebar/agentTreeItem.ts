@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { AgentRuntimeStatus } from '../types';
+import { t } from '../i18n';
 
 /**
  * @description Agent node data interface, defining the basic information of Agent tree items
@@ -66,10 +67,10 @@ export class AgentTreeItem extends vscode.TreeItem {
      */
     private getStatusLabel(status: AgentRuntimeStatus): string {
         switch (status) {
-            case 'running': return 'Running';
-            case 'pending': return 'Pending';
-            case 'finished': return 'Finished';
-            case 'standby': return 'Standby';
+            case 'running': return t('status.running');
+            case 'pending': return t('status.pending');
+            case 'finished': return t('status.finished');
+            case 'standby': return t('status.standby');
             default: return '';
         }
     }
@@ -114,7 +115,7 @@ export function registerAgentCommands(context: vscode.ExtensionContext): void {
                         preview: false
                     });
                 } catch (e) {
-                    vscode.window.showErrorMessage(`Failed to open agent file: ${e}`);
+                    vscode.window.showErrorMessage(t('agentFile.openFailed', String(e)));
                 }
             }
         })

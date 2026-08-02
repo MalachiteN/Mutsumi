@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { buildInteractionHistory } from '../../contextManagement/history';
 import { formatMessagesToString, createDebugSessionFromNotebook } from './utils';
+import { t } from '../../i18n';
 
 /**
  * Register the debug context command.
@@ -16,12 +17,12 @@ export function registerDebugContextCommand(context: vscode.ExtensionContext): v
         vscode.commands.registerCommand('mutsumi.debugContext', async () => {
             const editor = vscode.window.activeNotebookEditor;
             if (!editor) {
-                vscode.window.showWarningMessage('No active notebook editor.');
+                vscode.window.showWarningMessage(t('notebook.noEditor'));
                 return;
             }
 
             if (editor.notebook.notebookType !== 'mutsumi-notebook') {
-                vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
+                vscode.window.showWarningMessage(t('notebook.onlyMutsumi'));
                 return;
             }
 
@@ -35,7 +36,7 @@ export function registerDebugContextCommand(context: vscode.ExtensionContext): v
             }
 
             if (lastCodeCellIndex === -1) {
-                vscode.window.showWarningMessage('No code cell found in notebook.');
+                vscode.window.showWarningMessage(t('notebook.noCodeCell'));
                 return;
             }
 
@@ -57,10 +58,10 @@ export function registerDebugContextCommand(context: vscode.ExtensionContext): v
                 });
                 await vscode.window.showTextDocument(doc, { preview: true });
 
-                vscode.window.showInformationMessage(`Debug context displayed. Total messages: ${messages.length}`);
+                vscode.window.showInformationMessage(t('debugContext.displayed', messages.length));
             } catch (error) {
                 console.error('Failed to debug context:', error);
-                vscode.window.showErrorMessage(`Failed to debug context: ${error}`);
+                vscode.window.showErrorMessage(t('debugContext.failed', String(error)));
             }
         })
     );
