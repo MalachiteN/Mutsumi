@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { TemplateEngine } from '../contextManagement/templateEngine';
+import { decodeGhostBlock, removeGhostFiles } from '../contextManagement/ghostBlocks';
+import { GhostFileEntry } from '../contextManagement/interfaces';
 import { AgentMetadata } from '../types';
 import { ContextTreeDataProvider } from './contextTreeProvider';
 
@@ -213,6 +215,43 @@ export class ContextTreeItem extends vscode.TreeItem {
 
         return md;
     }
+}
+
+/**
+ * @description Builds NotebookEdits that strip ghost file entries from every cell's last_ghost_block.
+ * Only cells whose ghost block actually changes produce an edit. Metadata is
+ * edited in place (no cell insertion/deletion), preserving ghost-block index
+ * alignment; blocks that become empty are normalized by deleting the key,
+ * matching persistGhostBlock's behavior.
+ * @param {vscode.NotebookDocument} notebook - The notebook whose cells are scanned
+ * @param {(file: GhostFileEntry) => boolean} remove - Predicate selecting file entries to remove
+ * @returns {vscode.NotebookEdit[]} Cell metadata edits for affected cells
+ */
+function buildGhostStripEdits(
+    notebook: vscode.NotebookDocument,
+    remove: (file: GhostFileEntry) => boolean
+): vscode.NotebookEdit[] {
+    const edits: vscode.NotebookEdit[] = [];
+    for (let i = 0; i < notebook.cellCount; i++) {
+        const cell = notebook.cellAt(i);
+        const raw = cell.metadata?.last_ghost_block;
+        if (raw === undefined || raw === null) {
+            continue;
+        }
+        const block = decodeGhostBlock(raw);
+        if (!block || !block.files.some(remove)) {
+            continue;
+        }
+        const stripped = removeGhostFiles(block, remove);
+        const newMetadata = { ...(cell.metadata ?? {}) };
+        if (stripped === null) {
+            delete newMetadata.last_ghost_block;
+        } else {
+            newMetadata.last_ghost_block = stripped;
+        }
+        edits.push(vscode.NotebookEdit.updateCellMetadata(cell.index, newMetadata));
+    }
+    return edits;
 }
 
 /**
@@ -484,12 +523,64 @@ export function registerContextCommands(
                 return;
             }
 
-            const contextItems = metadata.contextItems.filter(ci => ci.key !== item.data.key);
+            const key = item.data.key;
 
-            // Update notebook metadata
-            const edit = new vscode.WorkspaceEdit();
+            // Drop version tracking (lastHash/version) so a future re-reference re-injects fully
+            const contextItems = metadata.contextItems.filter(ci => !(ci.type === 'file' && ci.key === key));
             const newMetadata = { ...metadata, contextItems };
-            edit.set(notebook.uri, [vscode.NotebookEdit.updateNotebookMetadata(newMetadata)]);
+
+            // Retroactively strip every ghost entry with this key from ALL cells,
+            // so the file no longer appears anywhere in the assembled context.
+            // This genuinely shortens the context and invalidates the LLM prefix
+            // cache from the earliest modified cell onward.
+            const edits = buildGhostStripEdits(notebook, file => file.key === key);
+            edits.unshift(vscode.NotebookEdit.updateNotebookMetadata(newMetadata));
+
+            const edit = new vscode.WorkspaceEdit();
+            edit.set(notebook.uri, edits);
+            await vscode.workspace.applyEdit(edit);
+
+            // Refresh the tree view
+            contextTreeDataProvider.refresh();
+        })
+    );
+
+    // Register prune file versions command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.pruneFileVersions', async (item: ContextTreeItem) => {
+            if (item.data.type !== 'file' || !item.data.key) {
+                return;
+            }
+
+            const notebookEditor = vscode.window.activeNotebookEditor;
+            if (!notebookEditor) {
+                return;
+            }
+
+            const notebook = notebookEditor.notebook;
+            const metadata = notebook.metadata as AgentMetadata | undefined;
+            if (!metadata || !metadata.contextItems) {
+                return;
+            }
+
+            const key = item.data.key;
+            const tracked = metadata.contextItems.find(ci => ci.type === 'file' && ci.key === key);
+            const latestVersion = tracked?.version || 1;
+
+            // Keep version tracking untouched; strip only ghost entries older
+            // than the latest version, shrinking context while keeping the
+            // current content available for differential reference.
+            const edits = buildGhostStripEdits(
+                notebook,
+                file => file.key === key && file.version !== latestVersion
+            );
+            if (edits.length === 0) {
+                vscode.window.showInformationMessage(`No older versions of "${key}" to prune`);
+                return;
+            }
+
+            const edit = new vscode.WorkspaceEdit();
+            edit.set(notebook.uri, edits);
             await vscode.workspace.applyEdit(edit);
 
             // Refresh the tree view

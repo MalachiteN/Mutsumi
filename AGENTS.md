@@ -112,6 +112,7 @@ try {
 - `.mtm` 文件是 JSON 格式，包含 Agent 元数据和对话历史
 - `Code` Cell → 用户输入 / `Markup` Cell → 助手回复
 - 临时引用内容使用 Ghost Block 机制：Cell 文本保存时自动剥离 `<content_reference>`；Cell Metadata 中的 `last_ghost_block` 以结构化对象持久化（files/tools 列表），发送前再投影为同一 markdown。非法或旧格式 metadata 在边界解码失败时按“无 ghost block”处理，不做迁移。
+- 边栏 Context 树的文件操作会回溯改写 Ghost Block：**Remove File** 从所有 Cell 的 ghost block 中剥离该 key 的全部条目并删除版本跟踪项；**Prune Old Versions** 保留版本跟踪项，仅剥离非最新版本的条目。两者都实际缩短上下文，并使最早被修改 Cell 之后的前缀缓存失效；不操作边栏则保持缓存命中。
 
 ### 2. 动态上下文系统
 

@@ -184,6 +184,12 @@
                 "icon": "$(close)"
             },
             {
+                "command": "mutsumi.pruneFileVersions",
+                "title": "Prune Old Versions",
+                "category": "Mutsumi",
+                "icon": "$(history)"
+            },
+            {
                 "command": "mutsumi.refreshContextTree",
                 "title": "Refresh Context Tree",
                 "category": "Mutsumi",
@@ -276,7 +282,12 @@
                 {
                     "command": "mutsumi.removeFile",
                     "when": "viewItem == file",
-                    "group": "inline"
+                    "group": "inline@1"
+                },
+                {
+                    "command": "mutsumi.pruneFileVersions",
+                    "when": "viewItem == file",
+                    "group": "inline@2"
                 },
                 {
                     "command": "mutsumi.detachShellTask",

@@ -12,4 +12,5 @@ assets/tree-sitter/*.wasm
 *.gguf
 *.tsbuildinfo
 skills-lock.json
+.DS_Storedocs/vscode-api.md
 .DS_Store

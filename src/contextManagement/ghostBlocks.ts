@@ -142,6 +142,24 @@ export function isEmptyGhostBlock(block: GhostBlock | null | undefined): boolean
 }
 
 /**
+ * Remove file entries matching a predicate from a ghost block.
+ * Used by sidebar file actions to retroactively shrink persisted context:
+ * removing every entry of a key (Remove File) or only non-latest versions
+ * (Prune Old Versions). Tools are never touched.
+ *
+ * @param block - Structured ghost block
+ * @param remove - Predicate selecting file entries to remove
+ * @returns Filtered ghost block, or null when nothing renderable remains
+ */
+export function removeGhostFiles(block: GhostBlock, remove: (file: GhostFileEntry) => boolean): GhostBlock | null {
+    const result: GhostBlock = {
+        files: block.files.filter(file => !remove(file)),
+        tools: block.tools
+    };
+    return isEmptyGhostBlock(result) ? null : result;
+}
+
+/**
  * Collect file versions that have full content available in previous ghost blocks.
  *
  * Only entries with content !== null are considered available full-content
