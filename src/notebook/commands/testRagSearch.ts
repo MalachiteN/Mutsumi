@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { RagService } from '../../codebase/rag/service';
+import { t } from '../../i18n';
 
 /**
  * Register the test RAG search command.
@@ -15,13 +16,13 @@ export function registerTestRagSearchCommand(context: vscode.ExtensionContext): 
         vscode.commands.registerCommand('mutsumi.testRagSearch', async () => {
             // 获取查询输入
             const query = await vscode.window.showInputBox({
-                prompt: 'Enter natural language query for RAG search',
-                placeHolder: 'e.g., "how to handle file operations"',
+                prompt: t('testRag.prompt'),
+                placeHolder: t('testRag.placeHolder'),
                 ignoreFocusOut: true
             });
 
             if (!query || !query.trim()) {
-                vscode.window.showInformationMessage('Search cancelled or empty query.');
+                vscode.window.showInformationMessage(t('testRag.cancelled'));
                 return;
             }
 
@@ -30,7 +31,7 @@ export function registerTestRagSearchCommand(context: vscode.ExtensionContext): 
                 const workspaces = vscode.workspace.workspaceFolders;
 
                 if (!workspaces || workspaces.length === 0) {
-                    vscode.window.showWarningMessage('No workspace folders open.');
+                    vscode.window.showWarningMessage(t('testRag.noWorkspaces'));
                     return;
                 }
 
@@ -79,10 +80,10 @@ export function registerTestRagSearchCommand(context: vscode.ExtensionContext): 
                 });
                 await vscode.window.showTextDocument(doc, { preview: true });
 
-                vscode.window.showInformationMessage(`RAG search completed across ${workspaces.length} workspace(s).`);
+                vscode.window.showInformationMessage(t('testRag.completed', workspaces.length));
             } catch (error: any) {
                 console.error('RAG search failed:', error);
-                vscode.window.showErrorMessage(`RAG search failed: ${error.message}`);
+                vscode.window.showErrorMessage(t('testRag.failed', error.message));
             }
         })
     );

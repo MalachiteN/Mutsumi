@@ -1,6 +1,7 @@
 import type { ITool, ToolContext } from "../interface";
 import { resolveUri } from "../utils";
 import { requestApproval } from "../permission";
+import { t } from "../../i18n";
 import { toolsLogger } from "../toolsLogger";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -59,9 +60,14 @@ export const shellTool: ITool = {
 				? path.basename(shellPath)
 				: "System Default Shell";
 
-			const details = `Command:\n${cmd}\n\nShell: ${shellName}\nBackground: ${background ? "yes" : "no"}`;
+			const details = t(
+				"approval.shell.details",
+				cmd,
+				shellName,
+				background ? t("approval.shell.yes") : t("approval.shell.no"),
+			);
 			const rejectionMsg = await requestApproval(
-				`Execute "${cmd}" at ${uriInput}`,
+				t("approval.shell.action", cmd, uriInput),
 				uriInput,
 				context,
 				"shell",

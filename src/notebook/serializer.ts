@@ -9,6 +9,7 @@ import { resolveAgentDefaults } from '../config/resolver';
 import { RenderBlock, RenderData } from './renderTypes';
 import { GhostBlock } from '../contextManagement/interfaces';
 import { decodeGhostBlock } from '../contextManagement/ghostBlocks';
+import { t } from '../i18n';
 
 // ============================================================================
 // Core Data Structures (VSCode-agnostic)
@@ -396,7 +397,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
             raw = {
                 metadata: {
                     uuid: uuidv4(),
-                    name: 'New Agent',
+                    name: t('serializer.newAgent'),
                     created_at: new Date().toISOString(),
                     parent_agent_id: null,
                     allowed_uris: ['/'],
@@ -488,7 +489,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
         const raw: AgentContext = {
             metadata: {
                 uuid: uuid ?? uuidv4(),
-                name: 'New Agent',
+                name: t('serializer.newAgent'),
                 created_at: new Date().toISOString(),
                 parent_agent_id: null,
                 allowed_uris: allowedUris,

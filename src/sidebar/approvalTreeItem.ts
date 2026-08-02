@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ApprovalRequest, approvalManager } from '../tools.d/permission';
+import { t } from '../i18n';
 
 /**
  * @description Approval request tree node item for displaying tool call approval requests in the sidebar
@@ -48,17 +49,17 @@ export class ApprovalTreeItem extends vscode.TreeItem {
     private buildTooltip(): vscode.MarkdownString {
         const md = new vscode.MarkdownString();
         md.appendMarkdown(`**${this.request.actionDescription}**\n\n`);
-        md.appendMarkdown(`📁 Target: \`${this.request.targetUri}\`\n\n`);
+        md.appendMarkdown(t('approval.target', this.request.targetUri) + `\n\n`);
         
         if (this.request.customAction) {
-             md.appendMarkdown(`🔍 **Custom Action Available**: ${this.request.customAction.label}\n\n`);
+             md.appendMarkdown(t('approval.customActionAvailable', this.request.customAction.label) + `\n\n`);
         }
 
         if (this.request.details) {
-            md.appendMarkdown(`📝 Details:\n\`\`\`\n${this.request.details}\n\`\`\`\n\n`);
+            md.appendMarkdown(t('approval.details', this.request.details));
         }
-        md.appendMarkdown(`🕐 Time: ${this.request.timestamp.toLocaleString()}\n\n`);
-        md.appendMarkdown(`Status: ${this.getStatusText()}`);
+        md.appendMarkdown(t('approval.time', this.request.timestamp.toLocaleString()) + `\n\n`);
+        md.appendMarkdown(t('approval.status', this.getStatusText()));
         return md;
     }
 
@@ -68,9 +69,9 @@ export class ApprovalTreeItem extends vscode.TreeItem {
      */
     private getStatusText(): string {
         switch (this.request.status) {
-            case 'pending': return '⏳ Pending';
-            case 'approved': return '✅ Approved';
-            case 'rejected': return '❌ Rejected';
+            case 'pending': return t('approval.pending');
+            case 'approved': return t('approval.approved');
+            case 'rejected': return t('approval.rejected');
         }
     }
 

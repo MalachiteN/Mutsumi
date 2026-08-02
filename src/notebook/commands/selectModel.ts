@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { normalizeReasoningEffort, REASONING_EFFORT_SETTING_VALUES } from '../../agent/types';
 import type { ReasoningEffortSetting } from '../../agent/types';
 import { getModelsConfig } from '../../utils';
+import { t } from '../../i18n';
 
 /** QuickPick item representing a configured model. */
 interface ModelQuickPickItem extends vscode.QuickPickItem {
@@ -30,13 +31,13 @@ type SelectModelQuickPickItem = ModelQuickPickItem | ReasoningEffortQuickPickIte
 
 /** Human-readable descriptions for concrete reasoning effort levels. */
 const reasoningEffortDescriptions: Readonly<Record<Exclude<ReasoningEffortSetting, 'default'>, string>> = {
-    none: 'Disable reasoning',
-    minimal: 'Minimal reasoning',
-    low: 'Low reasoning',
-    medium: 'Medium reasoning',
-    high: 'High reasoning',
-    xhigh: 'Extra-high reasoning',
-    max: 'Maximum reasoning'
+    none: t('selectModel.effort.none'),
+    minimal: t('selectModel.effort.minimal'),
+    low: t('selectModel.effort.low'),
+    medium: t('selectModel.effort.medium'),
+    high: t('selectModel.effort.high'),
+    xhigh: t('selectModel.effort.xhigh'),
+    max: t('selectModel.effort.max')
 };
 
 /**
@@ -48,12 +49,12 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
         vscode.commands.registerCommand('mutsumi.selectModel', async () => {
             const editor = vscode.window.activeNotebookEditor;
             if (!editor) {
-                vscode.window.showWarningMessage('No active notebook editor.');
+                vscode.window.showWarningMessage(t('notebook.noEditor'));
                 return;
             }
 
             if (editor.notebook.notebookType !== 'mutsumi-notebook') {
-                vscode.window.showWarningMessage('This command only works with Mutsumi notebooks.');
+                vscode.window.showWarningMessage(t('notebook.onlyMutsumi'));
                 return;
             }
             
@@ -61,7 +62,7 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
             const modelNames = Object.keys(modelsConfig);
             
             if (modelNames.length === 0) {
-                vscode.window.showErrorMessage('No models configured in settings.');
+                vscode.window.showErrorMessage(t('selectModel.noModels'));
                 return;
             }
             
@@ -73,7 +74,7 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
             const modelItems: ModelQuickPickItem[] = modelNames.map(name => {
                 const label = modelsConfig[name];
                 const description = label ? `🏷️ ${label}` : undefined;
-                const detail = name === currentModel ? '$(check) Current' : undefined;
+                const detail = name === currentModel ? '$(check) ' + t('selectModel.current') : undefined;
                 return {
                     itemType: 'model',
                     value: name,
@@ -87,23 +88,27 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
             const effortItems: ReasoningEffortQuickPickItem[] = REASONING_EFFORT_SETTING_VALUES.map(value => ({
                 itemType: 'reasoningEffort',
                 value,
-                label: value,
+                label: value === 'default' ? t('selectModel.effortDefault') : value,
                 description: value === 'default'
-                    ? "Don't send; server decides"
+                    ? t('selectModel.effortDefaultDesc')
                     : reasoningEffortDescriptions[value],
-                detail: value === effectiveReasoningEffort ? '$(check) Current' : undefined,
+                detail: value === effectiveReasoningEffort ? '$(check) ' + t('selectModel.current') : undefined,
                 picked: value === effectiveReasoningEffort
             }));
 
             const items: SelectModelQuickPickItem[] = [
-                { itemType: 'separator', label: 'Models', kind: vscode.QuickPickItemKind.Separator },
+                { itemType: 'separator', label: t('selectModel.separatorModels'), kind: vscode.QuickPickItemKind.Separator },
                 ...modelItems,
-                { itemType: 'separator', label: 'Reasoning efforts', kind: vscode.QuickPickItemKind.Separator },
+                { itemType: 'separator', label: t('selectModel.separatorReasoning'), kind: vscode.QuickPickItemKind.Separator },
                 ...effortItems
             ];
 
             const selected = await vscode.window.showQuickPick(items, {
-                placeHolder: `Select model or reasoning effort (switching model resets effort to default; current: ${currentModel || 'default'} / ${effectiveReasoningEffort})`
+                placeHolder: t(
+                    'selectModel.placeHolder',
+                    currentModel || 'default',
+                    effectiveReasoningEffort === 'default' ? t('selectModel.effortDefault') : effectiveReasoningEffort
+                )
             });
 
             if (!selected || selected.itemType === 'separator') {
@@ -128,10 +133,10 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
 
             if (selected.itemType === 'model') {
                 vscode.window.showInformationMessage(
-                    `Model changed to: ${selected.value}; reasoning effort reset to default.`
+                    t('selectModel.modelChanged', selected.value)
                 );
             } else {
-                vscode.window.showInformationMessage(`Reasoning effort changed to: ${selected.value}`);
+                vscode.window.showInformationMessage(t('selectModel.effortChanged', selected.value));
             }
         })
     );
