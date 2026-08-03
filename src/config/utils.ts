@@ -55,11 +55,23 @@ function validateAgentType(
         }
     }
 
-    // Validate defaultModel
-    if (typeof config.defaultModel !== 'string') {
-        throw new ConfigValidationError(
-            `defaultModel must be a string for agent type "${name}"`
-        );
+    // Validate defaultModel (optional; when present must be a complete pair)
+    if (config.defaultModel !== undefined) {
+        if (!config.defaultModel || typeof config.defaultModel !== 'object' || Array.isArray(config.defaultModel)) {
+            throw new ConfigValidationError(
+                `defaultModel must be an object with "model" and "provider" for agent type "${name}"`
+            );
+        }
+        if (typeof config.defaultModel.model !== 'string' || !config.defaultModel.model.trim()) {
+            throw new ConfigValidationError(
+                `defaultModel.model must be a non-empty string for agent type "${name}"`
+            );
+        }
+        if (typeof config.defaultModel.provider !== 'string' || !config.defaultModel.provider.trim()) {
+            throw new ConfigValidationError(
+                `defaultModel.provider must be a non-empty string for agent type "${name}"`
+            );
+        }
     }
 
     // Validate defaultRules

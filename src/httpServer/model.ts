@@ -1,69 +1,73 @@
 import * as vscode from 'vscode';
 import type { Request, Response } from 'express';
-import { getModelsConfig } from '../utils';
+import { resolveModelSelection } from '../utils';
+import { AgentFileOperations } from '../agent/fileOps';
 import { getAgentFromRegistry } from './utils';
-import type { AgentContext } from '../types';
+import type { HeadlessAdapter } from '../adapters/headlessAdapter';
 
 /**
- * Handles PUT /agent/:uuid/model
- * Sets the model for a specific agent.
+ * Creates a handler for PUT /agent/:uuid/model
+ * Sets the model/provider pair for a specific agent.
  */
-export async function handleSetModel(req: Request, res: Response): Promise<void> {
-    const uuidParam = req.params.uuid;
-    const uuid = Array.isArray(uuidParam) ? uuidParam[0] : uuidParam;
-    if (!uuid) {
-        res.status(400).json({ status: 'error', content: 'Missing agent UUID.' });
-        return;
-    }
+export function createHandleSetModel(adapter: HeadlessAdapter): (req: Request, res: Response) => Promise<void> {
+    return async function handleSetModel(req: Request, res: Response): Promise<void> {
+        const uuidParam = req.params.uuid;
+        const uuid = Array.isArray(uuidParam) ? uuidParam[0] : uuidParam;
+        if (!uuid) {
+            res.status(400).json({ status: 'error', content: 'Missing agent UUID.' });
+            return;
+        }
 
-    const { model } = req.body ?? {};
-    if (typeof model !== 'string' || !model.trim()) {
-        res.status(400).json({ status: 'error', content: 'Missing or invalid model parameter.' });
-        return;
-    }
+        const { model, provider } = req.body ?? {};
+        if (typeof model !== 'string' || !model.trim() || typeof provider !== 'string' || !provider.trim()) {
+            res.status(400).json({ status: 'error', content: 'Missing or invalid model/provider parameters. Both are required.' });
+            return;
+        }
 
-    // Validate model exists in configuration
-    const models = getModelsConfig();
-    const availableModels = Object.keys(models);
+        // Validate the complete pair through the resolution gate.
+        let resolvedSelection: { model: string; provider: string };
+        try {
+            resolvedSelection = resolveModelSelection({ model, provider });
+        } catch (err: any) {
+            res.status(400).json({ status: 'error', content: err.message });
+            return;
+        }
 
-    if (!availableModels.includes(model)) {
-        res.status(400).json({
-            status: 'error',
-            content: `Invalid model: ${model}. Available models: ${availableModels.join(', ')}`
-        });
-        return;
-    }
+        // Get agent from registry to get the actual file URI
+        const agentInfo = getAgentFromRegistry(uuid);
+        if (!agentInfo) {
+            res.status(404).json({ status: 'error', content: 'Agent not found.' });
+            return;
+        }
 
-    // Get agent from registry to get the actual file URI
-    const agentInfo = getAgentFromRegistry(uuid);
-    if (!agentInfo) {
-        res.status(404).json({ status: 'error', content: 'Agent not found.' });
-        return;
-    }
+        const fileUri = vscode.Uri.parse(agentInfo.fileUri);
 
-    const fileUri = vscode.Uri.parse(agentInfo.fileUri);
+        try {
+            // Persist through the single write point.
+            await AgentFileOperations.updateAgentModelSelection(fileUri, resolvedSelection);
 
-    try {
-        // Read current content
-        const content = await vscode.workspace.fs.readFile(fileUri);
-        const data = JSON.parse(new TextDecoder().decode(content)) as AgentContext;
-
-        // Update model in metadata
-        data.metadata.model = model;
-
-        // Write back
-        const encoded = new TextEncoder().encode(JSON.stringify(data, null, 2));
-        await vscode.workspace.fs.writeFile(fileUri, encoded);
-
-        res.json({
-            status: 'updated',
-            agent: {
-                uuid,
-                model
+            // Synchronize the cached headless session so a later save does not roll back.
+            const session = adapter.getSession(uuid);
+            if (session) {
+                session.setConfig({
+                    metadata: {
+                        model: resolvedSelection.model,
+                        provider: resolvedSelection.provider
+                    } as any
+                });
             }
-        });
-    } catch (error: any) {
-        console.error('Failed to set model:', error);
-        res.status(500).json({ status: 'error', content: `Failed to set model: ${error.message}` });
-    }
+
+            res.json({
+                status: 'updated',
+                agent: {
+                    uuid,
+                    model: resolvedSelection.model,
+                    provider: resolvedSelection.provider
+                }
+            });
+        } catch (error: any) {
+            console.error('Failed to set model:', error);
+            res.status(500).json({ status: 'error', content: `Failed to set model: ${error.message}` });
+        }
+    };
 }

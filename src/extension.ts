@@ -503,17 +503,22 @@ function registerCommands(context: vscode.ExtensionContext): void {
 			}
 
 			// Build QuickPick items with descriptions
-			const typeItems = entryTypes.map(({ name, config }) => ({
-				label: name,
-				description: `${config.toolSets.join("+")}`,
-				detail: t(
-					"newAgent.detail",
-					config.defaultModel,
-					config.defaultRules.length,
-					config.defaultSkills.length,
-				),
-				typeName: name,
-			}));
+			const typeItems = entryTypes.map(({ name, config }) => {
+				const modelDisplay = config.defaultModel
+					? `${config.defaultModel.model} (${config.defaultModel.provider})`
+					: "default";
+				return {
+					label: name,
+					description: `${config.toolSets.join("+")}`,
+					detail: t(
+						"newAgent.detail",
+						modelDisplay,
+						config.defaultRules.length,
+						config.defaultSkills.length,
+					),
+					typeName: name,
+				};
+			});
 
 			// Show QuickPick for agent type selection
 			const selectedType = await vscode.window.showQuickPick(typeItems, {

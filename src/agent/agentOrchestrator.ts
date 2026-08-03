@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { v4 as uuidv4 } from 'uuid';
 import { AgentSidebarProvider } from '../sidebar/agentSidebar';
 import { AgentController } from '../controller';
-import { AgentStateInfo, AgentRuntimeStatus, ContextItem } from '../types';
+import { AgentStateInfo, AgentRuntimeStatus, ContextItem, ModelSelection } from '../types';
 import { AgentRegistry } from './registry';
 import { DispatchSessionManager } from './dispatch';
 import { AgentFileOperations } from './fileOps';
@@ -127,7 +127,7 @@ export class AgentOrchestrator {
      * and aggregates their results into a final report.
      * @param {string} parentId - UUID of the parent agent
      * @param {string} contextSummary - Summary context for the dispatch operation
-     * @param {Array<{prompt: string; allowed_uris: string[]; model?: string; agent_type?: string}>} subAgents - Sub-agent configurations
+     * @param {Array<{prompt: string; allowed_uris: string[]; modelSelection?: ModelSelection; agent_type?: string}>} subAgents - Sub-agent configurations
      * @param {AbortSignal} [signal] - Optional abort signal for cancellation
      * @returns {Promise<string>} Aggregated report from all sub-agents
      * @throws {Error} If the operation is aborted
@@ -135,7 +135,7 @@ export class AgentOrchestrator {
     public async requestDispatch(
         parentId: string,
         contextSummary: string,
-        subAgents: { prompt: string; allowed_uris: string[]; model?: string; agent_type?: string }[],
+        subAgents: { prompt: string; allowed_uris: string[]; modelSelection?: ModelSelection; agent_type?: string }[],
         signal?: AbortSignal
     ): Promise<string> {
         return new Promise(async (resolve, reject) => {
@@ -163,7 +163,7 @@ export class AgentOrchestrator {
                         combinedPrompt,
                         subAgent.allowed_uris,
                         agentType,
-                        subAgent.model,
+                        subAgent.modelSelection,
                         []
                     );
                 } catch (e) {
@@ -426,7 +426,7 @@ export class AgentOrchestrator {
      * @param {string} prompt - Initial prompt for the agent
      * @param {string[]} allowedUris - Allowed URIs for the agent
      * @param {string} agentType - Agent type identifier (e.g., 'chat', 'orchestrator', 'implementer', 'reviewer')
-     * @param {string} [model] - Model identifier to use
+     * @param {ModelSelection} [modelSelection] - Model/provider pair to use
      * @param {ContextItem[]} [contextItems] - Context items for the agent (not inherited, empty for sub-agents)
      * @returns {Promise<void>}
      */
@@ -436,7 +436,7 @@ export class AgentOrchestrator {
         prompt: string,
         allowedUris: string[],
         agentType: string,
-        model?: string,
+        modelSelection?: ModelSelection,
         contextItems?: ContextItem[]
     ): Promise<void> {
         const parent = this.registry.getAgent(parentId);
@@ -447,7 +447,7 @@ export class AgentOrchestrator {
             prompt,
             allowedUris,
             agentType,
-            model,
+            modelSelection,
             contextItems
         );
 

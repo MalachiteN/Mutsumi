@@ -15,7 +15,7 @@ import { LLMClient } from './llmClient';
 import { IAgentSession, AgentSessionConfig } from '../adapters/interfaces';
 import { LiteAgentSession } from '../adapters/liteAdapter';
 import { debugLogger } from '../debugLogger';
-import { getModelCredentials } from '../utils';
+import { getModelCredentials, getTitleModelSelection } from '../utils';
 import { AgentRunOptions } from './types';
 import { t } from '../i18n';
 
@@ -265,11 +265,14 @@ export class AgentRunner {
         allMessages: AgentMessage[],
         sessionConfig: AgentSessionConfig
     ): Promise<void> {
-        const config = vscode.workspace.getConfiguration('mutsumi');
-        const titleGeneratorModel = config.get<string>('titleGeneratorModel') || sessionConfig.model;
+        // Title model priority: settings titleGeneratorModel > session metadata pair
+        let titleSelection = getTitleModelSelection();
+        if (!titleSelection && sessionConfig.metadata?.model && sessionConfig.metadata?.provider) {
+            titleSelection = { model: sessionConfig.metadata.model, provider: sessionConfig.metadata.provider };
+        }
 
-        if (!titleGeneratorModel) {
-            debugLogger.log('[AgentRunner] Title generation skipped: missing titleGeneratorModel');
+        if (!titleSelection) {
+            debugLogger.log('[AgentRunner] Title generation skipped: no titleGeneratorModel setting or session metadata pair');
             return;
         }
 
@@ -280,7 +283,7 @@ export class AgentRunner {
             : undefined;
 
         await this.titleGenerator.generateTitleForSession(session, allMessages, {
-            titleGeneratorModel
+            modelSelection: titleSelection
         }, notebook);
     }
 

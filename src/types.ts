@@ -4,6 +4,55 @@
  */
 
 /**
+ * Provider configuration using snake_case for settings schema alignment.
+ * @interface Provider
+ */
+export interface Provider {
+    /** Provider name identifier */
+    name: string;
+    /** Base URL for the provider's API */
+    baseurl: string;
+    /** API key for the provider */
+    api_key: string;
+}
+
+/**
+ * Explicit model + provider pair. Used throughout settings, configuration,
+ * persistence, and execution to avoid ambiguous first-match resolution.
+ * @interface ModelSelection
+ */
+export interface ModelSelection {
+    /** Model identifier */
+    model: string;
+    /** Provider name that serves the model */
+    provider: string;
+}
+
+/**
+ * Default providers used when user hasn't configured any providers.
+ */
+export const DEFAULT_PROVIDERS: Provider[] = [
+    { name: "kimi-for-coding", baseurl: "https://api.kimi.com/coding/v1", api_key: "" }
+];
+
+/**
+ * Default models configuration used when user hasn't configured any models.
+ * Keys are provider names, values are arrays of model identifiers supported
+ * by that provider.
+ */
+export const DEFAULT_MODELS: Record<string, string[]> = {
+    "kimi-for-coding": ["kimi-for-coding"]
+};
+
+/**
+ * Built-in default model selection pair.
+ */
+export const DEFAULT_MODEL_SELECTION: ModelSelection = {
+    model: "kimi-for-coding",
+    provider: "kimi-for-coding"
+};
+
+/**
  * Metadata for an agent session stored in notebook metadata.
  * @interface AgentMetadata
  */
@@ -22,6 +71,8 @@ export interface AgentMetadata {
     is_task_finished?: boolean;
     /** Model identifier used for this agent */
     model?: string;
+    /** Provider name that serves the model (disambiguates when the same model appears under multiple providers) */
+    provider?: string;
     /** Concrete reasoning effort override; 'default' or unset is represented by the key being absent */
     reasoning_effort?: string;
     /** Persisted context items (Files, Rules) valid for the whole session */

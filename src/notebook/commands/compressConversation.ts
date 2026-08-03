@@ -11,7 +11,7 @@ import { createEmptyToolSet } from '../../tools.d/toolManager';
 import type { AgentRunOptions } from '../../agent/types';
 import { MutsumiSerializer } from '../serializer';
 import { formatMessagesToString, createDebugSessionFromNotebook } from './utils';
-import { getModelCredentials } from '../../utils';
+import { getCompressModelSelection, getModelCredentials, resolveModelSelection } from '../../utils';
 import { t } from '../../i18n';
 
 /**
@@ -47,18 +47,38 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
             }
 
             try {
-                // Get configuration for compression
-                const config = vscode.workspace.getConfiguration('mutsumi');
-                const compressModel = config.get<string>('compressModel') || config.get<string>('titleGeneratorModel') || config.get<string>('defaultModel');
-
-                if (!compressModel) {
-                    vscode.window.showErrorMessage(t('compress.noModel'));
+                // Validate the source agent's persisted model/provider pair before producing a new file.
+                const sourceMetadata = editor.notebook.metadata as AgentMetadata;
+                const sourceModel = sourceMetadata?.model;
+                const sourceProvider = sourceMetadata?.provider;
+                if (sourceModel && !sourceProvider) {
+                    vscode.window.showErrorMessage(t('compress.failed',
+                        `Source agent has model "${sourceModel}" but no provider. Update the file with an explicit { model, provider } pair.`));
                     return;
                 }
+                if (sourceModel && sourceProvider) {
+                    try {
+                        resolveModelSelection({ model: sourceModel, provider: sourceProvider });
+                    } catch (err: any) {
+                        vscode.window.showErrorMessage(t('compress.failed', err.message));
+                        return;
+                    }
+                }
+
+                // Resolve compression model selection: compress → title → default
+                let compressSelection: { model: string; provider: string };
+                try {
+                    compressSelection = getCompressModelSelection();
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(t('compress.failed', err.message));
+                    return;
+                }
+                const compressModel = compressSelection.model;
+                const compressProvider = compressSelection.provider;
 
                 let credentials: { apiKey: string; baseUrl: string };
                 try {
-                    credentials = getModelCredentials(compressModel);
+                    credentials = getModelCredentials(compressModel, compressProvider);
                 } catch (err: any) {
                     vscode.window.showErrorMessage(t('compress.failed', err.message));
                     return;
@@ -165,7 +185,9 @@ export function registerCompressConversationCommand(context: vscode.ExtensionCon
                         uuid: uuidv4(),
                         name: t('compress.nameSuffix', originalMetadata?.name || t('serializer.newAgent')),
                         created_at: new Date().toISOString(),
-                        parent_agent_id: null
+                        parent_agent_id: null,
+                        model: sourceModel ?? compressModel,
+                        provider: sourceProvider ?? compressProvider
                     };
 
                     // Create single user message with compressed content

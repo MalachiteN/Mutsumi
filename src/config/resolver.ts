@@ -3,31 +3,32 @@
  * @module config/resolver
  */
 
-import * as vscode from 'vscode';
 import { AgentTypeRegistry } from '../registry/agentTypeRegistry';
 import { ResolvedAgentDefaults, ResolveAgentDefaultsOptions } from './interfaces';
+import { resolveModelSelection, getDefaultModelSelection } from '../utils';
+import { ModelSelection } from '../types';
 
 export { ResolvedAgentDefaults, ResolveAgentDefaultsOptions } from './interfaces';
 
 /**
  * Resolves agent defaults from AgentTypeRegistry with optional overrides.
- * 
+ *
  * This is the central function for resolving agent configuration defaults.
  * Priority: overrides > agent type defaults > VS Code config defaultModel
- * 
+ *
  * @param {string} agentType - The agent type identifier (e.g., 'chat', 'orchestrator', 'implementer', 'reviewer')
  * @param {ResolveAgentDefaultsOptions} [options] - Optional overrides and filters
  * @returns {ResolvedAgentDefaults} The resolved configuration with all defaults applied
- * @throws {Error} If agentType is not found in registry
- * 
+ * @throws {Error} If agentType is not found in registry or model selection is invalid
+ *
  * @example
  * // Basic usage - resolve defaults for 'implementer' type
  * const defaults = resolveAgentDefaults('implementer');
- * 
+ *
  * @example
  * // With overrides and filtering
  * const defaults = resolveAgentDefaults('implementer', {
- *     model: 'gpt-4',
+ *     modelSelection: { model: 'kimi-for-coding', provider: 'kimi-for-coding' },
  *     availableRules: ['default.md', 'custom.md']
  * });
  */
@@ -44,12 +45,15 @@ export function resolveAgentDefaults(
         );
     }
 
-    // Resolve model: override > agent type default > VS Code config
-    const vscodeDefaultModel = vscode.workspace.getConfiguration('mutsumi').get<string>('defaultModel');
-    const resolvedModel = options?.model 
-        ?? typeConfig.defaultModel 
-        ?? vscodeDefaultModel 
-        ?? 'moonshotai/kimi-k2.5';
+    // Resolve model selection: override > agent type default > VS Code config defaultModel
+    let resolvedSelection: ModelSelection;
+    if (options?.modelSelection) {
+        resolvedSelection = resolveModelSelection(options.modelSelection);
+    } else if (typeConfig.defaultModel) {
+        resolvedSelection = resolveModelSelection(typeConfig.defaultModel);
+    } else {
+        resolvedSelection = getDefaultModelSelection();
+    }
 
     // Resolve rules: override > agent type default
     let resolvedRules: string[];
@@ -70,7 +74,8 @@ export function resolveAgentDefaults(
         : (typeConfig.defaultSkills ?? []);
 
     return {
-        model: resolvedModel,
+        model: resolvedSelection.model,
+        provider: resolvedSelection.provider,
         rules: resolvedRules,
         skills: resolvedSkills,
         toolSets: typeConfig.toolSets

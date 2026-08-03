@@ -133,8 +133,25 @@ export class HeadlessAgentSession implements IAgentSession {
                 if (Array.isArray(data.context)) {
                     this.history = data.context;
                 }
-                if (data.metadata?.model && !this.config.model) {
-                    this.config.model = data.metadata.model;
+                if (data.metadata) {
+                    if (data.metadata.model && !this.config.model) {
+                        this.config.model = data.metadata.model;
+                    }
+                    if (!this.config.metadata) {
+                        this.config.metadata = {
+                            uuid: this.id,
+                            name: 'Headless Agent',
+                            created_at: new Date().toISOString(),
+                            parent_agent_id: null,
+                            allowed_uris: this.config.allowedUris ?? []
+                        } as AgentMetadata;
+                    }
+                    if (data.metadata.model && !this.config.metadata.model) {
+                        this.config.metadata.model = data.metadata.model;
+                    }
+                    if (data.metadata.provider && !this.config.metadata.provider) {
+                        this.config.metadata.provider = data.metadata.provider;
+                    }
                 }
             } catch {
                 // Ignore, return cached history

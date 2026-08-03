@@ -3,6 +3,8 @@
  * @module config/interfaces
  */
 
+import { ModelSelection } from '../types';
+
 /**
  * Configuration for a specific agent type.
  * Defines role defaults and capability composition via toolSets.
@@ -13,8 +15,8 @@ export interface AgentTypeConfig {
     /** List of tool set names to combine (tools are unioned, duplicates removed) */
     toolSets: string[];
 
-    /** Default model identifier */
-    defaultModel: string;
+    /** Default model selection pair; omitted → fall back to global default */
+    defaultModel?: ModelSelection;
 
     /** List of default rule file paths (relative to .mutsumi/rules/) */
     defaultRules: string[];
@@ -70,6 +72,8 @@ export type AgentTypeConfigMap = Record<string, AgentTypeConfig>;
 export interface ResolvedAgentDefaults {
     /** Resolved model identifier */
     model: string;
+    /** Resolved provider identifier */
+    provider: string;
     /** Resolved list of active rule files */
     rules: string[];
     /** Resolved list of active skill names */
@@ -82,8 +86,8 @@ export interface ResolvedAgentDefaults {
  * Options for overriding resolved defaults.
  */
 export interface ResolveAgentDefaultsOptions {
-    /** Override the model (highest priority) */
-    model?: string;
+    /** Override the model selection (highest priority) */
+    modelSelection?: ModelSelection;
     /** Override the rules (highest priority) */
     rules?: string[];
     /** Override the skills (highest priority) */

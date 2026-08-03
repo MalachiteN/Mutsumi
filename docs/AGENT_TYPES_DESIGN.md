@@ -187,7 +187,7 @@ If the file does not exist, Mutsumi loads built-in defaults from `src/config/typ
     "agentTypes": {
         "chat": {
             "toolSets": ["read"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": { "model": "kimi-for-coding", "provider": "kimi-for-coding" },
             "defaultRules": ["default/chat.md"],
             "defaultSkills": [],
             "allowedChildTypes": [],
@@ -195,7 +195,7 @@ If the file does not exist, Mutsumi loads built-in defaults from `src/config/typ
         },
         "implementer": {
             "toolSets": ["read", "deliver", "dispatch"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": { "model": "kimi-for-coding", "provider": "kimi-for-coding" },
             "defaultRules": ["default/implementer.md"],
             "defaultSkills": [],
             "allowedChildTypes": ["implementer", "reviewer"],
@@ -203,7 +203,7 @@ If the file does not exist, Mutsumi loads built-in defaults from `src/config/typ
         },
         "orchestrator": {
             "toolSets": ["read", "deliver", "dispatch"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": { "model": "kimi-for-coding", "provider": "kimi-for-coding" },
             "defaultRules": ["default/orchestrator.md"],
             "defaultSkills": [],
             "allowedChildTypes": ["implementer", "reviewer"],
@@ -211,7 +211,7 @@ If the file does not exist, Mutsumi loads built-in defaults from `src/config/typ
         },
         "reviewer": {
             "toolSets": ["read"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": { "model": "kimi-for-coding", "provider": "kimi-for-coding" },
             "defaultRules": ["default/reviewer.md"],
             "defaultSkills": [],
             "allowedChildTypes": [],
@@ -238,7 +238,7 @@ Tool sets are composable building blocks, not necessarily full agent roles by th
 ### `agentTypes.<name>`
 
 - `toolSets`: ordered list of named tool sets to combine
-- `defaultModel`: default model for this role
+- `defaultModel`: optional default `{ model, provider }` pair for this role; omitted → fall back to `mutsumi.defaultModel`
 - `defaultRules`: default rule files under `.mutsumi/rules/`
 - `defaultSkills`: default active skills
 - `allowedChildTypes`: which child roles may be created through `dispatch_subagents`
