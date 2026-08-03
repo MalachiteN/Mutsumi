@@ -25,24 +25,28 @@ const DEFAULT_PROVIDERS: Provider[] = [
 
 /**
  * Default models configuration used when user hasn't configured any models.
- * @description Values are provider names (from mutsumi.providers or DEFAULT_PROVIDERS).
+ * @description Keys are provider names, values are arrays of model identifiers
+ * supported by that provider.
  */
-const DEFAULT_MODELS: Record<string, string> = {
-    "kimi-for-coding": "kimi-for-coding"
+const DEFAULT_MODELS: Record<string, string[]> = {
+    "kimi-for-coding": ["kimi-for-coding"]
 };
 
 /**
  * Gets the provider credentials for a given model.
- * @description Looks up the model's associated provider and returns the
- * provider's API key and base URL. Performs validation including checking
+ * @description Finds the provider that lists the given model and returns the
+ * provider's API key and base URL. If a model appears under multiple providers,
+ * the provider matching `providerHint` is preferred; otherwise the first
+ * matching provider is used. Performs validation including checking
  * for duplicate provider names and ensuring all required fields are present.
  * @param {string} modelName - The model identifier to look up
+ * @param {string} [providerHint] - Optional provider name to disambiguate when the same model is listed under multiple providers
  * @returns {{ apiKey: string; baseUrl: string }} Provider credentials with camelCase property names
  * @throws {Error} If provider not found, duplicate names exist, or required fields are empty
  * @example
  * const { apiKey, baseUrl } = getModelCredentials('moonshotai/kimi-k2.5');
  */
-export function getModelCredentials(modelName: string): { apiKey: string; baseUrl: string } {
+export function getModelCredentials(modelName: string, providerHint?: string): { apiKey: string; baseUrl: string } {
     const config = vscode.workspace.getConfiguration('mutsumi');
     
     // Load providers and models
@@ -64,8 +68,27 @@ export function getModelCredentials(modelName: string): { apiKey: string; baseUr
         seenNames.add(trimmedName);
     }
     
-    // Look up the model's provider
-    const providerName = models[modelName]?.trim();
+    // Find the provider that lists this model.
+    // If providerHint is given, prefer the matching provider; otherwise use first match.
+    let providerName: string | undefined;
+    let firstMatch: string | undefined;
+    const trimmedHint = providerHint?.trim();
+    for (const [pName, modelList] of Object.entries(models)) {
+        if (Array.isArray(modelList) && modelList.includes(modelName)) {
+            const trimmedPName = pName.trim();
+            if (!firstMatch) {
+                firstMatch = trimmedPName;
+            }
+            if (trimmedHint && trimmedPName === trimmedHint) {
+                providerName = trimmedPName;
+                break;
+            }
+        }
+    }
+    // Fall back to first match if hint didn't match (or no hint given)
+    if (!providerName) {
+        providerName = firstMatch;
+    }
     if (!providerName) {
         throw new Error(`Model "${modelName}" not found in configuration`);
     }
@@ -98,16 +121,16 @@ export function getModelCredentials(modelName: string): { apiKey: string; baseUr
 /**
  * Gets the models configuration from VS Code settings.
  * @description Returns user-configured models if available, otherwise returns
- * the built-in default models. This allows users to override defaults by
- * configuring the mutsumi.models setting.
- * @returns {Record<string, string>} Models configuration (model name -> provider name)
+ * the built-in default models. The configuration maps provider names to arrays
+ * of model identifiers supported by that provider.
+ * @returns {Record<string, string[]>} Models configuration (provider name -> model identifiers)
  * @example
  * const models = getModelsConfig();
- * console.log(Object.keys(models)); // ['moonshotai/kimi-k2.5', ...]
+ * console.log(Object.keys(models)); // ['kimi-for-coding', ...]
  */
-export function getModelsConfig(): Record<string, string> {
+export function getModelsConfig(): Record<string, string[]> {
     const config = vscode.workspace.getConfiguration('mutsumi');
-    const models = config.get<Record<string, string>>('models', {});
+    const models = config.get<Record<string, string[]>>('models', {});
     
     // If user has configured models (non-empty object), use them
     if (Object.keys(models).length > 0) {
@@ -116,6 +139,16 @@ export function getModelsConfig(): Record<string, string> {
     
     // Otherwise return default models
     return DEFAULT_MODELS;
+}
+
+/**
+ * Gets the list of all available model names from the models configuration.
+ * @description Flattens the provider-to-models mapping and returns unique model names.
+ * @returns {string[]} Array of unique model names
+ */
+export function getAvailableModelNames(): string[] {
+    const models = getModelsConfig();
+    return [...new Set(Object.values(models).flat())];
 }
 
 /**

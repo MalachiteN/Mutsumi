@@ -13,6 +13,7 @@ import { t } from '../../i18n';
 interface ModelQuickPickItem extends vscode.QuickPickItem {
     itemType: 'model';
     value: string;
+    provider: string;
 }
 
 /** QuickPick item representing a reasoning effort setting. */
@@ -59,31 +60,54 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
             }
             
             const modelsConfig = getModelsConfig();
-            const modelNames = Object.keys(modelsConfig);
-            
-            if (modelNames.length === 0) {
-                vscode.window.showErrorMessage(t('selectModel.noModels'));
-                return;
-            }
+            const providerEntries = Object.entries(modelsConfig);
             
             const currentModel = editor.notebook.metadata?.model;
+            const currentProvider = editor.notebook.metadata?.provider;
             const effectiveReasoningEffort = normalizeReasoningEffort(
                 editor.notebook.metadata?.reasoning_effort
             ) ?? 'default';
 
-            const modelItems: ModelQuickPickItem[] = modelNames.map(name => {
-                const label = modelsConfig[name];
-                const description = label ? `🏷️ ${label}` : undefined;
-                const detail = name === currentModel ? '$(check) ' + t('selectModel.current') : undefined;
-                return {
-                    itemType: 'model',
-                    value: name,
-                    label: name,
-                    description,
-                    detail,
-                    picked: name === currentModel
-                };
-            });
+            const modelItems: SelectModelQuickPickItem[] = [];
+            let legacyMatched = false;
+            for (const [providerName, modelNames] of providerEntries) {
+                if (!Array.isArray(modelNames) || modelNames.length === 0) {
+                    continue;
+                }
+                modelItems.push({
+                    itemType: 'separator',
+                    label: providerName,
+                    kind: vscode.QuickPickItemKind.Separator
+                });
+                for (const modelName of modelNames) {
+                    // When provider is stored in metadata, match on both model and provider.
+                    // For legacy notebooks without a provider field, fall back to
+                    // first-occurrence match on model name only.
+                    let isCurrent: boolean;
+                    if (currentProvider) {
+                        isCurrent = modelName === currentModel && providerName === currentProvider;
+                    } else {
+                        isCurrent = !legacyMatched && modelName === currentModel;
+                        if (isCurrent) {
+                            legacyMatched = true;
+                        }
+                    }
+                    const detail = isCurrent ? '$(check) ' + t('selectModel.current') : undefined;
+                    modelItems.push({
+                        itemType: 'model',
+                        value: modelName,
+                        provider: providerName,
+                        label: modelName,
+                        detail,
+                        picked: isCurrent
+                    });
+                }
+            }
+            
+            if (modelItems.length === 0) {
+                vscode.window.showErrorMessage(t('selectModel.noModels'));
+                return;
+            }
 
             const effortItems: ReasoningEffortQuickPickItem[] = REASONING_EFFORT_SETTING_VALUES.map(value => ({
                 itemType: 'reasoningEffort',
@@ -119,6 +143,7 @@ export function registerSelectModelCommand(context: vscode.ExtensionContext): vo
             const newMetadata = { ...editor.notebook.metadata };
             if (selected.itemType === 'model') {
                 newMetadata.model = selected.value;
+                newMetadata.provider = selected.provider;
                 delete newMetadata.reasoning_effort;
             } else if (selected.value === 'default') {
                 delete newMetadata.reasoning_effort;

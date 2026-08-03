@@ -24,7 +24,7 @@ export async function handleChat(
     const uuidParam = req.params.uuid;
     const uuid = Array.isArray(uuidParam) ? uuidParam[0] : uuidParam;
     const body = req.body ?? {};
-    const { prompt, model, stream } = body;
+    const { prompt, model, provider, stream } = body;
     const hasReasoningEffort = Object.prototype.hasOwnProperty.call(body, 'reasoning_effort');
     const bodyReasoningEffort = body.reasoning_effort;
     const isStreamMode = stream === true;
@@ -76,6 +76,7 @@ export async function handleChat(
 
     // Determine model to use: request param > notebook metadata > VS Code config
     const effectiveModel = model || (notebookData.metadata as AgentMetadata)?.model || defaultModel;
+    const effectiveProvider = provider || (notebookData.metadata as AgentMetadata)?.provider;
     const reasoningEffort = normalizeReasoningEffort(
         (hasReasoningEffort ? bodyReasoningEffort as string : undefined)
             ?? (notebookData.metadata as AgentMetadata)?.reasoning_effort
@@ -89,7 +90,7 @@ export async function handleChat(
     // Get credentials for the model
     let credentials: { apiKey: string; baseUrl: string };
     try {
-        credentials = getModelCredentials(effectiveModel);
+        credentials = getModelCredentials(effectiveModel, effectiveProvider);
     } catch (err: any) {
         res.status(400).json({ status: 'error', content: err.message });
         return;
@@ -100,6 +101,9 @@ export async function handleChat(
     // Update metadata if model was provided in request
     if (model && notebookData.metadata) {
         (notebookData.metadata as AgentMetadata).model = model;
+        if (provider) {
+            (notebookData.metadata as AgentMetadata).provider = provider;
+        }
     }
 
     // Get allowedUris from notebook metadata

@@ -406,10 +406,6 @@
                 },
                 "mutsumi.models": {
                     "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    },
-                    "default": {},
                     "markdownDescription": "%configuration.models.markdownDescription%"
                 },
                 "mutsumi.defaultModel": {
@@ -557,7 +553,7 @@
         "openai": "^6.17.0",
         "partial-json": "^0.1.7",
         "preprocess": "^3.2.0",
-        "typescript": "^5.0.0",
+        "typescript": "^5.9.3",
         "uuid": "^9.0.1"
     },
     "dependencies": {

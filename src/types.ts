@@ -22,6 +22,8 @@ export interface AgentMetadata {
     is_task_finished?: boolean;
     /** Model identifier used for this agent */
     model?: string;
+    /** Provider name that serves the model (disambiguates when the same model appears under multiple providers) */
+    provider?: string;
     /** Concrete reasoning effort override; 'default' or unset is represented by the key being absent */
     reasoning_effort?: string;
     /** Persisted context items (Files, Rules) valid for the whole session */

@@ -83,12 +83,13 @@ export class AgentController {
         const config = vscode.workspace.getConfiguration('mutsumi');
         const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
         const model = notebook.metadata?.model || defaultModel;
+        const provider = notebook.metadata?.provider;
         const reasoningEffort = normalizeReasoningEffort(notebook.metadata?.reasoning_effort);
 
         // Get credentials for the model
         let credentials: { apiKey: string; baseUrl: string };
         try {
-            credentials = getModelCredentials(model);
+            credentials = getModelCredentials(model, provider);
         } catch (err: any) {
             const adapter = new NotebookAdapter(controller);
             const session = await adapter.createSession({

@@ -42,14 +42,19 @@ Replace the flat `mutsumi.apiKey` and `mutsumi.baseUrl` settings with a new `mut
 ### Modified: `mutsumi.models`
 
 **Before**: `Record<string, string>` where value was a display label  
-**After**: `Record<string, string>` where value is the provider name
+**After**: `Record<string, string[]>` where key is the provider name and value is an array of model identifiers
 
 Example:
 ```json
 {
   "mutsumi.models": {
-    "moonshotai/kimi-k2.5": "ZenMux",
-    "openai/gpt-4.1-nano": "OpenAI-Official"
+    "ZenMux": [
+      "moonshotai/kimi-k2.5",
+      "openai/gpt-4.1-nano"
+    ],
+    "OpenAI-Official": [
+      "openai/gpt-4.1-nano"
+    ]
   }
 }
 ```
@@ -57,9 +62,9 @@ Example:
 ### Modified: Model References in `package.json`
 
 Update descriptions for:
-- `mutsumi.defaultModel`: "Default model to use (must be a key in mutsumi.models)"
-- `mutsumi.titleGeneratorModel`: "Model used for generating agent titles (must be a key in mutsumi.models)"
-- `mutsumi.compressModel`: "Model used for compressing conversations (must be a key in mutsumi.models)"
+- `mutsumi.defaultModel`: "Default model to use (must be a model listed in mutsumi.models)"
+- `mutsumi.titleGeneratorModel`: "Model used for generating agent titles (must be a model listed in mutsumi.models)"
+- `mutsumi.compressModel`: "Model used for compressing conversations (must be a model listed in mutsumi.models)"
 
 ### Removed
 
@@ -75,14 +80,16 @@ const DEFAULT_PROVIDERS = [
   { name: "ZenMux", baseurl: "https://zenmux.ai/api/v1", api_key: "" }
 ];
 
-const DEFAULT_MODELS: Record<string, string> = {
-  "openai/gpt-4.1-nano": "ZenMux",
-  "moonshotai/kimi-k2.5": "ZenMux",
-  "stepfun/step-3.5-flash": "ZenMux",
-  "google/gemini-3-pro-preview": "ZenMux",
-  "minimax/minimax-m2.7-highspeed": "ZenMux",
-  "openai/gpt-5.4": "ZenMux",
-  "volcengine/doubao-seed-2.0-pro": "ZenMux"
+const DEFAULT_MODELS: Record<string, string[]> = {
+  "ZenMux": [
+    "openai/gpt-4.1-nano",
+    "moonshotai/kimi-k2.5",
+    "stepfun/step-3.5-flash",
+    "google/gemini-3-pro-preview",
+    "minimax/minimax-m2.7-highspeed",
+    "openai/gpt-5.4",
+    "volcengine/doubao-seed-2.0-pro"
+  ]
 };
 ```
 
@@ -98,7 +105,7 @@ const DEFAULT_MODELS: Record<string, string> = {
 3. If providers array is empty, use `DEFAULT_PROVIDERS`
 4. **Name Normalization**: Trim whitespace from all provider names for both duplicate detection AND lookup. Case-sensitive comparison after trimming.
 5. Validate provider names are unique after normalization (throw Error if duplicates found)
-6. Look up the model's associated provider name (provider name from models config is also trimmed during lookup)
+6. Find the provider that lists the given model (iterate provider→models mapping; first match wins if a model appears under multiple providers). Provider name is trimmed during lookup.
 7. If provider not found, throw Error
 8. Validate `baseurl` is non-empty after trimming
 9. Validate `api_key` is non-empty (required)
@@ -121,9 +128,13 @@ export function getModelCredentials(modelName: string): {
 
 ### Modified Function: `getModelsConfig()`
 
-Returns `Record<string, string>` (unchanged interface), but:
+Returns `Record<string, string[]>` (provider name → model identifiers array):
 - If user-configured models is empty, return `DEFAULT_MODELS`
-- Values are now provider names (not display labels)
+- Keys are provider names, values are arrays of model identifiers
+
+### New Function: `getAvailableModelNames()`
+
+Returns `string[]` — a flattened, deduplicated list of all model names across all providers. Used by validation code that needs to check if a model name is valid.
 
 ## Property Name Convention
 
@@ -149,8 +160,8 @@ return {
 
 - Add new `mutsumi.providers` configuration
 - Remove `mutsumi.apiKey` and `mutsumi.baseUrl`
-- Update `mutsumi.models` description: "Model to provider name mapping. Key is model identifier, value is the provider name from mutsumi.providers"
-- Update `defaultModel`, `titleGeneratorModel`, `compressModel` descriptions to reference mutsumi.models keys
+- Update `mutsumi.models` description: "Provider to models mapping. Key is the provider name from mutsumi.providers, value is an array of model identifiers supported by that provider"
+- Update `defaultModel`, `titleGeneratorModel`, `compressModel` descriptions to reference models listed in mutsumi.models
 
 ### 2. `src/utils.ts`
 
@@ -163,9 +174,10 @@ return {
   }
   ```
 - Add `DEFAULT_PROVIDERS` constant
-- Update `DEFAULT_MODELS` values to provider names
+- Update `DEFAULT_MODELS` to `Record<string, string[]>` (provider name → model identifiers array)
 - Implement `getModelCredentials(modelName: string)` function with normalization and validation
-- Update `getModelsConfig()` to use default providers/models when empty
+- Update `getModelsConfig()` to return `Record<string, string[]>` and use default models when empty
+- Add `getAvailableModelNames()` helper to flatten provider→models mapping into unique model names
 
 ### 3. `src/controller.ts`
 
@@ -309,29 +321,44 @@ const { apiKey, baseUrl } = credentials;
 
 ### 9. `src/notebook/commands/selectModel.ts`
 
-**No code changes required** for functionality, but update comments:
-- The `description` field showing `modelsConfig[name]` now displays provider name
-- Update JSDoc/comments to reflect this semantic change
+**Updated**: Model selection now groups models by provider using QuickPick separators. Each provider name appears as a separator, with its models listed beneath.
 
-Example comment update:
 ```typescript
-// Before: description contains the model label/description
-// After: description contains the provider name
-const description = label ? `🏷️ ${label}` : undefined;
+const modelItems: SelectModelQuickPickItem[] = [];
+for (const [providerName, modelNames] of providerEntries) {
+    modelItems.push({
+        itemType: 'separator',
+        label: providerName,
+        kind: vscode.QuickPickItemKind.Separator
+    });
+    for (const modelName of modelNames) {
+        modelItems.push({
+            itemType: 'model',
+            value: modelName,
+            label: modelName,
+            // ...
+        });
+    }
+}
 ```
 
 ### 10. `src/agent/fileOps.ts`
 
-**Review only**: This file uses `defaultModel` for model validation and fallback, but does NOT access apiKey/baseUrl directly.
+**Updated**: Model validation now uses `getAvailableModelNames()` instead of `Object.keys(getModelsConfig())` to flatten the provider→models mapping into a list of valid model names.
 
-**No changes required**: The logic (`const vscodeDefaultModel = config.get<string>('defaultModel') || 'moonshotai/kimi-k2.5'`) remains valid as it only deals with model names, not credentials.
+```typescript
+const availableModelNames = getAvailableModelNames();
+const selectedModel = (defaults.model && availableModelNames.includes(defaults.model)) 
+    ? defaults.model 
+    : vscodeDefaultModel;
+```
 
 ## Files NOT Requiring Changes
 
 - `src/agent/llmClient.ts` - Interface remains unchanged; callers provide credentials
 - `src/agent/types.ts` - Type definitions remain valid
 - `src/adapters/interfaces.ts` - Interface remains unchanged
-- `src/httpServer/model.ts` - Uses `getModelsConfig()`, no changes needed
+- `src/httpServer/model.ts` - Uses `getAvailableModelNames()` for model validation
 
 ## HTTP Server API Behavior
 
@@ -361,5 +388,5 @@ Validation errors include:
 This is a breaking change with no backward compatibility:
 - Users must reconfigure with new `providers` array
 - Old `apiKey` and `baseUrl` settings are ignored
-- `models` values are now provider names, not display labels
+- `models` is now a provider→models array mapping (key is provider name, value is array of model identifiers)
 - Error messages from getModelCredentials replace old "Please set mutsumi.apiKey" messages

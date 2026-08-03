@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { Request, Response } from 'express';
-import { getModelsConfig } from '../utils';
+import { getAvailableModelNames } from '../utils';
 import { getAgentFromRegistry } from './utils';
 import type { AgentContext } from '../types';
 
@@ -16,15 +16,14 @@ export async function handleSetModel(req: Request, res: Response): Promise<void>
         return;
     }
 
-    const { model } = req.body ?? {};
+    const { model, provider } = req.body ?? {};
     if (typeof model !== 'string' || !model.trim()) {
         res.status(400).json({ status: 'error', content: 'Missing or invalid model parameter.' });
         return;
     }
 
     // Validate model exists in configuration
-    const models = getModelsConfig();
-    const availableModels = Object.keys(models);
+    const availableModels = getAvailableModelNames();
 
     if (!availableModels.includes(model)) {
         res.status(400).json({
@@ -50,6 +49,9 @@ export async function handleSetModel(req: Request, res: Response): Promise<void>
 
         // Update model in metadata
         data.metadata.model = model;
+        if (provider) {
+            data.metadata.provider = provider;
+        }
 
         // Write back
         const encoded = new TextEncoder().encode(JSON.stringify(data, null, 2));

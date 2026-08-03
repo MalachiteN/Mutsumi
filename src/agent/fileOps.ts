@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getModelsConfig } from '../utils';
+import { getAvailableModelNames } from '../utils';
 import { AgentStateInfo, ContextItem } from '../types';
 import { resolveAgentDefaults } from '../config/resolver';
 
@@ -172,8 +172,7 @@ export class AgentFileOperations {
         // Get configuration for default model validation
         const config = vscode.workspace.getConfiguration('mutsumi');
         const vscodeDefaultModel = config.get<string>('defaultModel') || 'moonshotai/kimi-k2.5';
-        const availableModels = getModelsConfig();
-        const availableModelNames = Object.keys(availableModels);
+        const availableModelNames = getAvailableModelNames();
 
         // Resolve agent type defaults using centralized resolver
         const defaults = resolveAgentDefaults(agentType, {
