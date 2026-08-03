@@ -187,7 +187,7 @@ Agent Type 不实现通用继承。
     "agentTypes": {
         "chat": {
             "toolSets": ["read"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": { "model": "kimi-for-coding", "provider": "kimi-for-coding" },
             "defaultRules": ["default/chat.md"],
             "defaultSkills": [],
             "allowedChildTypes": [],
@@ -195,7 +195,7 @@ Agent Type 不实现通用继承。
         },
         "implementer": {
             "toolSets": ["read", "deliver", "dispatch"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": { "model": "kimi-for-coding", "provider": "kimi-for-coding" },
             "defaultRules": ["default/implementer.md"],
             "defaultSkills": [],
             "allowedChildTypes": ["implementer", "reviewer"],
@@ -203,7 +203,7 @@ Agent Type 不实现通用继承。
         },
         "orchestrator": {
             "toolSets": ["read", "deliver", "dispatch"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": { "model": "kimi-for-coding", "provider": "kimi-for-coding" },
             "defaultRules": ["default/orchestrator.md"],
             "defaultSkills": [],
             "allowedChildTypes": ["implementer", "reviewer"],
@@ -211,7 +211,7 @@ Agent Type 不实现通用继承。
         },
         "reviewer": {
             "toolSets": ["read"],
-            "defaultModel": "moonshotai/kimi-k2.5",
+            "defaultModel": { "model": "kimi-for-coding", "provider": "kimi-for-coding" },
             "defaultRules": ["default/reviewer.md"],
             "defaultSkills": [],
             "allowedChildTypes": [],
@@ -238,7 +238,7 @@ Tool set 是可组合的构件，不一定本身就是一个完整角色。一�
 ### `agentTypes.<name>`
 
 - `toolSets`：需要组合的命名工具集列表
-- `defaultModel`：该角色默认使用的模型
+- `defaultModel`：该角色默认使用的 `{ model, provider }` 模型对；省略时回退到 `mutsumi.defaultModel`
 - `defaultRules`：默认规则文件，位于 `.mutsumi/rules/` 下
 - `defaultSkills`：默认启用的 skills
 - `allowedChildTypes`：通过 `dispatch_subagents` 可创建的子角色类型

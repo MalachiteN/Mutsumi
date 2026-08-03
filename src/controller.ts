@@ -10,7 +10,7 @@ import { AgentOrchestrator } from './agent/agentOrchestrator';
 import { NotebookAdapter } from './adapters/notebookAdapter';
 import { buildInteractionHistory } from './contextManagement/history';
 import { AgentMetadata } from './types';
-import { getModelCredentials } from './utils';
+import { getModelCredentials, getDefaultModelSelection, resolveModelSelection } from './utils';
 import { normalizeReasoningEffort } from './agent/types';
 import { t } from './i18n';
 
@@ -80,11 +80,44 @@ export class AgentController {
         notebook: vscode.NotebookDocument,
         controller: vscode.NotebookController
     ): Promise<void> {
-        const config = vscode.workspace.getConfiguration('mutsumi');
-        const defaultModel = config.get<string>('defaultModel') || 'gpt-3.5-turbo';
-        const model = notebook.metadata?.model || defaultModel;
-        const provider = notebook.metadata?.provider;
+        const metadataModel = notebook.metadata?.model;
+        const metadataProvider = notebook.metadata?.provider;
         const reasoningEffort = normalizeReasoningEffort(notebook.metadata?.reasoning_effort);
+
+        // Resolve model selection from metadata: complete pair → use; missing model → global default;
+        // model without provider → migration error.
+        let model: string;
+        let provider: string;
+        try {
+            if (metadataModel && metadataProvider) {
+                const resolved = resolveModelSelection({ model: metadataModel, provider: metadataProvider });
+                model = resolved.model;
+                provider = resolved.provider;
+            } else if (!metadataModel) {
+                const resolved = getDefaultModelSelection();
+                model = resolved.model;
+                provider = resolved.provider;
+            } else {
+                throw new Error(
+                    `Agent metadata is missing the required provider field. ` +
+                    'Update the agent file by re-selecting the model.'
+                );
+            }
+        } catch (err: any) {
+            const adapter = new NotebookAdapter(controller);
+            const session = await adapter.createSession({
+                resourceUri: cell.document.uri,
+                config: {
+                    model: metadataModel ?? '',
+                    apiKey: '',
+                    baseUrl: '',
+                    metadata: notebook.metadata as AgentMetadata
+                }
+            });
+            await session.replaceOutput(`Error: ${err.message}`);
+            (session as any).end(false);
+            return;
+        }
 
         // Get credentials for the model
         let credentials: { apiKey: string; baseUrl: string };

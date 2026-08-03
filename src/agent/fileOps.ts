@@ -6,8 +6,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getAvailableModelNames } from '../utils';
-import { AgentStateInfo, ContextItem } from '../types';
+import { resolveModelSelection } from '../utils';
+import { AgentStateInfo, ContextItem, ModelSelection } from '../types';
 import { resolveAgentDefaults } from '../config/resolver';
 
 /**
@@ -126,9 +126,9 @@ export class AgentFileOperations {
      * @param {string | null} parentId - Parent agent ID or null
      * @param {string} [prompt] - Initial prompt for the agent (used for name generation). If undefined or empty, agent name will be "New Agent" and context will be empty.
      * @param {string[]} allowedUris - Allowed URIs for the agent
-     * @param {string} [model] - Model identifier to use (overrides agent type default)
-     * @param {ContextItem[]} [contextItems] - Context items for the agent
      * @param {string} agentType - Agent type identifier (e.g., 'chat', 'orchestrator', 'implementer', 'reviewer')
+     * @param {ModelSelection} [modelSelection] - Model/provider pair to use (overrides agent type default)
+     * @param {ContextItem[]} [contextItems] - Context items for the agent
      * @returns {Promise<vscode.Uri | undefined>} The created file URI or undefined on failure
      * @example
      * const uri = await AgentFileOperations.createAgentFile(
@@ -136,9 +136,9 @@ export class AgentFileOperations {
      *   'parent-456',
      *   'Process files',
      *   ['/workspace'],
-     *   'gpt-4',
-     *   [],
-     *   'implementer'
+     *   'implementer',
+     *   { model: 'kimi-for-coding', provider: 'kimi-for-coding' },
+     *   []
      * );
      */
     public static async createAgentFile(
@@ -147,7 +147,7 @@ export class AgentFileOperations {
         prompt: string | undefined,
         allowedUris: string[],
         agentType: string,
-        model?: string,
+        modelSelection?: ModelSelection,
         contextItems?: ContextItem[]
     ): Promise<vscode.Uri | undefined> {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri;
@@ -163,26 +163,22 @@ export class AgentFileOperations {
         });
 
         // Ensure directory exists
-        try { 
-            await vscode.workspace.fs.createDirectory(folderUri); 
+        try {
+            await vscode.workspace.fs.createDirectory(folderUri);
         } catch {
             // Directory may already exist
         }
 
-        // Get configuration for default model validation
-        const config = vscode.workspace.getConfiguration('mutsumi');
-        const vscodeDefaultModel = config.get<string>('defaultModel') || 'moonshotai/kimi-k2.5';
-        const availableModelNames = getAvailableModelNames();
-
         // Resolve agent type defaults using centralized resolver
         const defaults = resolveAgentDefaults(agentType, {
-            model
+            modelSelection
         });
 
-        // Validate model against available models
-        const selectedModel = (defaults.model && availableModelNames.includes(defaults.model)) 
-            ? defaults.model 
-            : vscodeDefaultModel;
+        // Validate the resolved selection through the gate
+        const resolvedSelection = resolveModelSelection({
+            model: defaults.model,
+            provider: defaults.provider
+        });
 
         // Determine name and context based on prompt
         const hasPrompt = prompt && prompt.trim().length > 0;
@@ -205,7 +201,8 @@ export class AgentFileOperations {
                 parent_agent_id: parentId,
                 allowed_uris: allowedUris,
                 is_task_finished: false,
-                model: selectedModel,
+                model: resolvedSelection.model,
+                provider: resolvedSelection.provider,
                 sub_agents_list: [],  // New agent starts with empty sub-agent list
                 contextItems: contextItems,
                 activeRules: defaults.rules,
@@ -268,6 +265,49 @@ export class AgentFileOperations {
         } catch (e) {
             console.error('Failed to update agent parent in file:', e);
             return false;
+        }
+    }
+
+    /**
+     * Updates the model selection of an agent in its file or open notebook.
+     * @static
+     * @description Uses WorkspaceEdit to update notebook metadata if the document is open,
+     * otherwise writes directly to file. This is the single write point for agent
+     * model/provider metadata mutations.
+     * @param {vscode.Uri} fileUri - URI of the agent file
+     * @param {ModelSelection} selection - Complete model/provider pair
+     * @returns {Promise<void>}
+     * @throws {Error} If the selection is invalid or the update fails
+     */
+    public static async updateAgentModelSelection(
+        fileUri: vscode.Uri,
+        selection: ModelSelection
+    ): Promise<void> {
+        const resolved = resolveModelSelection(selection);
+
+        const openDoc = vscode.workspace.notebookDocuments.find(
+            doc => doc.uri.toString() === fileUri.toString()
+        );
+
+        if (openDoc) {
+            const edit = new vscode.WorkspaceEdit();
+            const newMetadata = {
+                ...openDoc.metadata,
+                model: resolved.model,
+                provider: resolved.provider
+            };
+            const nbEdit = vscode.NotebookEdit.updateNotebookMetadata(newMetadata);
+            edit.set(fileUri, [nbEdit]);
+            await vscode.workspace.applyEdit(edit);
+        } else {
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const data = JSON.parse(new TextDecoder().decode(content));
+
+            data.metadata.model = resolved.model;
+            data.metadata.provider = resolved.provider;
+
+            const encoded = new TextEncoder().encode(JSON.stringify(data, null, 2));
+            await vscode.workspace.fs.writeFile(fileUri, encoded);
         }
     }
 

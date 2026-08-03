@@ -5,14 +5,15 @@ import { MutsumiSerializer } from '../notebook/serializer';
 import { RenderData, RenderBlock, MUTSUMI_AGENT_CHAT_MIME } from '../notebook/renderTypes';
 import { ToolSet, ToolRegistry, createToolSetForAgent } from '../tools.d/toolManager';
 import { getAgentFromRegistry } from './utils';
-import { getModelCredentials } from '../utils';
+import { AgentFileOperations } from '../agent/fileOps';
+import { getModelCredentials, getDefaultModelSelection, resolveModelSelection } from '../utils';
 import {
     normalizeReasoningEffort,
     REASONING_EFFORT_SETTING_VALUES
 } from '../agent/types';
 import type { HeadlessAdapter } from '../adapters/headlessAdapter';
 import type { AgentSessionConfig } from '../adapters/interfaces';
-import type { AgentMessage, AgentMetadata } from '../types';
+import type { AgentMessage, AgentMetadata, ModelSelection } from '../types';
 
 export async function handleChat(
     req: express.Request,
@@ -71,26 +72,49 @@ export async function handleChat(
 
     // Get VS Code configuration
     const config = vscode.workspace.getConfiguration('mutsumi');
-    const defaultModel = config.get<string>('defaultModel');
     const maxLoops = config.get<number>('maxLoops') || 30;
 
-    // Determine model to use: request param > notebook metadata > VS Code config
-    const effectiveModel = model || (notebookData.metadata as AgentMetadata)?.model || defaultModel;
-    const effectiveProvider = provider || (notebookData.metadata as AgentMetadata)?.provider;
-    const reasoningEffort = normalizeReasoningEffort(
-        (hasReasoningEffort ? bodyReasoningEffort as string : undefined)
-            ?? (notebookData.metadata as AgentMetadata)?.reasoning_effort
-    );
+    const metadata = notebookData.metadata as AgentMetadata;
+    const metadataModel = metadata?.model;
+    const metadataProvider = metadata?.provider;
 
-    if (!effectiveModel) {
-        res.status(500).json({ status: 'error', content: 'No model specified. Provide model in request body, notebook metadata, or VS Code settings.' });
+    // Body model/provider must be all-or-nothing.
+    const hasModel = typeof model === 'string' && model.trim().length > 0;
+    const hasProvider = typeof provider === 'string' && provider.trim().length > 0;
+    if (hasModel !== hasProvider) {
+        res.status(400).json({
+            status: 'error',
+            content: 'model and provider must be provided together or omitted together.'
+        });
         return;
     }
 
-    // Get credentials for the model
+    let effectiveSelection: ModelSelection;
+    try {
+        if (hasModel && hasProvider) {
+            effectiveSelection = resolveModelSelection({ model, provider });
+        } else {
+            // Use persisted pair. Missing model → global default; model without provider → migration error.
+            if (!metadataModel) {
+                effectiveSelection = getDefaultModelSelection();
+            } else if (!metadataProvider) {
+                throw new Error(
+                    `Agent metadata is missing the required provider field. ` +
+                    'Update the agent file by re-selecting the model.'
+                );
+            } else {
+                effectiveSelection = resolveModelSelection({ model: metadataModel, provider: metadataProvider });
+            }
+        }
+    } catch (err: any) {
+        res.status(400).json({ status: 'error', content: err.message });
+        return;
+    }
+
+    // Get credentials for the resolved pair.
     let credentials: { apiKey: string; baseUrl: string };
     try {
-        credentials = getModelCredentials(effectiveModel, effectiveProvider);
+        credentials = getModelCredentials(effectiveSelection.model, effectiveSelection.provider);
     } catch (err: any) {
         res.status(400).json({ status: 'error', content: err.message });
         return;
@@ -98,16 +122,24 @@ export async function handleChat(
     const { apiKey, baseUrl } = credentials;
     // getModelCredentials guarantees apiKey and baseUrl are non-empty
 
-    // Update metadata if model was provided in request
-    if (model && notebookData.metadata) {
-        (notebookData.metadata as AgentMetadata).model = model;
-        if (provider) {
-            (notebookData.metadata as AgentMetadata).provider = provider;
+    const effectiveModel = effectiveSelection.model;
+    const effectiveProvider = effectiveSelection.provider;
+    const reasoningEffort = normalizeReasoningEffort(
+        (hasReasoningEffort ? bodyReasoningEffort as string : undefined)
+            ?? metadata?.reasoning_effort
+    );
+
+    // Persist the resolved pair when it came from the request body.
+    if (hasModel && hasProvider) {
+        try {
+            await AgentFileOperations.updateAgentModelSelection(fileUri, effectiveSelection);
+        } catch (err: any) {
+            res.status(400).json({ status: 'error', content: err.message });
+            return;
         }
     }
 
     // Get allowedUris from notebook metadata
-    const metadata = notebookData.metadata as AgentMetadata;
     const allowedUris = metadata?.allowed_uris || ['/'];
     const isSubAgent = !!metadata?.parent_agent_id;
 
@@ -135,6 +167,13 @@ export async function handleChat(
         return;
     }
 
+    // Ensure local metadata reflects the resolved pair (file may have been mutated above).
+    const updatedMetadata: AgentMetadata = {
+        ...metadata,
+        model: effectiveModel,
+        provider: effectiveProvider
+    };
+
     // Create session config
     const sessionConfig: AgentSessionConfig = {
         model: effectiveModel,
@@ -143,7 +182,7 @@ export async function handleChat(
         maxLoops,
         allowedUris,
         isSubAgent,
-        metadata
+        metadata: updatedMetadata
     };
 
     // Create or get session using adapter
@@ -153,6 +192,14 @@ export async function handleChat(
             sessionId: uuid,
             resourceUri: fileUri,
             config: sessionConfig
+        });
+    } else {
+        // Synchronize cached session metadata so a later save cannot roll the pair back.
+        session.setConfig({
+            metadata: {
+                model: effectiveModel,
+                provider: effectiveProvider
+            } as any
         });
     }
 
@@ -177,7 +224,8 @@ export async function handleChat(
         ...notebookData.cells,
         userCell
     ]);
-    notebookDataWithUser.metadata = notebookData.metadata;
+    notebookData.metadata = updatedMetadata;
+    notebookDataWithUser.metadata = updatedMetadata;
     const encoded = await serializer.serializeNotebook(notebookDataWithUser, tokenSource.token);
     await vscode.workspace.fs.writeFile(fileUri, encoded);
 

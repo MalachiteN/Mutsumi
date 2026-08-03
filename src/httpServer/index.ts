@@ -17,7 +17,7 @@ import {
     handleDeleteAgent
 } from './agent';
 import { handleChat } from './chat';
-import { handleSetModel } from './model';
+import { createHandleSetModel } from './model';
 import {
     handleGetReasoningEffort,
     handleSetReasoningEffort
@@ -164,6 +164,7 @@ export class HttpServer {
         );
 
         // Model endpoint
+        const handleSetModel = createHandleSetModel(this.adapter);
         this.app.put('/agent/:uuid/model', handleSetModel);
 
         // Reasoning effort endpoints

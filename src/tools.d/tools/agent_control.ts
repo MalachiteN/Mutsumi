@@ -207,7 +207,10 @@ export const getAgentTypesTool: ITool = {
                 
                 lines.push(`${typeName}:`);
                 lines.push(`  Tool Sets: ${config.toolSets.join(', ')}`);
-                lines.push(`  Default Model: ${config.defaultModel}`);
+                const defaultModelDisplay = config.defaultModel
+                    ? `${config.defaultModel.model} (${config.defaultModel.provider})`
+                    : 'global default';
+                lines.push(`  Default Model: ${defaultModelDisplay}`);
                 
                 // Show what this child type can further dispatch
                 if (config.allowedChildTypes && config.allowedChildTypes.length > 0) {

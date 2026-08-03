@@ -406,28 +406,58 @@
                 },
                 "mutsumi.models": {
                     "type": "object",
-                    "markdownDescription": "%configuration.models.markdownDescription%"
+                    "markdownDescription": "%configuration.models.markdownDescription%",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
                 },
                 "mutsumi.defaultModel": {
-                    "type": "string",
-                    "default": "kimi-for-coding",
-                    "markdownDescription": "%configuration.defaultModel.markdownDescription%"
+                    "type": "object",
+                    "markdownDescription": "%configuration.defaultModel.markdownDescription%",
+                    "properties": {
+                        "model": {
+                            "type": "string"
+                        },
+                        "provider": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["model", "provider"],
+                    "default": {
+                        "model": "kimi-for-coding",
+                        "provider": "kimi-for-coding"
+                    }
                 },
                 "mutsumi.titleGeneratorModel": {
-                    "type": "string",
-                    "default": "kimi-for-coding",
-                    "markdownDescription": "%configuration.titleGeneratorModel.markdownDescription%"
-                },
-                "mutsumi.autoApproveEnabled": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "%configuration.autoApproveEnabled.description%"
+                    "type": "object",
+                    "markdownDescription": "%configuration.titleGeneratorModel.markdownDescription%",
+                    "properties": {
+                        "model": {
+                            "type": "string"
+                        },
+                        "provider": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["model", "provider"]
                 },
                 "mutsumi.compressModel": {
-                    "type": "string",
-                    "default": "kimi-for-coding",
-                    "markdownDescription": "%configuration.compressModel.markdownDescription%"
+                    "type": "object",
+                    "markdownDescription": "%configuration.compressModel.markdownDescription%",
+                    "properties": {
+                        "model": {
+                            "type": "string"
+                        },
+                        "provider": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["model", "provider"]
                 },
+
                 "mutsumi.embeddingEndpoint": {
                     "type": "string",
                     "default": "",
@@ -487,7 +517,16 @@
                                         }
                                     },
                                     "defaultModel": {
-                                        "type": "string"
+                                        "type": "object",
+                                        "properties": {
+                                            "model": {
+                                                "type": "string"
+                                            },
+                                            "provider": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["model", "provider"]
                                     },
                                     "defaultRules": {
                                         "type": "array",

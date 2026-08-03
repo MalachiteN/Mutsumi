@@ -4,13 +4,13 @@
  */
 
 import * as vscode from 'vscode';
-import { AgentMessage, AgentMetadata } from '../types';
+import { AgentMessage, AgentMetadata, ModelSelection } from '../types';
 import { LLMClient, LLMClientConfig } from './llmClient';
 import { AgentOrchestrator } from './agentOrchestrator';
 import { IAgentSession } from '../adapters/interfaces';
 import { LiteAdapter } from '../adapters/liteAdapter';
 import { createEmptyToolSet } from '../tools.d/toolManager';
-import { getModelCredentials } from '../utils';
+import { getModelCredentials, getTitleModelSelection, resolveModelSelection } from '../utils';
 import type { AgentRunOptions } from './types';
 
 /**
@@ -27,8 +27,8 @@ function deepClone<T>(obj: T): T {
  * @interface TitleGeneratorConfig
  */
 export interface TitleGeneratorConfig {
-    /** Model identifier to use for title generation */
-    titleGeneratorModel?: string;
+    /** Model selection pair to use for title generation */
+    modelSelection?: ModelSelection;
 }
 
 /**
@@ -201,12 +201,14 @@ export async function updateNotebookMetadataWithSync(
 
 /**
  * Gets the title generator configuration from VSCode workspace settings.
+ * @description Reads mutsumi.titleGeneratorModel and validates it through the
+ * resolution gate. Legacy string values are rejected by the type guard.
  * @returns {TitleGeneratorConfig} Configuration object for title generation
  */
 export function getTitleGeneratorConfig(): TitleGeneratorConfig {
-    const config = vscode.workspace.getConfiguration('mutsumi');
+    const selection = getTitleModelSelection();
     return {
-        titleGeneratorModel: config.get<string>('titleGeneratorModel')
+        modelSelection: selection
     };
 }
 
@@ -223,7 +225,7 @@ export class TitleGenerator {
      * @returns {boolean} True if title generation is properly configured
      */
     shouldGenerateTitle(config: TitleGeneratorConfig): boolean {
-        return !!config.titleGeneratorModel;
+        return !!config.modelSelection;
     }
 
     /**
@@ -243,11 +245,11 @@ export class TitleGenerator {
             return undefined;
         }
 
-        const model = config.titleGeneratorModel!;
+        const modelSelection = config.modelSelection!;
 
         let credentials: { apiKey: string; baseUrl: string };
         try {
-            credentials = getModelCredentials(model);
+            credentials = getModelCredentials(modelSelection.model, modelSelection.provider);
         } catch (err: any) {
             console.error('Failed to generate session title:', err.message);
             return undefined;
@@ -259,7 +261,7 @@ export class TitleGenerator {
             const title = await generateTitle(messages, {
                 apiKey: credentials.apiKey,
                 baseUrl: credentials.baseUrl,
-                model: model
+                model: modelSelection.model
             }, sourceMetadata);
 
             await session.updateTitle(title);
@@ -288,19 +290,21 @@ export async function regenerateTitleForSession(
     config: TitleGeneratorConfig,
     notebook?: vscode.NotebookDocument
 ): Promise<string> {
-    if (!config.titleGeneratorModel) {
-        throw new Error('Please set mutsumi.titleGeneratorModel or mutsumi.defaultModel in VSCode Settings.');
+    if (!config.modelSelection) {
+        throw new Error('Please set mutsumi.titleGeneratorModel in VSCode Settings.');
     }
 
     if (messages.length === 0) {
         throw new Error('No conversation context found.');
     }
 
-    const model = config.titleGeneratorModel;
+    const modelSelection = config.modelSelection;
+    // Validate the pair through the gate before use.
+    resolveModelSelection(modelSelection);
 
     let credentials: { apiKey: string; baseUrl: string };
     try {
-        credentials = getModelCredentials(model);
+        credentials = getModelCredentials(modelSelection.model, modelSelection.provider);
     } catch (err: any) {
         throw new Error(`Title generation failed: ${err.message}`);
     }
@@ -310,7 +314,7 @@ export async function regenerateTitleForSession(
     const title = await generateTitle(messages, {
         apiKey: credentials.apiKey,
         baseUrl: credentials.baseUrl,
-        model: model
+        model: modelSelection.model
     }, sourceMetadata);
 
     await session.updateTitle(title);

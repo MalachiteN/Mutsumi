@@ -494,6 +494,7 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 parent_agent_id: null,
                 allowed_uris: allowedUris,
                 model: defaults.model,
+                provider: defaults.provider,
                 contextItems: [
                     {
                         type: 'macro',

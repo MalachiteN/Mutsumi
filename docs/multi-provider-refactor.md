@@ -1,392 +1,163 @@
-# Multi-Provider Configuration Refactoring Plan
+# Multi-Provider Configuration
+
+This document describes the implemented multi-provider configuration design in Mutsumi. It is not a future plan; it reflects the current behavior after the strict breaking refactor.
 
 ## Overview
 
-Replace the flat `mutsumi.apiKey` and `mutsumi.baseUrl` settings with a new `mutsumi.providers` array. Each model in `mutsumi.models` will reference a provider by name instead of having a descriptive label.
+A model selection is always an explicit `{ model, provider }` pair. The system never infers a provider from ordering when more than one provider declares the same model. There is no compatibility layer for legacy string-valued settings or persisted agents missing an explicit provider.
 
-## Configuration Changes
+## Configuration
 
-### New: `mutsumi.providers`
+### `mutsumi.providers`
+
+Array of provider objects using snake_case for settings schema alignment:
 
 ```json
 {
-  "mutsumi.providers": {
-    "type": "array",
-    "markdownDescription": "Configured LLM API providers",
-    "items": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string",
-          "markdownDescription": "LLM API Provider Name (e.g., OpenAI, Anthropic, llama.cpp)"
-        },
-        "baseurl": {
-          "type": "string",
-          "markdownDescription": "LLM API BaseURL (e.g., https://api.openai.com/v1, http://localhost:8080/v1)"
-        },
-        "api_key": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "LLM API Key (required, use dummy value for local deployments without authentication)"
-        }
-      },
-      "required": ["name", "baseurl", "api_key"]
-    },
-    "default": []
-  }
+  "mutsumi.providers": [
+    {
+      "name": "kimi-for-coding",
+      "baseurl": "https://api.kimi.com/coding/v1",
+      "api_key": ""
+    }
+  ]
 }
 ```
 
-**Note**: `api_key` is required in schema and validated at runtime. For local providers (llama.cpp, etc.) that don't require authentication, any non-empty dummy value can be used.
+- `name`: provider identifier
+- `baseurl`: API base URL
+- `api_key`: API key; may be empty in settings, but runtime credential use will report a configuration error until filled
 
-### Modified: `mutsumi.models`
+### `mutsumi.models`
 
-**Before**: `Record<string, string>` where value was a display label  
-**After**: `Record<string, string[]>` where key is the provider name and value is an array of model identifiers
+Provider-to-models mapping. Key is the provider name, value is the array of model identifiers supported by that provider:
 
-Example:
 ```json
 {
   "mutsumi.models": {
-    "ZenMux": [
-      "moonshotai/kimi-k2.5",
-      "openai/gpt-4.1-nano"
-    ],
-    "OpenAI-Official": [
-      "openai/gpt-4.1-nano"
-    ]
+    "kimi-for-coding": ["kimi-for-coding"]
   }
 }
 ```
 
-### Modified: Model References in `package.json`
+### `mutsumi.defaultModel`, `mutsumi.titleGeneratorModel`, `mutsumi.compressModel`
 
-Update descriptions for:
-- `mutsumi.defaultModel`: "Default model to use (must be a model listed in mutsumi.models)"
-- `mutsumi.titleGeneratorModel`: "Model used for generating agent titles (must be a model listed in mutsumi.models)"
-- `mutsumi.compressModel`: "Model used for compressing conversations (must be a model listed in mutsumi.models)"
+All three are objects with required `model` and `provider`:
 
-### Removed
+```json
+{
+  "mutsumi.defaultModel": {
+    "model": "kimi-for-coding",
+    "provider": "kimi-for-coding"
+  }
+}
+```
 
-- `mutsumi.apiKey` (string)
-- `mutsumi.baseUrl` (string)
+Legacy string values are rejected by the schema and by runtime type guards.
 
-## Default Values (Fallback)
+## Built-in Defaults
 
-When `mutsumi.providers` is empty, provide default providers and models:
+When no providers are configured, Mutsumi falls back to:
 
 ```typescript
-const DEFAULT_PROVIDERS = [
-  { name: "ZenMux", baseurl: "https://zenmux.ai/api/v1", api_key: "" }
+const DEFAULT_PROVIDERS: Provider[] = [
+  { name: "kimi-for-coding", baseurl: "https://api.kimi.com/coding/v1", api_key: "" }
 ];
 
 const DEFAULT_MODELS: Record<string, string[]> = {
-  "ZenMux": [
-    "openai/gpt-4.1-nano",
-    "moonshotai/kimi-k2.5",
-    "stepfun/step-3.5-flash",
-    "google/gemini-3-pro-preview",
-    "minimax/minimax-m2.7-highspeed",
-    "openai/gpt-5.4",
-    "volcengine/doubao-seed-2.0-pro"
-  ]
+  "kimi-for-coding": ["kimi-for-coding"]
+};
+
+const DEFAULT_MODEL_SELECTION: ModelSelection = {
+  model: "kimi-for-coding",
+  provider: "kimi-for-coding"
 };
 ```
 
-## Core API: `utils.ts`
+The built-in default `api_key` is intentionally empty so users can fill it via settings; a missing key produces a runtime configuration error only when credentials are actually requested.
 
-### New Function: `getModelCredentials(modelName: string)`
+## Resolution Gate
 
-**Purpose**: Centralized, validated access to provider credentials for a given model.
+`resolveModelSelection(selection)` in `src/utils.ts` is the single validation gate:
 
-**Implementation Requirements**:
-1. Load `mutsumi.providers` array
-2. Load `mutsumi.models` configuration
-3. If providers array is empty, use `DEFAULT_PROVIDERS`
-4. **Name Normalization**: Trim whitespace from all provider names for both duplicate detection AND lookup. Case-sensitive comparison after trimming.
-5. Validate provider names are unique after normalization (throw Error if duplicates found)
-6. Find the provider that lists the given model (iterate provider→models mapping; first match wins if a model appears under multiple providers). Provider name is trimmed during lookup.
-7. If provider not found, throw Error
-8. Validate `baseurl` is non-empty after trimming
-9. Validate `api_key` is non-empty (required)
-10. Return the credentials with property name mapping (`api_key` → `apiKey`, `baseurl` → `baseUrl`)
+1. Verify `selection` is an object with non-empty string `model` and `provider`
+2. Trim both names
+3. Verify the provider exists
+4. Verify the provider declares the model
+5. Return the canonical `{ model, provider }` pair
 
-**Signature**:
+Any failure throws a descriptive error. There is no first-match fallback, no provider inference, and no legacy string handling.
+
+## Credential Lookup
+
+`getModelCredentials(model, provider)` requires both values, validates them through `resolveModelSelection`, then returns `{ apiKey, baseUrl }`. Empty `baseurl` or `api_key` throws a descriptive error.
+
+## Agent Default Resolution
+
+`resolveAgentDefaults(agentType, options?)` in `src/config/resolver.ts` applies the following chain:
+
+```text
+options.modelSelection > AgentTypeConfig.defaultModel > mutsumi.defaultModel > error
+```
+
+All hardcoded model fallbacks have been removed.
+
+## Persistence
+
+Agent notebook metadata stores the pair flatly:
+
 ```typescript
-export function getModelCredentials(modelName: string): { 
-  apiKey: string; 
-  baseUrl: string;
+interface AgentMetadata {
+  model?: string;
+  provider?: string;
 }
 ```
 
-**Error Cases** (throw Error with descriptive message):
-- `Duplicate provider name after normalization: "${trimmedName}"`
-- `Model "${modelName}" not found in configuration`
-- `Provider "${providerName}" for model "${modelName}" not found`
-- `Provider "${providerName}" has empty baseurl`
-- `Provider "${providerName}" has empty api_key`
+New agents always persist both. Legacy files missing `provider` produce a migration/configuration error at execution time.
 
-### Modified Function: `getModelsConfig()`
+The single write point for mutating the persisted pair is `AgentFileOperations.updateAgentModelSelection(fileUri, selection)`, which uses `NotebookEdit.updateNotebookMetadata` when the notebook is open and raw file I/O otherwise.
 
-Returns `Record<string, string[]>` (provider name → model identifiers array):
-- If user-configured models is empty, return `DEFAULT_MODELS`
-- Keys are provider names, values are arrays of model identifiers
+## Creation Paths
 
-### New Function: `getAvailableModelNames()`
+1. **Root/entry agents** — `MutsumiSerializer.createDefaultContent()` resolves the complete pair through `resolveAgentDefaults()` and persists both fields.
+2. **Dispatched children** — `AgentFileOperations.createAgentFile()` accepts an optional `ModelSelection`, resolves through the resolver chain, validates through the gate, and persists both fields.
+3. **Compression output** — `compressConversation.ts` validates the source metadata pair through `resolveModelSelection()` before producing a new `.mtm`. Invalid source → error, no file created. The new file inherits the validated pair.
 
-Returns `string[]` — a flattened, deduplicated list of all model names across all providers. Used by validation code that needs to check if a model name is valid.
+## HTTP Contract
 
-## Property Name Convention
+### `PUT /agent/:uuid/model`
 
-**Schema and Interface** (snake_case):
-- `package.json`: `baseurl`, `api_key`
-- TypeScript `Provider` interface: `baseurl`, `api_key`
+Body must contain complete `{ model, provider }`. Missing either → `400`. Invalid pair → `400`. Persisted atomically via `AgentFileOperations.updateAgentModelSelection`, then the cached `HeadlessAdapter` session metadata is synchronized.
 
-**Runtime Credentials** (camelCase):
-- `getModelCredentials()` returns: `baseUrl`, `apiKey`
-- All existing code uses camelCase
+### `POST /agent/:uuid/chat`
 
-The mapping happens only in `getModelCredentials()`:
-```typescript
-return {
-  apiKey: provider.api_key,
-  baseUrl: provider.baseurl
-};
-```
+Body `model`/`provider` are all-or-nothing:
 
-## Files to Modify
+- Both present → validate, use for this request, and persist as the agent's new selection
+- Neither present → use persisted pair; missing `model` → fall back to global default selection; `model` without `provider` → `400` migration error
+- Exactly one present → `400`
 
-### 1. `package.json`
+## Execution Paths
 
-- Add new `mutsumi.providers` configuration
-- Remove `mutsumi.apiKey` and `mutsumi.baseUrl`
-- Update `mutsumi.models` description: "Provider to models mapping. Key is the provider name from mutsumi.providers, value is an array of model identifiers supported by that provider"
-- Update `defaultModel`, `titleGeneratorModel`, `compressModel` descriptions to reference models listed in mutsumi.models
+- `src/controller.ts` removes the old `gpt-3.5-turbo` fallback. Notebook metadata rules match the HTTP chat contract.
+- `src/agent/agentRunner.ts` title generation reads `mutsumi.titleGeneratorModel`, then falls back to the session metadata pair, then skips.
+- `src/agent/titleGenerator.ts` uses `TitleGeneratorConfig { modelSelection?: ModelSelection }` and resolves credentials with `getModelCredentials(model, provider)`.
+- `src/notebook/commands/compressConversation.ts` uses `getCompressModelSelection()` and validates the source pair before producing output.
 
-### 2. `src/utils.ts`
+## Display
 
-- Add `Provider` interface (snake_case properties):
-  ```typescript
-  interface Provider {
-    name: string;
-    baseurl: string;
-    api_key: string;
-  }
-  ```
-- Add `DEFAULT_PROVIDERS` constant
-- Update `DEFAULT_MODELS` to `Record<string, string[]>` (provider name → model identifiers array)
-- Implement `getModelCredentials(modelName: string)` function with normalization and validation
-- Update `getModelsConfig()` to return `Record<string, string[]>` and use default models when empty
-- Add `getAvailableModelNames()` helper to flatten provider→models mapping into unique model names
-
-### 3. `src/controller.ts`
-
-**Before**:
-```typescript
-const apiKey = config.get<string>('apiKey');
-const baseUrl = config.get<string>('baseUrl');
-// ...
-if (!apiKey) {
-  await session.replaceOutput('Error: Please set mutsumi.apiKey in VSCode Settings.');
-```
-
-**After**:
-```typescript
-let credentials: { apiKey: string; baseUrl: string };
-try {
-  credentials = getModelCredentials(model);
-} catch (err: any) {
-  await session.replaceOutput(`Error: ${err.message}`);
-  (session as any).end(false);
-  return;
-}
-const { apiKey, baseUrl } = credentials;
-// getModelCredentials guarantees apiKey and baseUrl are non-empty
-```
-
-### 4. `src/agent/agentRunner.ts`
-
-In `generateTitle()` method, replace:
-```typescript
-const apiKey = config.get<string>('apiKey');
-const baseUrl = config.get<string>('baseUrl') || sessionConfig.baseUrl;
-// ...
-if (!titleGeneratorModel || !apiKey) {
-  debugLogger.log(`[AgentRunner] Title generation skipped: missing ${!titleGeneratorModel ? 'titleGeneratorModel' : 'apiKey'}`);
-  return;
-}
-```
-
-With:
-```typescript
-if (!titleGeneratorModel) {
-  debugLogger.log('[AgentRunner] Title generation skipped: missing titleGeneratorModel');
-  return;
-}
-
-let credentials: { apiKey: string; baseUrl: string };
-try {
-  credentials = getModelCredentials(titleGeneratorModel);
-} catch (err: any) {
-  debugLogger.log(`[AgentRunner] Title generation skipped: ${err.message}`);
-  return;
-}
-const { apiKey, baseUrl } = credentials;
-```
-
-### 5. `src/agent/titleGenerator.ts`
-
-**TitleGeneratorConfig interface**: Remove `apiKey` and `baseUrl` fields.
-
-**Function: `getTitleGeneratorConfig()`**: Remove apiKey/baseUrl from returned config.
-
-**Function: `shouldGenerateTitle()`**: Update to check only `titleGeneratorModel` availability, not apiKey.
-
-**Function: `generateTitleForSession()`**: Add try/catch around credential lookup:
-```typescript
-let credentials: { apiKey: string; baseUrl: string };
-try {
-  credentials = getModelCredentials(model);
-} catch (err: any) {
-  throw new Error(`Title generation failed: ${err.message}`);
-}
-```
-
-**Function: `regenerateTitleForSession()`**: Same credential lookup with try/catch.
-
-**Update error message at line ~290**: From `'Please set mutsumi.titleGeneratorModel or mutsumi.defaultModel...'` to new configuration guidance if needed.
-
-### 6. `src/httpServer/chat.ts`
-
-**Before**:
-```typescript
-const apiKey = config.get<string>('apiKey');
-const baseUrl = config.get<string>('baseUrl') || undefined;
-// ...
-if (!apiKey) {
-  res.status(500).json({ status: 'error', content: 'No API key configured. Set mutsumi.apiKey in VS Code settings.' });
-  return;
-}
-```
-
-**After**:
-```typescript
-let credentials: { apiKey: string; baseUrl: string };
-try {
-  credentials = getModelCredentials(effectiveModel);
-} catch (err: any) {
-  res.status(400).json({ status: 'error', content: err.message });
-  return;
-}
-const { apiKey, baseUrl } = credentials;
-```
-
-### 7. `src/notebook/commands/compressConversation.ts`
-
-**Before**:
-```typescript
-const apiKey = config.get<string>('apiKey');
-const baseUrl = config.get<string>('baseUrl');
-// ...
-if (!compressModel || !apiKey) {
-  vscode.window.showErrorMessage('Please configure mutsumi.apiKey and mutsumi.compressModel (or defaultModel) in settings.');
-  return;
-}
-```
-
-**After**:
-```typescript
-if (!compressModel) {
-  vscode.window.showErrorMessage('Please configure mutsumi.compressModel or mutsumi.defaultModel in settings.');
-  return;
-}
-
-let credentials: { apiKey: string; baseUrl: string };
-try {
-  credentials = getModelCredentials(compressModel);
-} catch (err: any) {
-  vscode.window.showErrorMessage(`Compression failed: ${err.message}`);
-  return;
-}
-const { apiKey, baseUrl } = credentials;
-```
-
-### 8. `src/notebook/commands/regenerateTitle.ts`
-
-**Analysis**: This file calls `getTitleGeneratorConfig()` and `regenerateTitleForSession()`. No direct credential access.
-
-**Action**: No changes needed IF `getTitleGeneratorConfig()` returns valid config and `regenerateTitleForSession()` handles credential errors internally (which it will after titleGenerator.ts changes).
-
-**Verification**: Ensure imports and function calls still work after titleGenerator.ts refactor.
-
-### 9. `src/notebook/commands/selectModel.ts`
-
-**Updated**: Model selection now groups models by provider using QuickPick separators. Each provider name appears as a separator, with its models listed beneath.
-
-```typescript
-const modelItems: SelectModelQuickPickItem[] = [];
-for (const [providerName, modelNames] of providerEntries) {
-    modelItems.push({
-        itemType: 'separator',
-        label: providerName,
-        kind: vscode.QuickPickItemKind.Separator
-    });
-    for (const modelName of modelNames) {
-        modelItems.push({
-            itemType: 'model',
-            value: modelName,
-            label: modelName,
-            // ...
-        });
-    }
-}
-```
-
-### 10. `src/agent/fileOps.ts`
-
-**Updated**: Model validation now uses `getAvailableModelNames()` instead of `Object.keys(getModelsConfig())` to flatten the provider→models mapping into a list of valid model names.
-
-```typescript
-const availableModelNames = getAvailableModelNames();
-const selectedModel = (defaults.model && availableModelNames.includes(defaults.model)) 
-    ? defaults.model 
-    : vscodeDefaultModel;
-```
-
-## Files NOT Requiring Changes
-
-- `src/agent/llmClient.ts` - Interface remains unchanged; callers provide credentials
-- `src/agent/types.ts` - Type definitions remain valid
-- `src/adapters/interfaces.ts` - Interface remains unchanged
-- `src/httpServer/model.ts` - Uses `getAvailableModelNames()` for model validation
-
-## HTTP Server API Behavior
-
-REST API endpoints accepting `model` parameter will:
-1. Receive model name in request
-2. Use `getModelCredentials(model)` to resolve provider
-3. Return 400 error if model or provider not found
-
-No API changes required - existing `model` parameter handling remains.
+QuickPick and tool output format the selection as `model (provider)`, for example `kimi-for-coding (kimi-for-coding)`.
 
 ## Error Handling
 
-All errors from `getModelCredentials()` should be caught and displayed to user via:
-- `vscode.window.showErrorMessage()` for UI commands
-- HTTP error response (400 status) for REST API
-- Debug logger for background tasks (title generation)
+All core validation errors are descriptive English strings. UI layers wrap them with `t()` where appropriate. HTTP endpoints return `400` for invalid pairs and `500` for unexpected failures.
 
-Validation errors include:
-- `Duplicate provider name after normalization: "${trimmedName}"`
-- `Model "${modelName}" not found in configuration`
-- `Provider "${providerName}" for model "${modelName}" not found`
-- `Provider "${providerName}" has empty baseurl`
-- `Provider "${providerName}" has empty api_key`
+## Same Model Names Across Providers
 
-## Migration Notes (Breaking Change)
+When the same model identifier appears under multiple providers, the explicit provider in the selection disambiguates it. There is no first-match substitution.
 
-This is a breaking change with no backward compatibility:
-- Users must reconfigure with new `providers` array
-- Old `apiKey` and `baseUrl` settings are ignored
-- `models` is now a provider→models array mapping (key is provider name, value is array of model identifiers)
-- Error messages from getModelCredentials replace old "Please set mutsumi.apiKey" messages
+## Out of Scope
+
+- No migration layer for legacy string settings or pre-provider metadata
+- No provider field in `AgentRunOptions` or `AgentSessionConfig`
+- No changes to adapter interfaces
