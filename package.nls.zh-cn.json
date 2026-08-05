@@ -18,7 +18,7 @@
 	"command.selectModel.title": "选择模型",
 	"command.renameSession.title": "重命名会话",
 	"command.debugContext.title": "调试上下文",
-	"command.pruneGhostBlocks.title": "裁剪旧 Ghost 版本",
+	"command.pruneGhostBlocks.title": "裁剪过期引用",
 	"command.toggleAutoApprove.title": "进入自动批准",
 	"command.toggleAutoApproveOn.title": "退出自动批准",
 	"command.testRagSearch.title": "测试 RAG 搜索",

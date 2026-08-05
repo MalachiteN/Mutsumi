@@ -111,8 +111,8 @@
 	"debugContext.displayed": "Debug context displayed. Total messages: {0}",
 	"debugContext.failed": "Failed to debug context: {0}",
 
-	"pruneGhostBlocks.alreadyLatest": "All file references are already at their latest versions.",
-	"pruneGhostBlocks.done": "Pruned old ghost versions from {0} cell(s).",
+	"pruneGhostBlocks.alreadyLatest": "No outdated file references to prune.",
+	"pruneGhostBlocks.done": "Pruned outdated file references from {0} cell(s).",
 
 	"toggleAutoApprove.on": "Auto-approve mode is now ON. Tools will be executed without confirmation.",
 	"toggleAutoApprove.off": "Auto-approve mode is now OFF. Tools will require confirmation.",

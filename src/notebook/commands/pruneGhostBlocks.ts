@@ -1,5 +1,5 @@
 /**
- * @fileoverview One-click prune of all non-latest file ghost versions for Mutsumi notebook.
+ * @fileoverview One-click prune of all non-latest file references for Mutsumi notebook.
  * @module notebook/commands/pruneGhostBlocks
  */
 
