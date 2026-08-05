@@ -77,7 +77,6 @@
 	"context.ruleDeactivated": "规则 \"{0}\" 已禁用",
 	"context.skillActivated": "技能 \"{0}\" 已启用",
 	"context.skillDeactivated": "技能 \"{0}\" 已禁用",
-	"context.noOlderVersions": "\"{0}\" 没有可裁剪的旧版本",
 	"context.fileNotFound": "未找到文件: {0}",
 
 	"notebook.noEditor": "没有活动的笔记本编辑器。",

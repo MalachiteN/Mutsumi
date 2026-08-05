@@ -77,7 +77,6 @@
 	"context.ruleDeactivated": "Rule \"{0}\" deactivated",
 	"context.skillActivated": "Skill \"{0}\" activated",
 	"context.skillDeactivated": "Skill \"{0}\" deactivated",
-	"context.noOlderVersions": "No older versions of \"{0}\" to prune",
 	"context.fileNotFound": "File not found: {0}",
 
 	"notebook.noEditor": "No active notebook editor.",

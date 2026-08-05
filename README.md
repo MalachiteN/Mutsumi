@@ -47,9 +47,8 @@ When the user knows the LLM will inevitably need certain file content or tool ex
 
 Context middleware tracks the latest version and hash of referenced files. If the hash is unchanged from the latest version, a command is injected for the Agent to trace back through historical records; if the hash changes, the latest file content is injected and version bumped.
 
-Tracked files can be managed from the **Context sidebar**, with two inline actions on each file item:
+Tracked files can be managed from the **Context sidebar** with an inline action on each file item:
 
-- **Prune Old Versions** — Keeps version tracking intact, but retroactively strips every ghost-block entry of older versions from all cells, keeping only the latest version's content in context.
 - **Remove File** — Drops version tracking entirely and retroactively strips every ghost-block entry of that file from all cells, so the file disappears from the assembled context completely.
 
 For a session-wide cleanup, the notebook toolbar provides a one-click **Prune Old Ghost Versions** action that prunes every tracked file to its latest version at once.
@@ -232,7 +231,7 @@ flowchart TD
 | **Tool Pre-execution** | `@[grep{"keyword": "xxx"}]` | Pre-execute search, inject results into context |
 | **Copy Mutsumi Reference** | Context Menu | Quickly copy file/symbol @ reference format |
 | **Dynamic Context Tracking** | Automatic version hash | Reference history when files unchanged, inject new version when changed |
-| **Context Sidebar File Actions** | Inline buttons on file items | Prune old versions or fully remove a file from all history |
+| **Context Sidebar File Actions** | Inline button on file items | Fully remove a file from all history |
 
 ---
 

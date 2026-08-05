@@ -507,47 +507,4 @@ export function registerContextCommands(
             contextTreeDataProvider.refresh();
         })
     );
-
-    // Register prune file versions command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('mutsumi.pruneFileVersions', async (item: ContextTreeItem) => {
-            if (item.data.type !== 'file' || !item.data.key) {
-                return;
-            }
-
-            const notebookEditor = vscode.window.activeNotebookEditor;
-            if (!notebookEditor) {
-                return;
-            }
-
-            const notebook = notebookEditor.notebook;
-            const metadata = notebook.metadata as AgentMetadata | undefined;
-            if (!metadata || !metadata.contextItems) {
-                return;
-            }
-
-            const key = item.data.key;
-            const tracked = metadata.contextItems.find(ci => ci.type === 'file' && ci.key === key);
-            const latestVersion = tracked?.version || 1;
-
-            // Keep version tracking untouched; strip only ghost entries older
-            // than the latest version, shrinking context while keeping the
-            // current content available for differential reference.
-            const edits = buildGhostStripEdits(
-                notebook,
-                file => file.key === key && file.version !== latestVersion
-            );
-            if (edits.length === 0) {
-                vscode.window.showInformationMessage(t('context.noOlderVersions', key));
-                return;
-            }
-
-            const edit = new vscode.WorkspaceEdit();
-            edit.set(notebook.uri, edits);
-            await vscode.workspace.applyEdit(edit);
-
-            // Refresh the tree view
-            contextTreeDataProvider.refresh();
-        })
-    );
 }

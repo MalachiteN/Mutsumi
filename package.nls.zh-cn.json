@@ -28,7 +28,6 @@
 	"command.toggleSkill.title": "切换技能",
 	"command.removeMacro.title": "移除宏",
 	"command.removeFile.title": "移除文件",
-	"command.pruneFileVersions.title": "裁剪旧版本",
 	"command.refreshContextTree.title": "刷新上下文树",
 	"command.clearToolCache.title": "清除工具缓存",
 	"command.generateHttpServerPassword.title": "生成 HTTP Server 密码",
