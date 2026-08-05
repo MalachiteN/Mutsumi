@@ -7,9 +7,9 @@ import { t } from '../i18n';
 
 /**
  * @description Context item type definition
- * @typedef {('rule' | 'macro' | 'file' | 'category' | 'skill')} ContextItemType
+ * @typedef {('rule' | 'macro' | 'file' | 'category' | 'skill' | 'directory' | 'agentType')} ContextItemType
  */
-export type ContextItemType = 'rule' | 'macro' | 'file' | 'category' | 'skill' | 'directory';
+export type ContextItemType = 'rule' | 'macro' | 'file' | 'category' | 'skill' | 'directory' | 'agentType';
 
 /**
  * @description Category type definition for grouping context items
@@ -64,13 +64,18 @@ export class ContextTreeItem extends vscode.TreeItem {
         // Set tooltip with content preview if available
         this.tooltip = this.buildTooltip();
 
-        // For non-category types, set command to view the context item
-        if (data.type !== 'category' && data.type !== 'directory') {
+        // For non-category and non-agentType types, set command to view the context item
+        if (data.type !== 'category' && data.type !== 'directory' && data.type !== 'agentType') {
             this.command = {
                 command: 'mutsumi.viewContextItem',
                 title: 'View Context Item',
                 arguments: [{ type: data.type, key: data.key, fullPath: data.fullPath, content: data.content }]
             };
+        }
+
+        // Agent type node: show prefixed label and keep key as raw value
+        if (data.type === 'agentType') {
+            this.label = `${t('context.agentType.label')}: ${data.key}`;
         }
     }
 
@@ -95,6 +100,10 @@ export class ContextTreeItem extends vscode.TreeItem {
                 default:
                     return new vscode.ThemeIcon('folder');
             }
+        }
+
+        if (type === 'agentType') {
+            return new vscode.ThemeIcon('account');
         }
 
         if (type === 'rule') {
@@ -147,6 +156,10 @@ export class ContextTreeItem extends vscode.TreeItem {
             }
         }
 
+        if (type === 'agentType') {
+            return 'agentType';
+        }
+
         if (type === 'rule') {
             return isActive ? 'ruleActive' : 'ruleInactive';
         }
@@ -191,6 +204,10 @@ export class ContextTreeItem extends vscode.TreeItem {
                 default:
                     return t('context.category.default');
             }
+        }
+
+        if (type === 'agentType') {
+            return t('context.agentType.tooltip', this.data.key);
         }
 
         const md = new vscode.MarkdownString();

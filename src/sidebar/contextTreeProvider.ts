@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { AgentMetadata, ContextItem } from '../types';
+import { t } from '../i18n';
 import { SkillManager, SkillMetadata } from '../contextManagement/skillManager';
 import { ContextTreeItem, ContextItemData, ContextItemType, CategoryType } from './contextTreeItem';
 import { collectRulesRecursively } from '../contextManagement/prompts';
@@ -145,14 +146,27 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     }
 
     /**
-     * @description Builds the category nodes (Rules, Skills, Macros, Files)
+     * @description Builds the root nodes (Agent Type, Rules, Skills, Macros, Files)
      * @private
-     * @returns {ContextTreeItem[]} Array of category tree items
+     * @returns {ContextTreeItem[]} Array of root tree items
      */
     private _buildCategoryNodes(): ContextTreeItem[] {
         const { rules, skills, macros, files } = this._buildContextItems();
 
         const categories: ContextTreeItem[] = [];
+
+        // Agent type node
+        const metadata = this._currentNotebook?.metadata as AgentMetadata | undefined;
+        const agentType = metadata?.agentType;
+        const agentTypeData: ContextItemData = {
+            type: 'agentType',
+            key: agentType || t('context.agentType.unknown')
+        };
+        const agentTypeNode = new ContextTreeItem(
+            agentTypeData,
+            vscode.TreeItemCollapsibleState.None
+        );
+        categories.push(agentTypeNode);
 
         // Rules category
         const rulesData: ContextItemData = {
