@@ -50,10 +50,60 @@ export const RENDERER_CSS = `
 /* (micromark output has no intermediate wrapper, so a selector requiring */
 /* ".mutsumi-block > :not(details) pre" would never match them). */
 .mutsumi-block pre {
+  position: relative;
   background-color: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
   padding: 12px;
   border-radius: 6px;
   overflow-x: auto;
+}
+
+/* VS Code-style toolbar action for block code only. */
+.mutsumi-block pre > .mutsumi-copy-code {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, transparent);
+  opacity: 0.62;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.mutsumi-block pre > .mutsumi-copy-code:hover {
+  color: var(--vscode-toolbar-hoverForeground, var(--vscode-foreground));
+  background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+  opacity: 1;
+}
+
+.mutsumi-block pre > .mutsumi-copy-code:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, currentColor);
+  outline-offset: -1px;
+  opacity: 1;
+}
+
+.mutsumi-block pre > .mutsumi-copy-code.is-copied {
+  color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+  opacity: 1;
+}
+
+.mutsumi-copy-code > svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  pointer-events: none;
+}
+
+body.vscode-high-contrast .mutsumi-block pre > .mutsumi-copy-code,
+body.vscode-high-contrast-light .mutsumi-block pre > .mutsumi-copy-code {
+  border-color: var(--vscode-contrastBorder, transparent);
 }
 
 /* Tighter padding for code blocks nested inside tool-call/reasoning details */

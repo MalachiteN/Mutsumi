@@ -109,16 +109,35 @@ function getCodeLanguage(code: HTMLElement): string {
   return match ? match[1].toLowerCase() : '';
 }
 
-/** Highlight all code blocks in a newly-created committed block. */
-function highlightCodeBlocks(
+// Paths from the official microsoft/vscode-codicons copy.svg and check.svg.
+const COPY_ICON =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5V12.73C2.4 12.38 2 11.74 2 11V5C2 2.79 3.79 1 6 1H9C9.74 1 10.38 1.4 10.73 2H6C4.35 2 3 3.35 3 5ZM11 15H6C4.897 15 4 14.103 4 13V5C4 3.897 4.897 3 6 3H11C12.103 3 13 3.897 13 5V13C13 14.103 12.103 15 11 15ZM12 5C12 4.448 11.552 4 11 4H6C5.448 4 5 4.448 5 5V13C5 13.552 5.448 14 6 14H11C11.552 14 12 13.552 12 13V5Z"/></svg>';
+const CHECK_ICON =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"/></svg>';
+
+/** Add the toolbar control to a fresh block-level code element. */
+function decorateCodeBlock(pre: HTMLPreElement): void {
+  if (!getDirectCode(pre) || pre.querySelector(':scope > .mutsumi-copy-code')) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'mutsumi-copy-code';
+  button.title = 'Copy code';
+  button.setAttribute('aria-label', 'Copy code');
+  button.innerHTML = COPY_ICON;
+  pre.appendChild(button);
+}
+
+/** Highlight and decorate all fresh code blocks in a committed block. */
+function prepareCodeBlocks(
   container: HTMLElement,
   skip?: ReadonlySet<HTMLPreElement>
 ): void {
   container.querySelectorAll('pre > code').forEach((code) => {
-    const pre = code.parentElement;
-    if (skip && pre && skip.has(pre as HTMLPreElement)) return;
+    const pre = code.parentElement as HTMLPreElement;
+    if (skip && skip.has(pre)) return;
     const el = code as HTMLElement;
     highlightElement(el, getCodeLanguage(el));
+    decorateCodeBlock(pre);
   });
 }
 
@@ -421,8 +440,8 @@ function salvageActivePreElements(
   return moved;
 }
 
-/** Highlight only pre nodes that were not salvaged from the existing DOM. */
-function highlightFreshPreElements(root: HTMLElement, cache: OutputCache): void {
+/** Highlight and decorate only pre nodes that were not salvaged from the DOM. */
+function prepareFreshPreElements(root: HTMLElement, cache: OutputCache): void {
   for (const pre of listPreElements(root)) {
     if (cache.activePreFingerprints.has(pre)) continue;
     const code = getDirectCode(pre);
@@ -433,6 +452,7 @@ function highlightFreshPreElements(root: HTMLElement, cache: OutputCache): void 
     };
     cache.activePreFingerprints.set(pre, fingerprint);
     highlightElement(code, fingerprint.language);
+    decorateCodeBlock(pre);
   }
 }
 
@@ -476,7 +496,7 @@ function reconcileActive(cache: OutputCache, target: HTMLElement): void {
     }
 
     cache.activeFingerprints.set(newNode, newFingerprints[i]);
-    highlightFreshPreElements(newNode, cache);
+    prepareFreshPreElements(newNode, cache);
   }
 
   for (let i = newNodes.length; i < oldNodes.length; i++) {
@@ -518,6 +538,36 @@ export function activate() {
     style.textContent = RENDERER_CSS;
     document.head.appendChild(style);
   }
+
+  // One listener serves every output and every button, including salvaged pres.
+  const clickHandler = (event: MouseEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLButtonElement>('.mutsumi-copy-code');
+    if (!button) return;
+    const pre = button.parentElement;
+    if (!(pre instanceof HTMLPreElement) || !pre.closest('.mutsumi-block')) return;
+    const code = getDirectCode(pre);
+    if (!code) return;
+
+    void navigator.clipboard.writeText(code.textContent || '').then(() => {
+      if (!button.isConnected) return;
+      button.classList.add('is-copied');
+      button.title = 'Copied';
+      button.setAttribute('aria-label', 'Copied');
+      button.innerHTML = CHECK_ICON;
+      window.setTimeout(() => {
+        if (!button.isConnected) return;
+        button.classList.remove('is-copied');
+        button.title = 'Copy code';
+        button.setAttribute('aria-label', 'Copy code');
+        button.innerHTML = COPY_ICON;
+      }, 1500);
+    }).catch(() => {
+      // Clipboard access can be denied by the webview/browser; rendering stays intact.
+    });
+  };
+  document.addEventListener('click', clickHandler);
 
   return {
     renderOutputItem(
@@ -602,7 +652,7 @@ export function activate() {
         // completed highlighting. Reuse them (reconcileActive runs later, so
         // the active tree is still intact) and highlight only the remainder.
         const salvaged = salvageActivePreElements(blockEl, cache, activeTarget);
-        highlightCodeBlocks(blockEl, salvaged);
+        prepareCodeBlocks(blockEl, salvaged);
         cache.committedContainer.appendChild(blockEl);
       }
       cache.lastCommittedLength = committed.length;
