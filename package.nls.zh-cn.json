@@ -29,6 +29,9 @@
 	"command.removeMacro.title": "移除宏",
 	"command.removeFile.title": "移除文件",
 	"command.refreshContextTree.title": "刷新上下文树",
+	"command.toggleMcpTool.title": "切换 MCP 工具",
+	"command.toggleMcpServer.title": "切换 MCP 服务器",
+	"command.refreshMcpServers.title": "刷新 MCP 服务器",
 	"command.clearToolCache.title": "清除工具缓存",
 	"command.generateHttpServerPassword.title": "生成 HTTP Server 密码",
 	"command.detachShellTask.title": "移至后台",
@@ -51,5 +54,7 @@
 	"configuration.httpServer.password.description": "Mutsumi HTTP Server 的 Bearer 令牌密码。以明文形式存储在设置中。若启用服务器但密码为空，服务器将拒绝启动。可使用“Mutsumi: 生成 HTTP Server 密码”命令创建密码。",
 	"configuration.httpServer.host.description": "HTTP Server 绑定的地址。警告：将其改为 0.0.0.0 会将服务器暴露给局域网或公网——请先设置强密码（mutsumi.httpServer.password）。",
 	"configuration.httpServer.port.description": "HTTP Server 的起始端口。若被占用，将扫描后续端口（最多 +100）。",
-	"configuration.agentConfig.markdownDescription": "Agent 类型与工具集配置。覆盖内置默认值。留空 `{}` 则使用内置默认值。\n\n结构：\n```json\n\"mutsumi.agentConfig\": {\n  \"toolSets\": {\n    \"read\": [\"read\", \"glob\"],\n    \"deliver\": [\"shell\", \"write\"]\n  },\n  \"agentTypes\": {\n    \"chat\": {\n      \"toolSets\": [],\n      \"defaultModel\": \"kimi-for-coding\",\n      \"defaultRules\": [\"default/chat.md\"],\n      \"defaultSkills\": [],\n      \"allowedChildTypes\": [],\n      \"isEntry\": true\n    }\n  }\n}\n```\n\n`toolSets`：每个键映射到工具名数组。给定的名称将完全替换内置工具集。新名称将添加新的工具集。\n\n`agentTypes`：对于内置默认值中已存在的类型，提供的字段会覆盖内置字段（省略的字段保留默认值）。对于新类型，请提供所有必填字段。\n\n注意：`version` 在此处不可配置，内部固定为 1。"
+	"configuration.agentConfig.markdownDescription": "Agent 类型与工具集配置。覆盖内置默认值。留空 `{}` 则使用内置默认值。\n\n结构：\n```json\n\"mutsumi.agentConfig\": {\n  \"toolSets\": {\n    \"read\": [\"read\", \"glob\"],\n    \"deliver\": [\"shell\", \"write\"]\n  },\n  \"agentTypes\": {\n    \"chat\": {\n      \"toolSets\": [],\n      \"defaultModel\": \"kimi-for-coding\",\n      \"defaultRules\": [\"default/chat.md\"],\n      \"defaultSkills\": [],\n      \"allowedChildTypes\": [],\n      \"isEntry\": true\n    }\n  }\n}\n```\n\n`toolSets`：每个键映射到工具名数组。给定的名称将完全替换内置工具集。新名称将添加新的工具集。\n\n`agentTypes`：对于内置默认值中已存在的类型，提供的字段会覆盖内置字段（省略的字段保留默认值）。对于新类型，请提供所有必填字段。\n\n注意：`version` 在此处不可配置，内部固定为 1。",
+	"configuration.mcpServers.markdownDescription": "由 Mutsumi 管理的 MCP 服务器。这是唯一的 MCP 配置来源，不读取 VS Code 的 mcp.json。使用稳定服务器 ID 为键的对象配置。stdio 服务器需要 `type`、`command`，可选 `args`、`cwd`、`env` 与正数 `timeout`；HTTP 服务器需要 `type`、绝对 HTTP(S) `url`，可选 `headers` 与正数 `timeout`。",
+	"configuration.agentConfig.defaultMcpServers.markdownDescription": "其当前已发现工具会被冻结到新建 Agent 会话中的 MCP 服务器 ID。仅影响创建，不影响已有会话或服务器连接生命周期。"
 }

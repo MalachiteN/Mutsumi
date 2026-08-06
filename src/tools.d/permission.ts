@@ -380,8 +380,13 @@ export async function requestApproval(
 		return null;
 	}
 
+	const abortSignal = context.abortSignal ?? context.toolSession?.abortSignal;
+	if (abortSignal?.aborted) {
+		return `[Cancelled] The ${toolName} operation was cancelled before approval could be requested.`;
+	}
+
 	return new Promise<string | null>((resolve) => {
-		approvalManager.createRequest(
+		const id = approvalManager.createRequest(
 			actionDescription,
 			targetUri,
 			{
@@ -400,5 +405,16 @@ export async function requestApproval(
 
 		// Native OS notification only — approval actions live in the sidebar.
 		notifyApprovalNeeded(t("approval.requestNotification", actionDescription));
+
+		if (!abortSignal) return;
+		const onAbort = () => {
+			void approvalManager.cancelRequest(id);
+			resolve(`[Cancelled] The ${toolName} operation was cancelled while waiting for approval.`);
+		};
+		if (abortSignal.aborted) {
+			onAbort();
+			return;
+		}
+		abortSignal.addEventListener("abort", onAbort, { once: true });
 	});
 }

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { AgentTreeDataProvider } from "./agentTreeProvider";
 import { ApprovalTreeDataProvider } from "./approvalTreeProvider";
-import { ContextTreeDataProvider } from "./contextTreeProvider";
+import { ContextTreeDataProvider, McpRegistryView } from "./contextTreeProvider";
 import {
 	type ContextTreeItem,
 	registerContextCommands,
@@ -51,10 +51,10 @@ export class AgentSidebarProvider {
 	 * @description Creates an Agent sidebar provider instance
 	 * @param {vscode.Uri} _extensionUri - The root URI of the extension
 	 */
-	constructor(private readonly _extensionUri: vscode.Uri) {
+	constructor(private readonly _extensionUri: vscode.Uri, private readonly _mcpRegistry?: McpRegistryView) {
 		this._agentTreeDataProvider = new AgentTreeDataProvider();
 		this._approvalTreeDataProvider = new ApprovalTreeDataProvider();
-		this._contextTreeDataProvider = new ContextTreeDataProvider(_extensionUri);
+		this._contextTreeDataProvider = new ContextTreeDataProvider(_extensionUri, _mcpRegistry);
 		this._shellTaskTreeDataProvider = new ShellTaskTreeDataProvider();
 	}
 
@@ -111,7 +111,16 @@ export class AgentSidebarProvider {
 		registerApprovalCommands(context);
 
 		// Register context-related commands
-		registerContextCommands(context, this._contextTreeDataProvider);
+		registerContextCommands(context, this._contextTreeDataProvider, this._mcpRegistry);
+
+		if (this._mcpRegistry) {
+			context.subscriptions.push(this._mcpRegistry.onDidChange(() => this._contextTreeDataProvider.refresh()));
+		}
+		context.subscriptions.push(vscode.workspace.onDidChangeNotebookDocument(event => {
+			if (event.notebook === vscode.window.activeNotebookEditor?.notebook) {
+				this._contextTreeDataProvider.refresh();
+			}
+		}));
 
 		// Register shell task-related commands
 		registerShellTaskCommands(context);

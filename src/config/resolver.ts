@@ -78,7 +78,8 @@ export function resolveAgentDefaults(
         provider: resolvedSelection.provider,
         rules: resolvedRules,
         skills: resolvedSkills,
-        toolSets: typeConfig.toolSets
+        toolSets: typeConfig.toolSets,
+        mcpServers: typeConfig.defaultMcpServers ?? []
     };
 }
 

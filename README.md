@@ -134,9 +134,34 @@ Mutsumi includes four default roles with clear responsibility boundaries:
 
 **Collaboration Topology:** Each preset role has decision-making and task advancement capabilities, avoiding information compression loss in hierarchical tree reporting structures.
 
-**Custom Workflows:** Define role toolsets through `.mutsumi/config.json`, and customize role Prompts through `.mutsumi/rules/default/*.md`, fully controlling multi-Agent collaboration behavior.
+**Custom Workflows:** Define role toolsets, default rules, default skills, and default MCP servers through the `mutsumi.agentConfig` VS Code setting, and customize role Prompts through `.mutsumi/rules/default/*.md`, fully controlling multi-Agent collaboration behavior.
 
-> Detailed design is shown in [Agent Type System Design](docs/AGENT_TYPES_DESIGN.md) and [Prompt Engineering Design](docs/PROMPT_ENGINEERING_DESIGN.md)
+> Detailed design is shown in [Agent Type System Design](docs/AGENT_TYPES_DESIGN.md), [Prompt Engineering Design](docs/PROMPT_ENGINEERING_DESIGN.md), and [MCP Host Design](docs/mcp-host-final-target.md)
+
+### 🔌 MCP (Model Context Protocol) Support
+
+Mutsumi works as its own MCP client: define MCP servers in the `mutsumi.mcpServers` VS Code setting, and their tools are discovered at extension startup and injected into Agents as first-class tools alongside the built-ins.
+
+```jsonc
+// settings.json
+"mutsumi.mcpServers": {
+    "playwright": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "@playwright/mcp"]
+    },
+    "context7": {
+        "type": "http",
+        "url": "https://mcp.context7.com/mcp"
+    }
+}
+```
+
+- **Per-Role Defaults** — Declare which servers new Agents should use via `AgentType.defaultMcpServers` (e.g. `"implementer": { "defaultMcpServers": ["playwright"] }`)
+- **Frozen Per-Session Snapshots** — When an Agent is created, the currently discovered tools are frozen into the session file; later server/tool changes never silently widen an existing Agent's capabilities
+- **Context Sidebar Control** — The `MCPS` category in the Context sidebar shows connection status per server and lets you toggle entire servers or individual tools for the active Agent
+- **Approval** — MCP tools declared `readOnlyHint: true` run automatically; all other tools go through the existing approval system (or AutoApprove when enabled)
+- **Graceful Degradation** — A server that fails to connect only disables its own tools; Mutsumi and all other servers keep working. Refresh from the sidebar (or reload the window) to reconnect
 
 ---
 
@@ -286,6 +311,7 @@ Mutsumi provides rich built-in tools for intelligent task execution:
 - **Execution Control** — `shell`, `get_env_var`, `system_info`
 - **File Editing** — `write`, `edit`
 - **Agent Orchestration** — `dispatch_subagents`, `get_agent_types`, `task_finish`
+- **MCP Extension** — Any tools discovered from your `mutsumi.mcpServers`, exposed as `mcp__<server>__<tool>` and managed per Agent in the Context sidebar
 
 ---
 
@@ -366,6 +392,7 @@ This project uses the following open source projects and their license declarati
 | [body-parser](https://github.com/expressjs/body-parser) | ^2.2.2 | MIT | HTTP request body parsing |
 | [micromark](https://github.com/micromark/micromark) | ^4.0.0 | MIT | CommonMark-compliant Markdown parser for custom notebook renderer |
 | [micromark-extension-gfm](https://github.com/micromark/micromark-extension-gfm) | ^2.0.0 | MIT | GFM extensions (tables, strikethrough, etc.) for micromark |
+| [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk) | ^1.30.0 | MIT | MCP protocol client (stdio / Streamable HTTP) |
 
 Thanks to all open source contributors! 🙏
 

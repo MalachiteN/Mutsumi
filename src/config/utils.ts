@@ -10,6 +10,7 @@ import {
     MutsumiConfig,
     AgentTypeConfig
 } from './interfaces';
+import { validateMcpServersConfig } from '../mcp/utils';
 
 /**
  * Validation error for configuration issues.
@@ -121,6 +122,15 @@ function validateAgentType(
         }
     }
 
+    if (config.defaultMcpServers !== undefined) {
+        if (!Array.isArray(config.defaultMcpServers) || !config.defaultMcpServers.every(serverId => typeof serverId === 'string' && !!serverId)) {
+            throw new ConfigValidationError(`defaultMcpServers must be a string array of non-empty IDs for agent type "${name}"`);
+        }
+        if (new Set(config.defaultMcpServers).size !== config.defaultMcpServers.length) {
+            throw new ConfigValidationError(`defaultMcpServers must not contain duplicates for agent type "${name}"`);
+        }
+    }
+
     // Validate isEntry
     if (typeof config.isEntry !== 'boolean') {
         throw new ConfigValidationError(
@@ -189,10 +199,22 @@ export function validateMutsumiConfig(
         throw new ConfigValidationError('Missing or invalid agentTypes');
     }
 
+    try {
+        validateMcpServersConfig(config.mcpServers);
+    } catch (error) {
+        throw new ConfigValidationError(error instanceof Error ? error.message : String(error));
+    }
+
     const agentTypeNames = new Set(Object.keys(config.agentTypes));
     const toolSetNames = new Set(Object.keys(config.toolSets));
+    const mcpServerNames = new Set(Object.keys(config.mcpServers));
 
     for (const [agentTypeName, agentConfig] of Object.entries(config.agentTypes)) {
         validateAgentType(agentTypeName, agentConfig, agentTypeNames, toolSetNames);
+        for (const serverId of agentConfig.defaultMcpServers ?? []) {
+            if (!mcpServerNames.has(serverId)) {
+                throw new ConfigValidationError(`Unknown MCP server "${serverId}" referenced by agent type "${agentTypeName}"`);
+            }
+        }
     }
 }

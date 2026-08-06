@@ -31,6 +31,10 @@ import { ToolSetRegistry } from "../registry/toolSetRegistry";
 import * as vscode from "vscode";
 import type OpenAI from "openai";
 import { getCachedResult, setCachedResult } from "./cache";
+import { McpRegistry } from "../mcp/registry";
+import { McpToolAdapter } from "../mcp/tool";
+import type { McpToolSelection } from "../mcp/interfaces";
+import { normalizeMcpToolSelections } from "../mcp/utils";
 
 // Re-export cache functions for convenience
 export { getToolCacheSize, clearToolCache } from "./cache";
@@ -76,19 +80,19 @@ export class ToolSet {
 		if (includeCommon) {
 			for (const tool of ToolRegistry.getCommonTools()) {
 				if (!excludeTools.includes(tool.name)) {
-					this.tools.set(tool.name, tool);
+					this.addTool(tool);
 				}
 			}
 		}
 
 		// Add task_finish if requested
 		if (includeTaskFinish) {
-			this.tools.set(taskFinishTool.name, taskFinishTool);
+			this.addTool(taskFinishTool);
 		}
 
 		// Add additional tools
 		for (const tool of additionalTools) {
-			this.tools.set(tool.name, tool);
+			this.addTool(tool);
 		}
 	}
 
@@ -191,6 +195,9 @@ export class ToolSet {
 	 * @param {ITool} tool - The tool to add
 	 */
 	addTool(tool: ITool): void {
+		if (this.tools.has(tool.name)) {
+			throw new Error(`Duplicate tool name '${tool.name}' in tool set.`);
+		}
 		this.tools.set(tool.name, tool);
 	}
 }
@@ -466,22 +473,42 @@ export class ToolManager {
  * Creates a tool set for an agent based on its agentType configuration.
  * Resolves toolSets from AgentTypeRegistry and adds task_finish for non-root agents.
  *
- * @param {string} agentType - The agent type identifier
- * @param {string} [uuid] - Agent UUID for error messages
- * @param {string | null} [parentAgentId] - Parent agent ID if this is a non-root agent
  * @returns {ToolSet} Configured tool set
  * @throws {Error} If agentType is invalid
  */
+export interface CreateToolSetForAgentOptions {
+	agentType: string;
+	agentId?: string;
+	parentAgentId?: string | null;
+	enabledMcpTools?: McpToolSelection[];
+}
+
+/**
+ * Builds the immutable tool set for a single agent run. MCP selections are a
+ * persisted session snapshot; only tools that remain available in the registry
+ * are added to this run.
+ */
+export function createToolSetForAgent(options: CreateToolSetForAgentOptions): ToolSet;
+/** @deprecated Use the options overload. */
+export function createToolSetForAgent(agentType: string, uuid?: string, parentAgentId?: string | null): ToolSet;
 export function createToolSetForAgent(
-	agentType: string,
-	uuid?: string,
-	parentAgentId?: string | null,
+	optionsOrAgentType: CreateToolSetForAgentOptions | string,
+	legacyAgentId?: string,
+	legacyParentAgentId?: string | null,
 ): ToolSet {
+	const options: CreateToolSetForAgentOptions = typeof optionsOrAgentType === "string"
+		? {
+			agentType: optionsOrAgentType,
+			agentId: legacyAgentId,
+			parentAgentId: legacyParentAgentId,
+		}
+		: optionsOrAgentType;
+	const { agentType, agentId, parentAgentId, enabledMcpTools = [] } = options;
 	const agentTypeConfig =
 		AgentTypeRegistry.getInstance().getAgentType(agentType);
 	if (!agentTypeConfig) {
 		throw new Error(
-			`Unknown agent type '${agentType}' for agent ${uuid || "unknown"}. ` +
+			`Unknown agent type '${agentType}' for agent ${agentId || "unknown"}. ` +
 				`Available types: ${AgentTypeRegistry.getInstance().getAllTypes().join(", ")}`,
 		);
 	}
@@ -498,7 +525,17 @@ export function createToolSetForAgent(
 		additionalTools: tools,
 	});
 
-	// Sub-agents get task_finish tool
+	const mcpRegistry = McpRegistry.getInstance();
+	for (const selection of normalizeMcpToolSelections(enabledMcpTools)) {
+		for (const toolName of selection.toolNames) {
+			const tool = mcpRegistry.getTool(selection.serverId, toolName);
+			if (tool) {
+				toolSet.addTool(new McpToolAdapter(selection.serverId, tool, mcpRegistry));
+			}
+		}
+	}
+
+	// task_finish remains available only to sub-agents.
 	if (parentAgentId) {
 		const taskFinishTool = ToolRegistry.getTaskFinishTool();
 		toolSet.addTool(taskFinishTool);

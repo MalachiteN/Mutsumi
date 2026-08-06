@@ -2,8 +2,28 @@ import * as vscode from 'vscode';
 import { AgentMetadata, ContextItem } from '../types';
 import { t } from '../i18n';
 import { SkillManager, SkillMetadata } from '../contextManagement/skillManager';
-import { ContextTreeItem, ContextItemData, ContextItemType, CategoryType } from './contextTreeItem';
+import { ContextTreeItem, ContextItemData } from './contextTreeItem';
 import { collectRulesRecursively } from '../contextManagement/prompts';
+
+/** Read-only subset of the MCP registry consumed by the ContextTree. */
+export interface McpRegistryView {
+    getRecords(): readonly McpServerRecord[];
+    reload(): Promise<void>;
+    onDidChange: vscode.Event<void>;
+}
+
+export interface McpServerRecord {
+    serverId: string;
+    status: 'connecting' | 'connected' | 'error';
+    error?: string;
+    tools: readonly McpToolRecord[];
+}
+
+export interface McpToolRecord {
+    name: string;
+    schemaValid?: boolean;
+    error?: string;
+}
 
 /**
  * @description Context tree data provider, implements VSCode TreeDataProvider interface
@@ -38,9 +58,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
      * @description Creates a new context tree data provider
      * @param {vscode.Uri} extensionUri - The extension's root URI
      */
-    constructor(extensionUri: vscode.Uri) {
+    constructor(extensionUri: vscode.Uri, private readonly _mcpRegistry?: McpRegistryView) {
         this._extensionUri = extensionUri;
-        // Initial load of rules and skills
         this.refreshRules();
         this.refreshSkills();
     }
@@ -75,6 +94,11 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
         // If element is a directory node, return its children
         if (element.data.type === 'directory') {
+            return Promise.resolve(element.children);
+        }
+
+        // MCP server nodes may have tool children
+        if (element.data.type === 'mcpServer') {
             return Promise.resolve(element.children);
         }
 
@@ -152,6 +176,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
      */
     private _buildCategoryNodes(): ContextTreeItem[] {
         const { rules, skills, macros, files } = this._buildContextItems();
+        const mcps = this._buildMcpItems();
 
         const categories: ContextTreeItem[] = [];
 
@@ -220,7 +245,54 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
         filesNode.children = files;
         categories.push(filesNode);
 
+        const mcpsNode = new ContextTreeItem(
+            { type: 'category', key: 'MCPS', category: 'mcps' },
+            mcps.length > 0 ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
+        );
+        mcpsNode.children = mcps;
+        categories.push(mcpsNode);
+
         return categories;
+    }
+
+    /** Builds MCP server/tool nodes from registry records and the notebook snapshot. */
+    private _buildMcpItems(): ContextTreeItem[] {
+        type Selection = { serverId: string; toolNames: string[] };
+        const metadata = this._currentNotebook?.metadata as (AgentMetadata & { enabledMcpTools?: Selection[] }) | undefined;
+        const readOnly = !this._currentNotebook;
+        const selections = metadata?.enabledMcpTools ?? [];
+        const selectedByServer = new Map(selections.map(selection => [selection.serverId, new Set(selection.toolNames)]));
+        const records = this._mcpRegistry?.getRecords() ?? [];
+        const recordsByServer = new Map(records.map(record => [record.serverId, record]));
+        const serverIds = new Set([...recordsByServer.keys(), ...selectedByServer.keys()]);
+
+        return [...serverIds].sort().map(serverId => {
+            const record = recordsByServer.get(serverId);
+            const selected = selectedByServer.get(serverId) ?? new Set<string>();
+            const toolsByName = new Map((record?.tools ?? []).map(tool => [tool.name, tool]));
+            const toolNames = new Set([...toolsByName.keys(), ...selected]);
+            const availableCount = [...toolsByName.values()].filter(tool => tool.schemaValid !== false).length;
+            const enabledCount = [...selected].filter(name => {
+                const tool = toolsByName.get(name);
+                return tool && tool.schemaValid !== false;
+            }).length;
+            const status = record?.status ?? 'notConfigured';
+            const label = status === 'connected'
+                ? `${serverId} · ${enabledCount}/${availableCount} ${t('mcp.enabled')}`
+                : `${serverId} · ${t(`mcp.status.${status}`)}`;
+            const server = new ContextTreeItem({
+                type: 'mcpServer', key: label, serverId, enabled: selected.size > 0,
+                available: status === 'connected', mcpStatus: status, error: record?.error, readOnly
+            }, vscode.TreeItemCollapsibleState.Collapsed);
+            server.children = [...toolNames].sort().map(name => {
+                const tool = toolsByName.get(name);
+                return new ContextTreeItem({
+                    type: 'mcpTool', key: name, serverId, enabled: selected.has(name),
+                    available: Boolean(tool), schemaValid: tool?.schemaValid, error: tool?.error, readOnly
+                }, vscode.TreeItemCollapsibleState.None);
+            });
+            return server;
+        });
     }
 
     /**

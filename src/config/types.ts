@@ -45,6 +45,7 @@ export {
  */
 export const DEFAULT_MUTSUMI_CONFIG: MutsumiConfig = {
 	version: 1,
+	mcpServers: {},
 	toolSets: {
 		read: [
 			"read",

@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { resolveModelSelection } from '../utils';
 import { AgentStateInfo, ContextItem, ModelSelection } from '../types';
 import { resolveAgentDefaults } from '../config/resolver';
+import { McpRegistry } from '../mcp/registry';
 
 /**
  * Handles file-based operations for agents.
@@ -207,7 +208,8 @@ export class AgentFileOperations {
                 contextItems: contextItems,
                 activeRules: defaults.rules,
                 activeSkills: defaults.skills,
-                agentType: agentType  // Store the agent type in metadata
+                agentType: agentType, // Store the agent type in metadata
+                enabledMcpTools: McpRegistry.getInstance().resolveDefaultSelection(defaults.mcpServers)
             },
             context: context
         };

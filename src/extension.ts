@@ -36,6 +36,7 @@ import { loadMutsumiConfig } from "./config/loader";
 import { ToolSetRegistry } from "./registry/toolSetRegistry";
 import { AgentTypeRegistry } from "./registry/agentTypeRegistry";
 import { resolveAgentDefaults, getEntryAgentTypes } from "./config/resolver";
+import { McpRegistry } from "./mcp/registry";
 
 /**
  * Checks if a file exists at the given URI.
@@ -61,7 +62,7 @@ async function fileExists(uri: vscode.Uri): Promise<boolean> {
  * between extension activation and the onDidChangeConfiguration handler so
  * that behavior stays consistent.
  */
-function initializeAgentTypeSystem(): void {
+function initializeAgentTypeSystem(): ReturnType<typeof loadMutsumiConfig> {
 	// 1. Load Mutsumi configuration (merged with built-in defaults + validated)
 	const mutsumiConfig = loadMutsumiConfig();
 	debugLogger.log("[Extension] Mutsumi config loaded successfully");
@@ -78,6 +79,7 @@ function initializeAgentTypeSystem(): void {
 		Object.keys(mutsumiConfig.toolSets),
 	);
 	debugLogger.log("[Extension] AgentTypeRegistry initialized");
+	return mutsumiConfig;
 }
 
 /**
@@ -102,22 +104,35 @@ export async function activate(
 	// Initialize ToolRegistry (required for the new ToolSet architecture)
 	ToolRegistry.initialize();
 
-	// Initialize Agent Type System (Config + Registries)
-	initializeAgentTypeSystem();
+	// Validate configuration before changing either runtime registry, then connect MCP
+	// servers before agent creation can consume their discovery snapshots.
+	const mcpRegistry = McpRegistry.getInstance();
+	const initialMutsumiConfig = initializeAgentTypeSystem();
+	await mcpRegistry.reload(initialMutsumiConfig.mcpServers);
+	context.subscriptions.push({ dispose: () => mcpRegistry.dispose() });
 
-	// Agent Type System 应在 settings.json 内容变化时重新加载
-	// 配置项为 mutsumi.agentConfig
-	// 复用 initializeAgentTypeSystem() 以保持与启动时一致的 load + validate + init 行为
-	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e: vscode.ConfigurationChangeEvent) => {
-		if (e.affectsConfiguration("mutsumi.agentConfig")) {
-			try {
-				initializeAgentTypeSystem();
-				debugLogger.log("[Extension] Agent Type System reloaded after config change");
-			} catch (err) {
-				debugLogger.log(`[Extension] Failed to reload Agent Type System: ${err}`);
+	let sidebarProvider: AgentSidebarProvider | undefined;
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (e: vscode.ConfigurationChangeEvent) => {
+		const mcpChanged = e.affectsConfiguration("mutsumi.mcpServers");
+		if (!mcpChanged && !e.affectsConfiguration("mutsumi.agentConfig")) return;
+		try {
+			const config = loadMutsumiConfig();
+			// Validation completed for the whole candidate before either runtime registry changes.
+			ToolSetRegistry.getInstance().initialize(config.toolSets);
+			AgentTypeRegistry.getInstance().initialize(config.agentTypes, Object.keys(config.toolSets));
+			if (mcpChanged) {
+				await mcpRegistry.reload(config.mcpServers);
 			}
+			// Agent type/tool set changes affect the ContextTree labels and defaults even
+			// when MCP servers did not change.
+			sidebarProvider?.update();
+			debugLogger.log("[Extension] Mutsumi configuration reloaded");
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			debugLogger.log(`[Extension] Failed to reload Mutsumi configuration: ${message}`);
+			vscode.window.showErrorMessage(t("config.reloadFailed", message));
 		}
-	}))
+	}));
 
 	// Initialize SkillManager
 	const skillManager = SkillManager.getInstance();
@@ -316,7 +331,7 @@ export async function activate(
 	);
 
 	// 2. Sidebar
-	const sidebarProvider = new AgentSidebarProvider(context.extensionUri);
+	sidebarProvider = new AgentSidebarProvider(context.extensionUri, mcpRegistry);
 	sidebarProvider.registerTreeView(context);
 	AgentOrchestrator.getInstance().setSidebar(sidebarProvider);
 
@@ -574,6 +589,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 				defaults.rules,
 				undefined, // Let it generate a new UUID
 				defaults.skills,
+				McpRegistry.getInstance().resolveDefaultSelection(defaults.mcpServers),
 			);
 
 			await vscode.workspace.fs.writeFile(newFileUri, initialContent);

@@ -10,6 +10,7 @@ import { RenderBlock, RenderData } from './renderTypes';
 import { GhostBlock } from '../contextManagement/interfaces';
 import { decodeGhostBlock } from '../contextManagement/ghostBlocks';
 import { t } from '../i18n';
+import type { McpToolSelection } from '../mcp/interfaces';
 
 // ============================================================================
 // Core Data Structures (VSCode-agnostic)
@@ -478,7 +479,8 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
         agentType: string,
         activeRules?: string[], 
         uuid?: string, 
-        activeSkills?: string[]
+        activeSkills?: string[],
+        enabledMcpTools?: McpToolSelection[]
     ): Uint8Array {
         // Resolve agent type defaults using centralized resolver
         const defaults = resolveAgentDefaults(agentType, {
@@ -504,7 +506,8 @@ export class MutsumiSerializer implements vscode.NotebookSerializer {
                 ],
                 activeRules: defaults.rules,
                 activeSkills: defaults.skills,
-                agentType: agentType
+                agentType: agentType,
+                enabledMcpTools
             },
             context: []
         };

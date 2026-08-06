@@ -134,9 +134,34 @@ Mutsumi 内置四种默认角色，每种都有清晰的职责边界：
 
 **协作拓扑：** 每个预设角色都拥有决策和推进任务的能力，避免信息在树形回报结构中层层压缩损耗。
 
-**自定义工作流：** 通过 `.mutsumi/config.json` 定义角色工具集，通过 `.mutsumi/rules/default/*.md` 自定义角色 Prompt，完全掌控多 Agent 协作行为。
+**自定义工作流：** 通过 VS Code 设置 `mutsumi.agentConfig` 定义角色工具集、默认 Rules、默认 Skills 和默认 MCP Servers，通过 `.mutsumi/rules/default/*.md` 自定义角色 Prompt，完全掌控多 Agent 协作行为。
 
-> 详细设计见 [Agent Type 系统设计](docs/AGENT_TYPES_DESIGN_CN.md) 和 [Prompt Engineering 设计](docs/PROMPT_ENGINEERING_DESIGN_CN.md)
+> 详细设计见 [Agent Type 系统设计](docs/AGENT_TYPES_DESIGN_CN.md)、[Prompt Engineering 设计](docs/PROMPT_ENGINEERING_DESIGN_CN.md) 和 [MCP 宿主设计](docs/mcp-host-final-target.md)
+
+### 🔌 MCP（Model Context Protocol）支持
+
+Mutsumi 自身即 MCP Client：在 VS Code 设置 `mutsumi.mcpServers` 中定义 MCP Servers，扩展激活时统一连接并发现其工具，与内置工具一起作为一等工具注入 Agent。
+
+```jsonc
+// settings.json
+"mutsumi.mcpServers": {
+    "playwright": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "@playwright/mcp"]
+    },
+    "context7": {
+        "type": "http",
+        "url": "https://mcp.context7.com/mcp"
+    }
+}
+```
+
+- **按角色默认** — 通过 `AgentType.defaultMcpServers` 声明新 Agent 默认使用哪些 Server（如 `"implementer": { "defaultMcpServers": ["playwright"] }`）
+- **会话级冻结快照** — 创建 Agent 时把当时发现的工具冻结进会话文件；之后 Server 或工具的变化不会悄悄扩大已有 Agent 的能力
+- **Context 边栏控制** — Context 边栏的 `MCPS` 分类展示各 Server 连接状态，可按 Server 或按单个 Tool 为当前 Agent 启停
+- **审批** — 声明 `readOnlyHint: true` 的 MCP 工具自动执行；其余工具走现有审批系统（AutoApprove 开启时自动执行）
+- **优雅降级** — Server 连接失败只禁用其自身工具，Mutsumi 及其他 Server 不受影响；通过边栏 Refresh（或重载窗口）可重新连接
 
 ---
 
@@ -286,6 +311,7 @@ Mutsumi 提供丰富的内置工具，支持智能任务执行：
 - **执行控制** — `shell`, `get_env_var`, `system_info`
 - **文件编辑** — `write`, `edit`
 - **Agent 编排** — `dispatch_subagents`, `get_agent_types`, `task_finish`
+- **MCP 扩展** — 从你的 `mutsumi.mcpServers` 发现的一切工具，以 `mcp__<server>__<tool>` 暴露，可在 Context 边栏按 Agent 管理
 
 ---
 
@@ -366,6 +392,7 @@ Mutsumi 采用六阶段动态上下文管理架构：
 | [body-parser](https://github.com/expressjs/body-parser) | ^2.2.2 | MIT | HTTP 请求体解析 |
 | [micromark](https://github.com/micromark/micromark) | ^4.0.0 | MIT | CommonMark 兼容的 Markdown 解析器，用于自定义 Notebook 渲染器 |
 | [micromark-extension-gfm](https://github.com/micromark/micromark-extension-gfm) | ^2.0.0 | MIT | micromark 的 GFM 扩展（表格、删除线等） |
+| [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk) | ^1.30.0 | MIT | MCP 协议客户端（stdio / Streamable HTTP） |
 
 感谢所有开源贡献者！🙏
 

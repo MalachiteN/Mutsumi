@@ -8,6 +8,7 @@ import { getAvailableRules } from './utils';
 import { MutsumiSerializer } from '../notebook/serializer';
 import { resolveAgentDefaults, validateEntryAgentType } from '../config/resolver';
 import type { AgentContext, AgentMetadata } from '../types';
+import { McpRegistry } from '../mcp/registry';
 
 export interface CreateAgentDependencies {
     extensionUri: vscode.Uri;
@@ -79,13 +80,18 @@ export function createCreateAgentHandler(
             // Collect all workspace root URIs
             const allWorkspaceUris = vscode.workspace.workspaceFolders?.map(f => f.uri.toString()) || [root.toString()];
 
+            // Resolve the connected servers' current tools once, then persist that
+            // selection with this new agent rather than consulting defaults on runs.
+            const enabledMcpTools = McpRegistry.getInstance().resolveDefaultSelection(defaults.mcpServers);
+
             // Create initial content using MutsumiSerializer with agentType metadata
             const initialContent = MutsumiSerializer.createDefaultContent(
                 allWorkspaceUris,
                 agentType,
                 defaults.rules,
                 uuid,
-                defaults.skills
+                defaults.skills,
+                enabledMcpTools
             );
 
             // Write the file

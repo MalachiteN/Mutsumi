@@ -23,6 +23,7 @@
 
 	"controller.copyDetails": "Copy Details",
 	"controller.mutsumiError": "Mutsumi Error: {0}",
+	"config.reloadFailed": "Mutsumi configuration reload failed: {0}",
 
 	"agentRunner.llmError": "Mutsumi LLM Error: {0}",
 
@@ -69,6 +70,21 @@
 	"context.category.skills": "Skills: Active context skills for Agents",
 	"context.category.macros": "Macros: Reusable text snippets",
 	"context.category.files": "Files: Referenced context files",
+	"context.category.mcps": "MCPs: Connected servers and tools for this agent",
+	"mcp.enabled": "enabled",
+	"mcp.status.connected": "connected",
+	"mcp.status.connecting": "connecting",
+	"mcp.status.error": "error",
+	"mcp.status.notConfigured": "not configured",
+	"mcp.refreshed": "MCP servers refreshed",
+	"mcp.refreshFailed": "Failed to refresh MCP servers: {0}",
+	"mcp.cannotEnableUnavailable": "Cannot enable MCP tools for unavailable server \"{0}\".",
+	"mcp.noNotebook": "Open an active Mutsumi agent notebook to change MCP tool selections.",
+	"mcp.serverTooltip": "MCP server {0}: {1}",
+	"mcp.toolUnavailableTooltip": "This tool is unavailable. It can only be disabled to remove its saved selection.",
+	"mcp.toolSchemaErrorTooltip": "This tool has an invalid schema and cannot be exposed to the model. {0}",
+	"mcp.toolEnabledTooltip": "Enabled for this agent",
+	"mcp.toolDisabledTooltip": "Disabled for this agent",
 	"context.category.default": "Category",
 	"context.agentType.label": "AGENT TYPE",
 	"context.agentType.unknown": "unknown",
@@ -152,5 +168,9 @@
 	"serializer.newAgent": "New Agent",
 
 	"notify.approvalNeededSubtitle": "Approval needed",
-	"notify.approvalNeededMessage": "{0} — review in the sidebar"
+	"notify.approvalNeededMessage": "{0} — review in the sidebar",
+
+	"command.toggleMcpTool.title": "Toggle MCP Tool",
+	"command.toggleMcpServer.title": "Toggle MCP Server Tools",
+	"command.refreshMcpServers.title": "Refresh MCP Servers"
 }

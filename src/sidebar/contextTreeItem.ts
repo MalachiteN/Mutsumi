@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { TemplateEngine } from '../contextManagement/templateEngine';
 import { AgentMetadata } from '../types';
-import { ContextTreeDataProvider } from './contextTreeProvider';
+import { ContextTreeDataProvider, McpRegistryView } from './contextTreeProvider';
 import { buildGhostStripEdits } from '../notebook/commands/utils';
 import { t } from '../i18n';
 
@@ -9,13 +9,13 @@ import { t } from '../i18n';
  * @description Context item type definition
  * @typedef {('rule' | 'macro' | 'file' | 'category' | 'skill' | 'directory' | 'agentType')} ContextItemType
  */
-export type ContextItemType = 'rule' | 'macro' | 'file' | 'category' | 'skill' | 'directory' | 'agentType';
+export type ContextItemType = 'rule' | 'macro' | 'file' | 'category' | 'skill' | 'directory' | 'agentType' | 'mcpServer' | 'mcpTool';
 
 /**
  * @description Category type definition for grouping context items
  * @typedef {('rules' | 'macros' | 'files' | 'skills')} CategoryType
  */
-export type CategoryType = 'rules' | 'macros' | 'files' | 'skills';
+export type CategoryType = 'rules' | 'macros' | 'files' | 'skills' | 'mcps';
 
 /**
  * @description Context item data interface, defining the basic information of context tree items
@@ -34,6 +34,20 @@ export interface ContextItemData {
     isActive?: boolean;
     /** @description Category type (only for category nodes) */
     category?: CategoryType;
+    /** MCP server identity for server and tool nodes. */
+    serverId?: string;
+    /** MCP tool selection state. */
+    enabled?: boolean;
+    /** MCP runtime availability. */
+    available?: boolean;
+    /** MCP server runtime status. */
+    mcpStatus?: 'connecting' | 'connected' | 'error' | 'notConfigured';
+    /** Readable MCP server or tool error. */
+    error?: string;
+    /** Whether an MCP tool schema is valid for model exposure. */
+    schemaValid?: boolean;
+    /** Whether the node is informational because no Mutsumi notebook is active. */
+    readOnly?: boolean;
 }
 
 /**
@@ -65,7 +79,7 @@ export class ContextTreeItem extends vscode.TreeItem {
         this.tooltip = this.buildTooltip();
 
         // For non-category and non-agentType types, set command to view the context item
-        if (data.type !== 'category' && data.type !== 'directory' && data.type !== 'agentType') {
+        if (data.type !== 'category' && data.type !== 'directory' && data.type !== 'agentType' && data.type !== 'mcpServer' && data.type !== 'mcpTool') {
             this.command = {
                 command: 'mutsumi.viewContextItem',
                 title: 'View Context Item',
@@ -97,6 +111,8 @@ export class ContextTreeItem extends vscode.TreeItem {
                     return new vscode.ThemeIcon('symbol-field');
                 case 'files':
                     return new vscode.ThemeIcon('files');
+                case 'mcps':
+                    return new vscode.ThemeIcon('plug');
                 default:
                     return new vscode.ThemeIcon('folder');
             }
@@ -104,6 +120,18 @@ export class ContextTreeItem extends vscode.TreeItem {
 
         if (type === 'agentType') {
             return new vscode.ThemeIcon('account');
+        }
+
+        if (type === 'mcpServer') {
+            if (this.data.mcpStatus === 'error') return new vscode.ThemeIcon('error');
+            if (this.data.mcpStatus === 'connecting') return new vscode.ThemeIcon('sync~spin');
+            if (this.data.mcpStatus === 'notConfigured') return new vscode.ThemeIcon('circle-slash');
+            return new vscode.ThemeIcon('plug');
+        }
+
+        if (type === 'mcpTool') {
+            if (this.data.schemaValid === false) return new vscode.ThemeIcon('warning');
+            return this.data.enabled ? new vscode.ThemeIcon('check') : new vscode.ThemeIcon('circle-outline');
         }
 
         if (type === 'rule') {
@@ -151,6 +179,8 @@ export class ContextTreeItem extends vscode.TreeItem {
                     return 'categoryMacros';
                 case 'files':
                     return 'categoryFiles';
+                case 'mcps':
+                    return 'categoryMcps';
                 default:
                     return 'category';
             }
@@ -158,6 +188,17 @@ export class ContextTreeItem extends vscode.TreeItem {
 
         if (type === 'agentType') {
             return 'agentType';
+        }
+
+        if (type === 'mcpServer') {
+            if (this.data.readOnly) return 'mcpServerReadOnly';
+            return this.data.enabled ? 'mcpServerEnabled' : 'mcpServerDisabled';
+        }
+
+        if (type === 'mcpTool') {
+            if (this.data.readOnly) return 'mcpToolReadOnly';
+            if (!this.data.available && !this.data.enabled) return 'mcpToolUnavailable';
+            return this.data.enabled ? 'mcpToolEnabled' : 'mcpToolDisabled';
         }
 
         if (type === 'rule') {
@@ -201,6 +242,8 @@ export class ContextTreeItem extends vscode.TreeItem {
                     return t('context.category.macros');
                 case 'files':
                     return t('context.category.files');
+                case 'mcps':
+                    return t('context.category.mcps');
                 default:
                     return t('context.category.default');
             }
@@ -208,6 +251,20 @@ export class ContextTreeItem extends vscode.TreeItem {
 
         if (type === 'agentType') {
             return t('context.agentType.tooltip', this.data.key);
+        }
+
+        if (type === 'mcpServer') {
+            const detail = this.data.error ? `\n\n${this.data.error}` : '';
+            const readOnly = this.data.readOnly ? `\n\n${t('mcp.noNotebook')}` : '';
+            return `${t('mcp.serverTooltip', this.data.serverId ?? this.data.key, t(`mcp.status.${this.data.mcpStatus}`))}${detail}${readOnly}`;
+        }
+        if (type === 'mcpTool') {
+            const state = !this.data.available
+                ? t('mcp.toolUnavailableTooltip')
+                : this.data.schemaValid === false
+                    ? t('mcp.toolSchemaErrorTooltip', this.data.error ?? '')
+                    : this.data.enabled ? t('mcp.toolEnabledTooltip') : t('mcp.toolDisabledTooltip');
+            return this.data.readOnly ? `${state}\n\n${t('mcp.noNotebook')}` : state;
         }
 
         const md = new vscode.MarkdownString();
@@ -234,6 +291,34 @@ export class ContextTreeItem extends vscode.TreeItem {
     }
 }
 
+async function updateMcpSelection(
+    serverId: string,
+    toolName: string | undefined,
+    enable: boolean,
+    provider: ContextTreeDataProvider,
+    allToolNames?: readonly string[]
+): Promise<void> {
+    const editor = vscode.window.activeNotebookEditor;
+    if (!editor || !editor.notebook.uri.fsPath.endsWith('.mtm')) {
+        vscode.window.showWarningMessage(t('mcp.noNotebook'));
+        return;
+    }
+    type Selection = { serverId: string; toolNames: string[] };
+    const metadata = editor.notebook.metadata as AgentMetadata & { enabledMcpTools?: Selection[] };
+    const selectionMap = new Map<string, string[]>((metadata.enabledMcpTools ?? []).map(value => [value.serverId, [...new Set(value.toolNames)] as string[]]));
+    const current = selectionMap.get(serverId) ?? [];
+    const next = toolName
+        ? (enable ? [...new Set([...current, toolName])] : current.filter(name => name !== toolName))
+        : (enable ? [...new Set(allToolNames ?? [])] : []);
+    if (next.length) selectionMap.set(serverId, next);
+    else selectionMap.delete(serverId);
+    const enabledMcpTools = [...selectionMap.entries()].map(([id, toolNames]) => ({ serverId: id, toolNames }));
+    const edit = new vscode.WorkspaceEdit();
+    edit.set(editor.notebook.uri, [vscode.NotebookEdit.updateNotebookMetadata({ ...metadata, enabledMcpTools })]);
+    await vscode.workspace.applyEdit(edit);
+    provider.refresh();
+}
+
 /**
  * @description Registers context-related commands to VSCode
  * @param {vscode.ExtensionContext} context - Extension context for registering subscriptions
@@ -243,7 +328,8 @@ export class ContextTreeItem extends vscode.TreeItem {
  */
 export function registerContextCommands(
     context: vscode.ExtensionContext,
-    contextTreeDataProvider: ContextTreeDataProvider
+    contextTreeDataProvider: ContextTreeDataProvider,
+    mcpRegistry?: McpRegistryView
 ): void {
     // Register refresh context tree command
     context.subscriptions.push(
@@ -252,6 +338,47 @@ export function registerContextCommands(
             vscode.window.showInformationMessage(t('context.refreshed'));
         })
     );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('mutsumi.refreshMcpServers', async () => {
+            if (!mcpRegistry) return;
+            try {
+                await mcpRegistry.reload();
+                contextTreeDataProvider.refresh();
+                vscode.window.showInformationMessage(t('mcp.refreshed'));
+            } catch (error) {
+                vscode.window.showErrorMessage(t('mcp.refreshFailed', String(error)));
+            }
+        }),
+        vscode.commands.registerCommand('mutsumi.toggleMcpTool', async (item: ContextTreeItem) => {
+            if (item?.data.type !== 'mcpTool' || !item.data.serverId) return;
+            if (!item.data.enabled && (!item.data.available || item.data.schemaValid === false)) {
+                vscode.window.showWarningMessage(t('mcp.cannotEnableUnavailable', item.data.serverId));
+                return;
+            }
+            await updateMcpSelection(item.data.serverId, item.data.key, !item.data.enabled, contextTreeDataProvider);
+        }),
+        vscode.commands.registerCommand('mutsumi.toggleMcpServer', async (item: ContextTreeItem) => {
+            if (item?.data.type !== 'mcpServer' || !item.data.serverId) return;
+            const serverId = item.data.serverId;
+            const record = mcpRegistry?.getRecords().find(value => value.serverId === serverId);
+            const metadata = vscode.window.activeNotebookEditor?.notebook.metadata as (AgentMetadata & { enabledMcpTools?: { serverId: string; toolNames: string[] }[] }) | undefined;
+            const existing = metadata?.enabledMcpTools?.find(value => value.serverId === serverId);
+            if (existing) {
+                await updateMcpSelection(serverId, undefined, false, contextTreeDataProvider);
+            } else if (record?.status === 'connected') {
+                await updateMcpSelection(
+                    serverId,
+                    undefined,
+                    true,
+                    contextTreeDataProvider,
+                    record.tools.filter(tool => tool.schemaValid !== false).map(tool => tool.name),
+                );
+            } else {
+                vscode.window.showWarningMessage(t('mcp.cannotEnableUnavailable', serverId));
+            }
+        })
+    );
+
     // Register view context item command
     context.subscriptions.push(
         vscode.commands.registerCommand('mutsumi.viewContextItem', async (args: { type: string; key: string; content?: string }) => {

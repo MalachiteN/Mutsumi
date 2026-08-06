@@ -56,6 +56,11 @@ export const DEFAULT_MODEL_SELECTION: ModelSelection = {
  * Metadata for an agent session stored in notebook metadata.
  * @interface AgentMetadata
  */
+export interface McpToolSelection {
+    serverId: string;
+    toolNames: string[];
+}
+
 export interface AgentMetadata {
     /** Unique identifier for the agent */
     uuid: string;
@@ -83,6 +88,8 @@ export interface AgentMetadata {
     activeSkills?: string[];
     /** Agent type identifier for role-based configuration */
     agentType?: string;
+    /** Frozen selection of MCP tools enabled for this session. */
+    enabledMcpTools?: McpToolSelection[];
     
     /** List of sub-agent UUIDs created by this agent */
     sub_agents_list?: string[];

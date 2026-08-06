@@ -23,6 +23,7 @@
 
 	"controller.copyDetails": "复制详情",
 	"controller.mutsumiError": "Mutsumi 错误: {0}",
+	"config.reloadFailed": "Mutsumi 配置重载失败: {0}",
 
 	"agentRunner.llmError": "Mutsumi LLM 错误: {0}",
 
@@ -69,6 +70,21 @@
 	"context.category.skills": "技能: Agent 的活动上下文技能",
 	"context.category.macros": "宏: 可复用的文本片段",
 	"context.category.files": "文件: 引用的上下文文件",
+	"context.category.mcps": "MCP：此 Agent 的已连接服务器和工具",
+	"mcp.enabled": "已启用",
+	"mcp.status.connected": "已连接",
+	"mcp.status.connecting": "连接中",
+	"mcp.status.error": "错误",
+	"mcp.status.notConfigured": "未配置",
+	"mcp.refreshed": "MCP 服务器已刷新",
+	"mcp.refreshFailed": "刷新 MCP 服务器失败：{0}",
+	"mcp.cannotEnableUnavailable": "无法启用不可用服务器 \"{0}\" 的 MCP 工具。",
+	"mcp.noNotebook": "请打开活动的 Mutsumi Agent 笔记本以修改 MCP 工具选择。",
+	"mcp.serverTooltip": "MCP 服务器 {0}：{1}",
+	"mcp.toolUnavailableTooltip": "此工具不可用。只能禁用它以移除已保存的选择。",
+	"mcp.toolSchemaErrorTooltip": "此工具的 schema 无效，无法向模型公开。{0}",
+	"mcp.toolEnabledTooltip": "已为此 Agent 启用",
+	"mcp.toolDisabledTooltip": "已为此 Agent 禁用",
 	"context.category.default": "类别",
 	"context.agentType.label": "代理类型",
 	"context.agentType.unknown": "未知",
@@ -152,5 +168,9 @@
 	"serializer.newAgent": "新 Agent",
 
 	"notify.approvalNeededSubtitle": "需要审批",
-	"notify.approvalNeededMessage": "{0} — 请在侧边栏查看"
+	"notify.approvalNeededMessage": "{0} — 请在侧边栏查看",
+
+	"command.toggleMcpTool.title": "切换 MCP 工具",
+	"command.toggleMcpServer.title": "切换 MCP 服务器工具",
+	"command.refreshMcpServers.title": "刷新 MCP 服务器"
 }

@@ -165,11 +165,12 @@ export class AgentController {
         }
 
         try {
-            const toolSet = createToolSetForAgent(
-                metadata.agentType,
-                metadata.uuid,
-                metadata.parent_agent_id
-            );
+            const toolSet = createToolSetForAgent({
+                agentType: metadata.agentType,
+                agentId: metadata.uuid,
+                parentAgentId: metadata.parent_agent_id,
+                enabledMcpTools: metadata.enabledMcpTools
+            });
 
             const abortController = new AbortController();
             const tokenDisposable = session.token.onCancellationRequested(() => {

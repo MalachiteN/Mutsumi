@@ -4,6 +4,7 @@
  */
 
 import { ModelSelection } from '../types';
+import type { McpServersConfig } from "../mcp/interfaces";
 
 /**
  * Configuration for a specific agent type.
@@ -29,6 +30,9 @@ export interface AgentTypeConfig {
 
     /** Whether this role should appear in 'Mutsumi: New Agent' */
     isEntry: boolean;
+
+    /** MCP servers whose currently discovered tools are selected for new agents. */
+    defaultMcpServers?: string[];
 }
 
 /**
@@ -59,6 +63,9 @@ export interface MutsumiConfig {
 
     /** Map of agent type names to agent type configurations */
     agentTypes: Record<string, AgentTypeConfig>;
+
+    /** MCP servers configured for the extension host. */
+    mcpServers: McpServersConfig;
 }
 
 /**
@@ -80,6 +87,8 @@ export interface ResolvedAgentDefaults {
     skills: string[];
     /** Tool set names for capability configuration */
     toolSets: string[];
+    /** MCP server IDs used only when creating a new agent snapshot. */
+    mcpServers: string[];
 }
 
 /**

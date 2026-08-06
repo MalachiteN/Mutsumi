@@ -197,6 +197,24 @@
                 "icon": "$(refresh)"
             },
             {
+                "command": "mutsumi.toggleMcpTool",
+                "title": "%command.toggleMcpTool.title%",
+                "category": "Mutsumi",
+                "icon": "$(check)"
+            },
+            {
+                "command": "mutsumi.toggleMcpServer",
+                "title": "%command.toggleMcpServer.title%",
+                "category": "Mutsumi",
+                "icon": "$(check-all)"
+            },
+            {
+                "command": "mutsumi.refreshMcpServers",
+                "title": "%command.refreshMcpServers.title%",
+                "category": "Mutsumi",
+                "icon": "$(refresh)"
+            },
+            {
                 "command": "mutsumi.clearToolCache",
                 "title": "%command.clearToolCache.title%",
                 "category": "Mutsumi",
@@ -230,6 +248,11 @@
                     "command": "mutsumi.refreshContextTree",
                     "when": "view == mutsumi.contextSidebar",
                     "group": "navigation"
+                },
+                {
+                    "command": "mutsumi.refreshMcpServers",
+                    "when": "view == mutsumi.contextSidebar",
+                    "group": "navigation@1"
                 }
             ],
             "view/item/context": [
@@ -274,6 +297,16 @@
                     "command": "mutsumi.toggleSkill",
                     "when": "viewItem == skillInactive",
                     "group": "inline"
+                },
+                {
+                    "command": "mutsumi.toggleMcpTool",
+                    "when": "viewItem == mcpToolEnabled || viewItem == mcpToolDisabled",
+                    "group": "inline"
+                },
+                {
+                    "command": "mutsumi.toggleMcpServer",
+                    "when": "viewItem == mcpServerEnabled || viewItem == mcpServerDisabled",
+                    "group": "inline@1"
                 },
                 {
                     "command": "mutsumi.removeMacro",
@@ -414,7 +447,10 @@
                             "type": "string"
                         }
                     },
-                    "required": ["model", "provider"],
+                    "required": [
+                        "model",
+                        "provider"
+                    ],
                     "default": {
                         "model": "kimi-for-coding",
                         "provider": "kimi-for-coding"
@@ -431,7 +467,10 @@
                             "type": "string"
                         }
                     },
-                    "required": ["model", "provider"]
+                    "required": [
+                        "model",
+                        "provider"
+                    ]
                 },
                 "mutsumi.compressModel": {
                     "type": "object",
@@ -444,9 +483,11 @@
                             "type": "string"
                         }
                     },
-                    "required": ["model", "provider"]
+                    "required": [
+                        "model",
+                        "provider"
+                    ]
                 },
-
                 "mutsumi.embeddingEndpoint": {
                     "type": "string",
                     "default": "",
@@ -485,6 +526,37 @@
                     "default": false,
                     "description": "%configuration.autoApproveEnabled.description%"
                 },
+                "mutsumi.mcpServers": {
+                    "type": "object",
+                    "default": {},
+                    "markdownDescription": "%configuration.mcpServers.markdownDescription%",
+                    "additionalProperties": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "type": { "const": "stdio" },
+                                    "command": { "type": "string", "minLength": 1 },
+                                    "args": { "type": "array", "items": { "type": "string" } },
+                                    "cwd": { "type": "string" },
+                                    "env": { "type": "object", "additionalProperties": { "type": ["string", "number"] } },
+                                    "timeout": { "type": "number", "exclusiveMinimum": 0 }
+                                },
+                                "required": ["type", "command"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "type": { "const": "http" },
+                                    "url": { "type": "string", "format": "uri" },
+                                    "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+                                    "timeout": { "type": "number", "exclusiveMinimum": 0 }
+                                },
+                                "required": ["type", "url"]
+                            }
+                        ]
+                    }
+                },
                 "mutsumi.agentConfig": {
                     "type": "object",
                     "default": {},
@@ -520,7 +592,10 @@
                                                 "type": "string"
                                             }
                                         },
-                                        "required": ["model", "provider"]
+                                        "required": [
+                                            "model",
+                                            "provider"
+                                        ]
                                     },
                                     "defaultRules": {
                                         "type": "array",
@@ -533,6 +608,14 @@
                                         "items": {
                                             "type": "string"
                                         }
+                                    },
+                                    "defaultMcpServers": {
+                                        "type": "array",
+                                        "uniqueItems": true,
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "markdownDescription": "%configuration.agentConfig.defaultMcpServers.markdownDescription%"
                                     },
                                     "allowedChildTypes": {
                                         "type": "array",
@@ -590,6 +673,7 @@
         "uuid": "^9.0.1"
     },
     "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.30.0",
         "better-sqlite3": "^12.8.0",
         "node-notifier": "^10.0.1",
         "sqlite-vec": "^0.1.7-alpha.2",

@@ -154,11 +154,12 @@ export async function handleChat(
 
     let toolSet: ToolSet;
     try {
-        toolSet = createToolSetForAgent(
-            metadata.agentType,
-            metadata.uuid,
-            metadata.parent_agent_id
-        );
+        toolSet = createToolSetForAgent({
+            agentType: metadata.agentType,
+            agentId: metadata.uuid,
+            parentAgentId: metadata.parent_agent_id,
+            enabledMcpTools: metadata.enabledMcpTools
+        });
     } catch (err: any) {
         res.status(500).json({ 
             status: 'error', 

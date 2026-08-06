@@ -61,6 +61,7 @@ function mergeConfig(
 		version: defaults.version,
 		toolSets: mergedToolSets,
 		agentTypes: mergedAgentTypes,
+		mcpServers: { ...defaults.mcpServers },
 	};
 }
 
@@ -85,6 +86,9 @@ export function loadMutsumiConfig(
 			.get<Partial<MutsumiConfig>>("agentConfig") ?? {};
 
 	const config = mergeConfig(DEFAULT_MUTSUMI_CONFIG, userConfig);
+	config.mcpServers = vscode.workspace
+		.getConfiguration("mutsumi")
+		.get("mcpServers", {});
 
 	validateMutsumiConfig(config, registeredTools);
 
