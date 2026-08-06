@@ -1,0 +1,84 @@
+{
+    "mutsumi.providers": [
+        {
+            "name": "moonshotai",
+            "baseurl": "https://api.moonshot.cn/v1",
+            "api_key": "sk-XXX"
+        },
+        {
+            "name": "deepseek",
+            "baseurl": "https://api.deepseek.com",
+            "api_key": "sk-XXX"
+        },
+        {
+            "name": "kimi-for-coding",
+            "baseurl": "https://api.kimi.com/coding/v1",
+            "api_key": "sk-kimi-XXX"
+        },
+        {
+            "name": "ZenMux",
+            "baseurl": "https://zenmux.ai/api/v1",
+            "api_key": "sk-ss-v1-XXX"
+        }
+    ],
+		"mutsumi.defaultModel": {
+        "provider": "kimi-for-coding",
+        "model": "kimi-for-coding"
+    },
+    "mutsumi.titleGeneratorModel": {
+        "provider": "kimi-for-coding",
+        "model": "kimi-for-coding"
+    },
+    "mutsumi.compressModel": {
+        "provider": "ZenMux",
+        "model": "z-ai/glm-5.2"
+    },
+    "mutsumi.models": {
+        "ZenMux": [
+            "openai/gpt-4.1-nano",
+            "openai/gpt-5.6-sol",
+            "openai/gpt-5.6-terra",
+            "openai/gpt-5.6-luna",
+            "minimax/minimax-m2.7-highspeed",
+            "minimax/minimax-m3",
+            "z-ai/glm-5.2",
+            "moonshotai/kimi-k2.5",
+            "moonshotai/kimi-k2.6",
+            "moonshotai/kimi-k2.7-code",
+            "moonshotai/kimi-k2.7-code-highspeed",
+            "moonshotai/kimi-k3",
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-pro",
+            "stepfun/step-3.7-flash"
+        ],
+        "moonshotai": [
+            "kimi-k2.6",
+            "kimi-k2.7-code",
+            "kimi-k2.7-code-highspeed",
+            "kimi-k3"
+        ],
+        "kimi-for-coding": [
+            "kimi-for-coding",
+            "k3-256k",
+            "k3"
+        ],
+        "deepseek": [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro"
+        ]
+    },
+    "mutsumi.httpServer.password": "XXX",
+    "mutsumi.mcpServers": {
+        "tavily": {
+            "type": "http",
+            "url": "https://mcp.tavily.com/mcp?tavilyApiKey=tvly-dev-XXX"
+        },
+        "exa": {
+            "type": "http",
+            "url": "https://mcp.exa.ai/mcp",
+            "headers": {
+                "x-api-key": "XXX"
+            }
+        }
+    }
+}
