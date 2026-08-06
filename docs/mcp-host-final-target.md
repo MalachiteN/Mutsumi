@@ -519,9 +519,40 @@ Notebook controller 与 HTTP chat 必须传入同一 metadata 快照，不能形
 
 ---
 
-## 11. ContextTree 用户体验
+## 11. 预执行/用户工具平面
 
-### 11.1 树结构
+### 11.1 语义
+
+预执行是用户在模板内容中直接书写的工具调用（`@[tool{...}]`，可出现在消息、Rules、Skills、Macros 中），由控制面 `ToolManager` 经 `executeToolCall` 执行，与 Agent 运行时的 `ToolExecutor` 是两条独立的执行路径。Rules 解析只是预执行的一个真子集，不再拥有独立的"规则解析模式"。
+
+### 11.2 平面构成与名称解析
+
+预执行 ToolSet 由以下部分组成：
+
+- 内置 common tools（与 `ToolSet({ includeCommon: true })` 相同）；
+- McpRegistry 当前 `connected` 且 `schemaValid` 的全部 MCP Tools，与 Agent 快照无关、与 AgentType 无关；
+- 子 Agent 会话额外包含 `task_finish`（与既有 isSubAgent 语义一致）。
+
+MCP Tool 的暴露名与 Agent 运行时完全一致（`mcp__<server>__<tool>__<hash>`），同一逻辑身份在两条路径上使用相同名称。执行复用 `McpToolAdapter` 与 `McpRegistry.callTool`，schema 校验、结果文本投影和 `shouldCache = false` 的行为与运行时一致。
+
+### 11.3 无审批
+
+预执行是用户亲手书写的内容，其工具调用一律直接执行：
+
+- 不区分 `readOnlyHint`，不进入 `requestApproval` 的审批等待，也不创建需要用户操作的审批请求；
+- 通过"预执行模式"（permission.ts 的 `withPreExecution` / `isInPreExecution`）实现：进入预执行时，`requestApproval` 与编辑类工具的 auto-approve 检查一律放行；
+- 该放行只覆盖预执行平面，不改变「MCP Tool 调用与审批」定义的 Agent 运行时审批矩阵，也不改变全局 AutoApprove 语义；
+- 预执行无 session metadata，`signalTermination` 为 no-op，拒绝/终止语义在该平面不适用。
+
+### 11.4 缓存与失效
+
+`ToolManager` 缓存预执行 ToolSet（按是否包含 `task_finish` 分为两份），查询、执行与渲染路径共享同一实例，不再每次调用重建。`McpRegistry` 状态变化事件（reload、断连、发现 Tool 列表更新）使缓存失效，下一次访问时按当前 registry 状态惰性重建。单次模板渲染内使用的 ToolSet 保持一致。
+
+---
+
+## 12. ContextTree 用户体验
+
+### 12.1 树结构
 
 在现有 Agent Type、Rules、Skills、Macros、Files 之外增加 `MCPS` 分类：
 
@@ -546,7 +577,7 @@ Tool 节点来自以下集合的并集：
 - Registry 当前发现的 Tools；
 - 当前 Agent 快照中仍被引用但当前不存在的 Tools。
 
-### 11.2 状态和操作
+### 12.2 状态和操作
 
 Server 节点显示：
 
@@ -588,7 +619,7 @@ Refresh：
 - 不自动改写任何 Agent 快照；
 - 不因发现新 Tool 自动启用。
 
-### 11.3 Metadata 写入和刷新
+### 12.3 Metadata 写入和刷新
 
 所有 toggle 使用 Notebook metadata 更新，遵循当前 WorkspaceEdit 模式并保持不可变更新，不能直接修改 VS Code 返回的冻结对象或原数组。
 
@@ -603,7 +634,7 @@ ContextTree 必须监听：
 
 按照项目既有约定，ContextTree 的 MCP 开关操作沿用上下文项操作的前缀缓存失效机制，不新增 MCP 专属缓存失效协议。
 
-### 11.4 无活动 Notebook
+### 12.4 无活动 Notebook
 
 没有活动 `.mtm` Notebook 时：
 
@@ -614,9 +645,9 @@ ContextTree 必须监听：
 
 ---
 
-## 12. 错误与降级
+## 13. 错误与降级
 
-### 12.1 配置错误
+### 13.1 配置错误
 
 结构错误、重复标识或 AgentType 引用未知 Server 属于配置错误：
 
@@ -625,7 +656,7 @@ ContextTree 必须监听：
 - 输出日志并显示可操作错误；
 - 不让 registries 进入部分更新状态。
 
-### 12.2 连接或发现失败
+### 13.2 连接或发现失败
 
 合法配置但连接、initialize 或 `tools/list` 失败：
 
@@ -637,7 +668,7 @@ ContextTree 必须监听：
 - UI 和日志展示错误；
 - 仅通过手动 Refresh、配置变化或 Reload Window 重试。
 
-### 12.3 调用失败
+### 13.3 调用失败
 
 - Server 不可用：返回明确工具错误；
 - Tool 已被 Server 移除：返回明确工具错误；
@@ -645,7 +676,7 @@ ContextTree 必须监听：
 - MCP protocol error：保留可读 server/tool 上下文，不泄露不必要的 secret header/env；
 - 单次调用失败不自动 reload 全部 MCP Servers。
 
-### 12.4 日志和敏感信息
+### 13.4 日志和敏感信息
 
 日志应记录：
 
@@ -663,7 +694,7 @@ ContextTree 必须监听：
 
 ---
 
-## 13. 模块边界和文件组织
+## 14. 模块边界和文件组织
 
 建议新增小型、内聚的 `src/mcp/`：
 
@@ -710,7 +741,7 @@ Sidebar → McpRegistry readonly state + metadata mutation command
 
 ---
 
-## 14. 主要受影响范围
+## 15. 主要受影响范围
 
 ### 配置和类型
 
@@ -725,8 +756,9 @@ Sidebar → McpRegistry readonly state + metadata mutation command
 ### MCP 和工具系统
 
 - 新增 `src/mcp/*`；
-- `src/tools.d/toolManager.ts`：最终 ToolSet 组合 options、MCP Adapter 注入、重名拒绝；
-- `src/tools.d/permission.ts`：原则上复用现有接口，仅在取消或通用资源标识确有缺口时做小幅通用化；
+- `src/tools.d/toolManager.ts`：最终 ToolSet 组合 options、MCP Adapter 注入、重名拒绝；预执行 ToolSet 缓存（内置 common + 全部可用 MCP Tools）及 MCP registry 状态变化失效；
+- `src/tools.d/permission.ts`：原则上复用现有接口；"规则解析模式"泛化为"预执行模式"（`withPreExecution` / `isInPreExecution`），预执行平面的工具调用一律自动放行；
+- `src/contextManagement/utils.ts`：`executeToolCall` 进入预执行模式执行；
 - `src/agent/toolExecutor.ts`：原则上无需 MCP 特判。
 
 ### Agent 创建和执行
@@ -748,7 +780,7 @@ Sidebar → McpRegistry readonly state + metadata mutation command
 
 ---
 
-## 15. 测试与验收矩阵
+## 16. 测试与验收矩阵
 
 ### 配置
 
@@ -797,6 +829,14 @@ Sidebar → McpRegistry readonly state + metadata mutation command
 - MCP text/structured/error/unsupported results 投影稳定；
 - Tool 参数和 secrets 不被不当记录。
 
+### 预执行平面
+
+- 预执行 ToolSet 包含内置 common tools 与全部 connected/schemaValid MCP Tools，暴露名与 Agent 运行时一致；
+- 预执行工具调用（内置与 MCP、无论 `readOnlyHint`、无论 AutoApprove）不请求审批；
+- Agent 运行路径的审批行为不受预执行模式影响；
+- MCP registry reload、断连或 Tool 列表更新后，预执行 ToolSet 缓存自动失效并按当前状态重建；
+- Rules 中的 `@[tool{...}]` 与其他预执行路径行为一致。
+
 ### Sidebar
 
 - connected/error/connecting/not configured 状态正确；
@@ -817,7 +857,7 @@ Sidebar → McpRegistry readonly state + metadata mutation command
 
 ---
 
-## 16. 实施顺序
+## 17. 实施顺序
 
 ### Milestone 1：配置、类型和 Registry
 
@@ -850,7 +890,7 @@ Sidebar → McpRegistry readonly state + metadata mutation command
 
 ---
 
-## 17. 最终验收标准
+## 18. 最终验收标准
 
 完成后，用户可以：
 

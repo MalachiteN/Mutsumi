@@ -7,7 +7,7 @@ import { resolveUri, checkAccess, getUriKey } from "./utils";
 import {
 	approvalManager,
 	isAutoApproveEnabled,
-	isInRuleParsingMode,
+	isInPreExecution,
 	handleRejectionFlow,
 } from "./permission";
 import { notifyApprovalNeeded } from "../notifications";
@@ -426,7 +426,7 @@ class EditService {
 
 				// Determine auto-approve status
 				const shouldAutoApprove =
-					isAutoApproveEnabled() || isInRuleParsingMode();
+					isAutoApproveEnabled() || isInPreExecution();
 
 				// Open diff editor
 				if(! shouldAutoApprove)

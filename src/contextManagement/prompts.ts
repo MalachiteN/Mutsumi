@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { TextDecoder } from 'util';
 import { ContextItem } from '../types';
 import { TemplateEngine } from './templateEngine';
-import { withRuleParsingMode } from '../tools.d/permission';
 
 /**
  * @description Initialize rules directory and default rules files
@@ -133,15 +132,15 @@ export async function getRulesContext(
             const content = await vscode.workspace.fs.readFile(uri);
             const decodedContent = new TextDecoder().decode(content);
 
-            // Use TemplateEngine.render with INLINE mode to expand rules
-            const { renderedText: expandedContent } = await withRuleParsingMode(() =>
-                TemplateEngine.render(
-                    decodedContent,
-                    context || {},
-                    workspaceUri,
-                    allowedUris,
-                    'INLINE'
-                )
+            // Use TemplateEngine.render with INLINE mode to expand rules.
+            // Tool pre-execution inside the template enters the pre-execution
+            // plane by itself and runs without approval.
+            const { renderedText: expandedContent } = await TemplateEngine.render(
+                decodedContent,
+                context || {},
+                workspaceUri,
+                allowedUris,
+                'INLINE'
             );
 
             items.push({

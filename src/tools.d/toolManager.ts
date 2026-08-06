@@ -351,10 +351,22 @@ export class ToolRegistry {
 /**
  * Global ToolManager for user/ContextManagement control plane operations.
  * Provides global tool access, completion, pre-execution, and rendering support.
+ *
+ * The pre-execution (user tool plane) tool set is cached and consists of the
+ * built-in common tools plus every connected, schema-valid MCP tool exposed
+ * under the same `mcp__<server>__<tool>__<hash>` names as the Agent runtime.
+ * The cache is invalidated whenever the MCP registry state changes (reload,
+ * disconnect, discovered tool list updates) and rebuilt lazily.
  */
 export class ToolManager {
 	/** Singleton instance */
 	private static instance: ToolManager;
+
+	/** Cached pre-execution tool sets, keyed by task_finish inclusion. */
+	private readonly userToolSets: {
+		plain?: ToolSet;
+		withTaskFinish?: ToolSet;
+	} = {};
 
 	/**
 	 * Gets the singleton instance of ToolManager.
@@ -375,7 +387,35 @@ export class ToolManager {
 	constructor() {
 		if (!ToolManager.instance) {
 			ToolManager.instance = this;
+			McpRegistry.getInstance().onDidChange(() =>
+				this.invalidateUserToolSets(),
+			);
 		}
+	}
+
+	/**
+	 * Invalidates the cached pre-execution tool sets so they are rebuilt from
+	 * the current MCP registry state on next use.
+	 */
+	public invalidateUserToolSets(): void {
+		this.userToolSets.plain = undefined;
+		this.userToolSets.withTaskFinish = undefined;
+	}
+
+	/**
+	 * Gets the cached pre-execution tool set, building it on first use or
+	 * after invalidation.
+	 * @param {boolean} isSubAgent - True for non-root/child sessions (includes task_finish)
+	 * @returns {ToolSet} The pre-execution tool set
+	 */
+	private getUserToolSet(isSubAgent: boolean): ToolSet {
+		const key = isSubAgent ? "withTaskFinish" : "plain";
+		let toolSet = this.userToolSets[key];
+		if (!toolSet) {
+			toolSet = createUserToolSet(isSubAgent);
+			this.userToolSets[key] = toolSet;
+		}
+		return toolSet;
 	}
 
 	/**
@@ -386,12 +426,7 @@ export class ToolManager {
 	public getToolsDefinitions(
 		isSubAgent: boolean,
 	): OpenAI.Chat.ChatCompletionTool[] {
-		// Create appropriate tool set based on agent type
-		const toolSet = new ToolSet({
-			includeCommon: true,
-			includeTaskFinish: isSubAgent,
-		});
-		return toolSet.getDefinitions();
+		return this.getUserToolSet(isSubAgent).getDefinitions();
 	}
 
 	/**
@@ -408,10 +443,7 @@ export class ToolManager {
 		context: ToolContext,
 		isSubAgent: boolean,
 	): Promise<string> {
-		const toolSet = new ToolSet({
-			includeCommon: true,
-			includeTaskFinish: isSubAgent,
-		});
+		const toolSet = this.getUserToolSet(isSubAgent);
 
 		const shouldCache = toolSet.getShouldCache(name);
 
@@ -439,11 +471,7 @@ export class ToolManager {
 	 * @returns {string} Human-readable description
 	 */
 	public getPrettyPrint(name: string, args: any, isSubAgent: boolean): string {
-		const toolSet = new ToolSet({
-			includeCommon: true,
-			includeTaskFinish: isSubAgent,
-		});
-		return toolSet.getPrettyPrint(name, args);
+		return this.getUserToolSet(isSubAgent).getPrettyPrint(name, args);
 	}
 
 	/**
@@ -461,12 +489,39 @@ export class ToolManager {
 				codeBlockFilePaths?: (string | undefined)[];
 		  }
 		| undefined {
-		const toolSet = new ToolSet({
-			includeCommon: true,
-			includeTaskFinish: isSubAgent,
-		});
-		return toolSet.getRenderingConfig(name);
+		return this.getUserToolSet(isSubAgent).getRenderingConfig(name);
 	}
+}
+
+/**
+ * Builds the pre-execution (user tool plane) tool set: built-in common tools
+ * plus all currently connected, schema-valid MCP tools under the same exposed
+ * names as the Agent runtime. Tool calls on this plane are user-authored and
+ * execute without approval.
+ * @param {boolean} isSubAgent - True to include the task_finish tool
+ * @returns {ToolSet} The pre-execution tool set
+ */
+function createUserToolSet(isSubAgent: boolean): ToolSet {
+	const toolSet = new ToolSet({
+		includeCommon: true,
+		includeTaskFinish: isSubAgent,
+	});
+	const mcpRegistry = McpRegistry.getInstance();
+	for (const record of mcpRegistry.getRecords()) {
+		if (record.status !== "connected") {
+			continue;
+		}
+		for (const tool of record.tools) {
+			if (!tool.schemaValid) {
+				continue;
+			}
+			const adapter = new McpToolAdapter(record.serverId, tool, mcpRegistry);
+			if (!toolSet.hasTool(adapter.name)) {
+				toolSet.addTool(adapter);
+			}
+		}
+	}
+	return toolSet;
 }
 
 /**

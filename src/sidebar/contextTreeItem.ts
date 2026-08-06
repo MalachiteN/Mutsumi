@@ -72,6 +72,14 @@ export class ContextTreeItem extends vscode.TreeItem {
     ) {
         super(data.key, collapsibleState);
 
+        if (data.type === 'category' && data.category === 'mcps') {
+            this.id = 'mcpCategory';
+        } else if (data.type === 'mcpServer' && data.serverId) {
+            this.id = `mcpServer:${data.serverId}`;
+        } else if (data.type === 'mcpTool' && data.serverId) {
+            this.id = `mcpTool:${data.serverId}:${data.key}`;
+        }
+
         this.iconPath = this.getIconPath();
         this.contextValue = this.getContextValue();
 
@@ -134,16 +142,8 @@ export class ContextTreeItem extends vscode.TreeItem {
             return this.data.enabled ? new vscode.ThemeIcon('check') : new vscode.ThemeIcon('circle-outline');
         }
 
-        if (type === 'rule') {
-            return isActive
-                ? new vscode.ThemeIcon('star-full')
-                : new vscode.ThemeIcon('star-empty');
-        }
-
-        if (type === 'skill') {
-            return isActive
-                ? new vscode.ThemeIcon('star-full')
-                : new vscode.ThemeIcon('star-empty');
+        if (type === 'rule' || type === 'skill') {
+            return isActive ? new vscode.ThemeIcon('check') : new vscode.ThemeIcon('circle-outline');
         }
 
         if (type === 'macro') {

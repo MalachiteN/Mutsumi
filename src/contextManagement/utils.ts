@@ -13,6 +13,7 @@ import {
 } from "../types";
 import { LiteAdapter } from "../adapters/liteAdapter";
 import { ToolSession } from "../tools.d/toolSession";
+import { withPreExecution } from "../tools.d/permission";
 
 // Ghost block marker for filtering during serialization
 export const GHOST_BLOCK_MARKER = "<content_reference>";
@@ -260,7 +261,9 @@ export function shouldRecurseFile(uri: vscode.Uri): boolean {
 }
 
 /**
- * Execute a tool call by name with arguments
+ * Execute a user-authored pre-execution tool call (`@[tool{...}]`) by name.
+ * Runs on the pre-execution tool plane: built-in common tools plus every
+ * currently available MCP tool, always without approval.
  */
 export async function executeToolCall(
 	name: string,
@@ -276,7 +279,7 @@ export async function executeToolCall(
 		toolSession: new ToolSession(session.id, name),
 		signalTermination: () => {}, // No-op for user's explicit tool pre-execution
 	};
-	return await tm.executeTool(name, args, context, false);
+	return await withPreExecution(() => tm.executeTool(name, args, context, false));
 }
 
 /**

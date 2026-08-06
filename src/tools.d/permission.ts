@@ -35,74 +35,58 @@ export async function toggleAutoApprove(): Promise<boolean> {
 	return !current;
 }
 
-// ====== Rule Parsing Manager (封装规则解析状态) ======
+// ====== Pre-Execution (User Tool Plane) ======
 
-class RuleParsingManager {
-	private static instance: RuleParsingManager;
-	private ruleParsingDepth = 0;
+/**
+ * Tracks nested pre-execution activity.
+ *
+ * The pre-execution plane covers every tool call authored directly by the
+ * user in template content (`@[tool{...}]` in messages, rules, skills or
+ * macros) rather than emitted by the model. Rules parsing is just one such
+ * case. These calls always execute directly: no approval UI, no approval
+ * sidebar round-trip, regardless of readOnly hints or the global
+ * auto-approve setting.
+ */
+class PreExecutionManager {
+	private static instance: PreExecutionManager;
+	private depth = 0;
 
 	private constructor() {}
 
-	public static getInstance(): RuleParsingManager {
-		if (!RuleParsingManager.instance) {
-			RuleParsingManager.instance = new RuleParsingManager();
+	public static getInstance(): PreExecutionManager {
+		if (!PreExecutionManager.instance) {
+			PreExecutionManager.instance = new PreExecutionManager();
 		}
-		return RuleParsingManager.instance;
-	}
-
-	public enter(): void {
-		this.ruleParsingDepth++;
-	}
-
-	public exit(): void {
-		if (this.ruleParsingDepth > 0) {
-			this.ruleParsingDepth--;
-		}
+		return PreExecutionManager.instance;
 	}
 
 	public isActive(): boolean {
-		return this.ruleParsingDepth > 0;
+		return this.depth > 0;
 	}
 
 	public async with<T>(fn: () => Promise<T>): Promise<T> {
-		this.enter();
+		this.depth++;
 		try {
 			return await fn();
 		} finally {
-			this.exit();
+			this.depth--;
 		}
 	}
 }
 
-// 保持原有的规则解析便捷函数导出（向后兼容）
-
 /**
- * Enter rule parsing mode - tool calls during rule parsing are auto-approved.
+ * Check if tool execution is currently happening on the pre-execution plane.
  */
-export function enterRuleParsingMode(): void {
-	RuleParsingManager.getInstance().enter();
+export function isInPreExecution(): boolean {
+	return PreExecutionManager.getInstance().isActive();
 }
 
 /**
- * Exit rule parsing mode.
+ * Execute a function on the pre-execution (user-authored) tool plane.
+ * Tool calls made during the execution are auto-approved.
  */
-export function exitRuleParsingMode(): void {
-	RuleParsingManager.getInstance().exit();
-}
-
-/**
- * Check if currently in rule parsing mode.
- */
-export function isInRuleParsingMode(): boolean {
-	return RuleParsingManager.getInstance().isActive();
-}
-
-/**
- * Execute a function within rule parsing mode context.
- * Tool calls made during the execution will be auto-approved.
- */
-export async function withRuleParsingMode<T>(fn: () => Promise<T>): Promise<T> {
-	return RuleParsingManager.getInstance().with(fn);
+export async function withPreExecution<T>(fn: () => Promise<T>): Promise<T> {
+	return PreExecutionManager.getInstance().with(fn);
 }
 
 // ====== Approval Request System ======
@@ -314,8 +298,8 @@ function shouldAutoApprove(): boolean {
 	if (isAutoApproveEnabled()) {
 		return true;
 	}
-	// Auto-approve if in rule parsing mode
-	if (isInRuleParsingMode()) {
+	// Pre-execution tool calls are user-authored and never need approval
+	if (isInPreExecution()) {
 		return true;
 	}
 	return false;
@@ -350,7 +334,8 @@ export async function handleRejectionFlow(
  * Request user approval for a potentially dangerous operation.
  * Shows a notification and adds a request to the approval sidebar.
  *
- * If auto-approve mode is enabled or in rule parsing mode, automatically returns null (approved).
+ * If auto-approve mode is enabled or the call happens during pre-execution,
+ * automatically returns null (approved).
  *
  * @param actionDescription Short description of the action (e.g., "Create Directory")
  * @param targetUri The target URI or path

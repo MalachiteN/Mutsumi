@@ -217,6 +217,9 @@ HTTP 执行（`httpServer/chat.ts`）走 HeadlessAdapter + 同一 `createToolSet
 - `@[path]` 文件引用、`@[tool{json}]` 工具预执行
 - APPEND（顶层）收集进幽灵块；INLINE（递归层）直接替换进父内容
 - 工具预执行走 `executeToolCall`（控制面），与运行时 ToolExecutor 是**两条执行路径**
+- 预执行平面 = 内置 common tools + McpRegistry 当前 connected/schemaValid 的**全部** MCP 工具（与 Agent 快照无关），暴露名 `mcp__<server>__<tool>__<hash>` 与运行时一致
+- 预执行是用户手写内容，所有工具（内置与 MCP、无论 readOnlyHint）一律直接执行、**不进入审批**；由 permission.ts 的预执行模式（`withPreExecution`/`isInPreExecution`）放行，Agent 运行路径审批不受影响
+- ToolManager 缓存预执行 ToolSet，McpRegistry 状态变化（reload/断连/工具列表更新）自动失效重建
 
 ---
 
@@ -250,7 +253,7 @@ MCP:   AgentMetadata.enabledMcpTools ∩ McpRegistry 当前可用 → McpToolAda
 - `AgentType.defaultMcpServers` 只在 Agent 创建时生成 `enabledMcpTools` **冻结快照**，之后不参与运行权限；运行时 MCP 能力 = 快照 ∩ 当前连接可用工具
 - `ToolSet.addTool` 拒绝重名（禁止 `Map.set` 静默覆盖）
 - `query_codebase` 按 embedding endpoint 是否配置被条件剔除
-- `ToolManager`（toolManager.ts 中的控制面管理器）是**遗留**组件，只服务控制面/预执行场景，Agent 运行不使用它
+- `ToolManager`（toolManager.ts 中的控制面管理器）只服务控制面/预执行场景，Agent 运行不使用它；其预执行 ToolSet 含全部可用 MCP 工具并随 registry 变化失效（见 5.4）
 
 ### 6.3 MCP 宿主（`mcp/`）
 
@@ -261,7 +264,7 @@ MCP:   AgentMetadata.enabledMcpTools ∩ McpRegistry 当前可用 → McpToolAda
 
 ### 6.4 审批（permission.ts）
 
-`requestApproval` 是唯一审批入口，内部处理：AutoApprove、规则解析模式、审批边栏（approvalManager）、拒绝原因、**取消**（监听 ToolContext abort，取消后移除 pending 请求）。任何工具都不得直接操作审批 UI。
+`requestApproval` 是唯一审批入口，内部处理：AutoApprove、预执行模式（用户手写的 `@[tool{...}]` 调用一律自动放行，Rules 解析只是其中一个场景）、审批边栏（approvalManager）、拒绝原因、**取消**（监听 ToolContext abort，取消后移除 pending 请求）。任何工具都不得直接操作审批 UI。
 
 ---
 
